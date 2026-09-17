@@ -26,6 +26,23 @@ SHIM_MODELS = tuple(filter(None, os.environ.get(
     "meta-llama/Llama-3.3-70B-Instruct,utter-project/EuroLLM-22B-Instruct-2512").split(",")))
 CTX = ssl.create_default_context(cafile=CAFILE) if os.path.exists(CAFILE) else ssl.create_default_context()
 
+
+def _url(path):
+    """Join UPSTREAM and a client path without duplicating the version segment.
+
+    OpenAI clients (pi included) append /v1/chat/completions to the base URL they
+    are given. ELM_BASE_URL already ends in /api/v1, so a naive concatenation
+    produced .../api/v1/v1/chat/completions and the gateway answered
+    400 "Unknown or unsupported endpoint". Only requests carrying `tools` were
+    exercised before, and those take the shimmed branch which builds its own
+    path, so the passthrough branch was broken without anyone noticing.
+    """
+    base = UPSTREAM.rstrip("/")
+    if base.endswith("/v1") and (path == "/v1" or path.startswith("/v1/")):
+        path = path[len("/v1"):] or "/"
+    return base + path
+
+
 INSTRUCTIONS = """You can call functions. The available functions are listed below, one JSON schema per line:
 
 {tools}
@@ -168,7 +185,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _upstream(self, path, body, headers, stream=False):
-        req = urllib.request.Request(UPSTREAM + path, data=body, method="POST" if body else "GET")
+        req = urllib.request.Request(_url(path), data=body, method="POST" if body else "GET")
         for k, v in headers.items():
             if k.lower() not in ("host", "content-length", "accept-encoding", "connection"):
                 req.add_header(k, v)
