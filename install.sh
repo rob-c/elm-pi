@@ -16,6 +16,12 @@
 #   ELM_API_KEY=elm-...      skip the interactive key prompt
 #   ELM_PI_UPDATE=1          refresh pi and the extensions, keeping your configs
 #
+# Flags forwarded to bootstrap.sh:
+#   --no-memory              drop pi-hermes-memory: ~1.8s off every launch
+#   --no-packages            pi only: no sub-agents, memory, web access
+#   --no-shim                no Llama tool-call shim
+#   --no-auth-lock           leave agent/auth.json writable, so /login works
+#
 set -euo pipefail
 
 REPO="${ELM_PI_REPO:-https://github.com/rob-c/elm-pi.git}"
@@ -26,10 +32,12 @@ UPDATE="${ELM_PI_UPDATE:-0}"
 SLUG="$(printf '%s' "$REPO" | sed -e 's#^.*github\.com[:/]##' -e 's#\.git$##')"
 DOCS="${ELM_PI_DOCS:-https://rob-c.github.io/elm-pi/}"
 
+PASS_ARGS=""
 for arg in "$@"; do
   case "$arg" in
     --update)  UPDATE=1 ;;
-    -h|--help) sed -n '3,17p' "$0" 2>/dev/null || true; exit 0 ;;
+    --no-memory|--no-packages|--no-shim|--no-auth-lock) PASS_ARGS="$PASS_ARGS $arg" ;;
+    -h|--help) sed -n '3,24p' "$0" 2>/dev/null || true; exit 0 ;;
   esac
 done
 
@@ -129,8 +137,8 @@ chmod +x "$PREFIX/pi" "$PREFIX/bootstrap.sh" "$PREFIX/configure.sh" 2>/dev/null 
 # model id, and the ELM-only checks. It is idempotent and never overwrites a
 # config you have edited.
 say "running bootstrap (Node, pi, extensions — a few minutes)"
-BOOT_ARGS=""
-[ "$UPDATE" = "1" ] && BOOT_ARGS="--update"
+BOOT_ARGS="$PASS_ARGS"
+[ "$UPDATE" = "1" ] && BOOT_ARGS="--update$BOOT_ARGS"
 if [ -t 0 ]; then
   # Invoked as bash -c "$(curl ...)", so stdin is still the terminal and
   # bootstrap can prompt for the ELM key.

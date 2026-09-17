@@ -6,6 +6,7 @@
 #   ELM_API_KEY=elm-... ./bootstrap.sh --non-interactive
 #   ./bootstrap.sh --no-shim        skip the Llama tool-call shim
 #   ./bootstrap.sh --no-packages    pi only, no sub-agent/memory/web packages
+#   ./bootstrap.sh --no-memory      drop pi-hermes-memory: ~1.8s off every launch
 #   ./bootstrap.sh --update         refresh pi and packages, keep configs
 #   ./bootstrap.sh --no-auth-lock   leave agent/auth.json writable (allows /login)
 #
@@ -18,11 +19,12 @@ cd "$HERE"
 
 NODE_VERSION="${NODE_VERSION:-v24.21.0}"
 PI_VERSION="${PI_VERSION:-^0.85.1}"
-WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1
+WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; WITH_MEMORY=1
 for arg in "$@"; do
   case "$arg" in
     --no-shim) WITH_SHIM=0 ;;
     --no-packages) WITH_PACKAGES=0 ;;
+    --no-memory) WITH_MEMORY=0 ;;
     --non-interactive) INTERACTIVE=0 ;;
     --update) UPDATE=1 ;;
     --no-auth-lock) AUTH_LOCK=0 ;;
@@ -126,7 +128,25 @@ fi
 if [ "$WITH_PACKAGES" = "1" ]; then
   say "pi packages (sub-agents, memory, web access, anchor editing)"
   mkdir -p agent/npm
-  cp -f templates/packages.json agent/npm/package.json
+  # Every package is transpiled and imported at each launch. Measured CPU cost
+  # per launch on this install: hermes-memory ~1.8s, subagents+hashline ~1.6s,
+  # web-access ~0.2s, against ~1.4s for pi and the local extensions alone.
+  # `pi --fast` skips all of them for one-shot work; --no-memory drops the
+  # most expensive one permanently.
+  DROP=""
+  [ "$WITH_MEMORY" = "1" ] || DROP="pi-hermes-memory"
+  DROP="$DROP" python3 - <<'PYX'
+import json, os
+drop = {d for d in os.environ.get("DROP", "").split() if d}
+pkg = json.load(open("templates/packages.json"))
+pkg["dependencies"] = {k: v for k, v in pkg["dependencies"].items() if k not in drop}
+json.dump(pkg, open("agent/npm/package.json", "w"), indent=2)
+s = json.load(open("agent/settings.json"))
+s["packages"] = [p for p in s.get("packages", []) if p.removeprefix("npm:") not in drop]
+json.dump(s, open("agent/settings.json", "w"), indent=2); open("agent/settings.json", "a").write("\n")
+if drop:
+    print("    dropped: " + ", ".join(sorted(drop)))
+PYX
   ( cd agent/npm && npm install --no-audit --no-fund --loglevel=error )
   echo "    installed into agent/npm/node_modules"
 else
@@ -198,5 +218,6 @@ cat <<EOM
     Run it:        $HERE/pi
     Alias it:      alias elm-pi=$HERE/pi
     Policy:        $HERE/LOCKDOWN.md   (/elm-policy inside pi)
+    Fast one-shot: $HERE/pi --fast -p "..."    (skips the npm packages)
     Verify:        see "Verify the install" in INSTALL.md
 EOM
