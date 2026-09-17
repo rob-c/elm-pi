@@ -31,6 +31,51 @@ export PI_CODING_AGENT_DIR="$HERE/agent"
 # the elm-shim extension starts this proxy so Llama can call tools
 export ELM_SHIM_PATH="${ELM_SHIM_PATH:-$HERE/shim/shim.py}"
 
+# --- --fast / --llama ------------------------------------------------------
+# Measured on this install: pi core plus the four npm packages costs ~4.4s of CPU
+# at every launch, because the packages ship raw TypeScript and are transpiled and
+# imported from hundreds of files each time. pi itself starts in well under a
+# second. --fast loads only the local extensions, so a one-shot question does not
+# pay for sub-agents, cross-session memory and web access it will never use.
+#
+#   pi --fast -p "what does this regex do?"     quick, no sub-agents/memory/web
+#   pi --llama -p "..."                          run on Llama 3.3 via the shim
+#
+# --fast keeps the ELM-only policy (elm-only.ts is always loaded) and pi's
+# built-in edit tool; it drops anchor editing, subagent/bg_wait, hermes memory
+# and web search. Use a plain `pi` for real multi-step work.
+FAST=0; LLAMA=0; ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --fast) FAST=1 ;;
+    --llama) LLAMA=1 ;;
+    *) ARGS+=("$a") ;;
+  esac
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
+
+PRE=()
+LLAMA_MODEL="elm-shim/meta-llama/Llama-3.3-70B-Instruct"
+WANTS_SHIM=$LLAMA
+case " $* " in *" elm-shim"*|*"elm-shim/"*) WANTS_SHIM=1 ;; esac
+
+if [ "$FAST" = "1" ]; then
+  PRE+=(--no-extensions)
+  for e in elm-only protected-paths todo; do
+    [ -f "$HERE/agent/extensions/$e.ts" ] && PRE+=(-e "$HERE/agent/extensions/$e.ts")
+  done
+  if [ "$WANTS_SHIM" = "1" ] && [ -f "$HERE/agent/extensions/elm-shim.ts" ]; then
+    PRE+=(-e "$HERE/agent/extensions/elm-shim.ts")
+  fi
+fi
+if [ "$LLAMA" = "1" ]; then
+  case " $* " in
+    *" --model "*|*" --model="*|*" --provider "*) : ;;   # caller already chose
+    *) PRE+=(--model "$LLAMA_MODEL") ;;
+  esac
+fi
+# ---------------------------------------------------------------------------
+
 # --- ELM-only policy ---------------------------------------------------------
 # Staff allocations are funded at industry token rates, which does not buy a
 # meaningful amount of commercial-model usage. This install offers the
@@ -155,8 +200,8 @@ if [ ! -f "$CLI" ]; then
   exit 1
 fi
 if [ "$PRINT_MODE" = "1" ] && [ -t 0 ]; then
-  exec node "$CLI" "$@" < /dev/null
+  exec node "$CLI" ${PRE[@]+"${PRE[@]}"} "$@" < /dev/null
 fi
 # ---------------------------------------------------------------------------
 
-exec node "$CLI" "$@"
+exec node "$CLI" ${PRE[@]+"${PRE[@]}"} "$@"
