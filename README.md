@@ -67,11 +67,18 @@ directly for one-off local tuning — a plain `./bootstrap.sh` will not overwrit
 ```bash
 elm-pi                             # interactive, starts on Qwen 397B
 elm-pi -p "..."                    # one-shot
+elm-pi --fast -p "..."             # one-shot, ~3x quicker to start
+elm-pi --llama -p "..."            # run on Llama 3.3 70B through the tool-call shim
 cat file | elm-pi -p "summarise"
 ```
 
 `elm-pi` is a symlink to `~/.local/share/elm-pi/pi`; the launcher resolves it, so
 you can move or re-link it freely.
+
+| Flag | |
+|---|---|
+| `--fast` | skip the four npm packages: ~1.2s of CPU at launch instead of ~4.4s. No sub-agents, cross-session memory, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
+| `--llama` | Llama 3.3 70B via the local shim. A fallback, **not** a speed-up — Qwen is faster here. |
 
 | Command | |
 |---|---|
@@ -89,6 +96,13 @@ Hard-won settings that are in here deliberately. Full measurements in
 - **Thinking is off.** On this deployment reasoning measured ~400x slower with no
   quality gain, and at small output budgets it consumes the whole allowance and
   returns empty content.
+- **Qwen is faster than Llama here**, single and concurrent: 68-76 tok/s against
+  30-47, and 535-566 tok/s aggregate across 12 parallel requests. Splitting a
+  fan-out across both models is *slower* than sending it all to Qwen. Llama is a
+  fallback, not an optimisation.
+- **Startup is the npm packages, not pi.** They ship raw TypeScript and are
+  transpiled at every launch; `--fast` skips them: 1.4s to start against 4.7s,
+  and 3.5s against 8.0s end to end on a small edit task.
 - **Prefix caching gives ~8x.** Long stable context is cheap; extra agent *turns*
   are what cost. Verified byte-stable prompt prefixes across a session.
 - **Sub-agent fan-out is nearly free past the startup cost** (20 agents ≈ 12), but

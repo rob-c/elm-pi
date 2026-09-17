@@ -179,6 +179,14 @@ call back out of the reply, re-emitting it as OpenAI `tool_calls`.
 a fan-out of sub-agents does not start dozens of copies. Qwen never goes through
 it. No shim, no Llama sub-agents; everything else is unaffected.
 
+One bug was fixed while porting it here. OpenAI clients append `/v1/chat/completions`
+to the base URL they are given, and `ELM_BASE_URL` already ends in `/api/v1`, so
+the passthrough branch built `.../api/v1/v1/chat/completions` and the gateway
+answered `400 Unknown or unsupported endpoint`. It went unnoticed because only
+requests carrying `tools` had ever been exercised, and those take the shimmed
+branch, which builds its own path. `_url()` now strips the duplicate segment;
+passthrough, shimmed tool calls and `GET /v1/models` are all verified.
+
 ### 6. The key, the model id, the smoke test
 
 `.env` is written mode 600 and is gitignored. Then `./configure.sh`:
@@ -268,6 +276,94 @@ it to the ELM team.
 
 Numbers from this deployment, not from documentation. They are why the config
 looks the way it does.
+
+### Startup time: where it goes, and how to cut it
+
+`pi` itself starts in well under a second. The four npm packages are what you wait
+for: they ship **raw TypeScript**, so every launch transpiles and imports them from
+several hundred files. Measured with `PI_TIMING=1` and `/usr/bin/time`, reporting
+CPU time (user+sys) because that is the number that does not move with machine load
+— taken at load ~8 on 12 threads, where wall ≈ CPU:
+
+| Configuration | CPU per launch |
+|---|---|
+| pi + local extensions only (what `--fast` loads) | **1.4s** |
+| \+ `pi-subagents`, `pi-hashline-edit-pro` | 3.0s |
+| \+ `pi-web-access` | 3.2s |
+| \+ `pi-hermes-memory` (the default install) | **5.0s** |
+
+So: `pi-hermes-memory` ~1.8s, `pi-subagents` + `pi-hashline-edit-pro` ~1.6s,
+`pi-web-access` ~0.2s, pi and the local extensions ~1.4s.
+
+**Three levers, in order of payoff:**
+
+1. **`pi --fast`** for one-shot work. Loads only the local extensions — the
+   ELM-only policy, protected paths and `todo` — and keeps pi's built-in `edit`
+   tool. No sub-agents, cross-session memory, web search or anchor editing.
+
+   | | wall | CPU |
+   |---|---|---|
+   | `pi -p "Reply with exactly: OK"` | 4.68-5.07s | 4.18-4.53s |
+   | `pi --fast -p "..."` | **1.43-1.51s** | **1.13-1.20s** |
+   | `pi --fast --llama -p "..."` | 1.65-2.33s | 1.29-1.33s |
+
+   End to end on a real edit task (read `calc.py`, fix the bug, write it back):
+   **8.01s → 3.49s**, both producing the correct edit.
+
+2. **`./bootstrap.sh --no-memory`** drops `pi-hermes-memory` permanently, ~1.8s of
+   CPU off every launch including interactive sessions. Per-project `AGENTS.md`
+   memory is unaffected — that is a pi built-in, not a package. You lose
+   cross-session FTS5 search.
+
+3. **Machine load.** Wall time is CPU time multiplied by whatever else the machine
+   is doing. The same launch measured 4.7s wall at load 8 and 32-47s wall at load
+   350 while CPU barely moved. If pi feels slow, check `uptime` before changing
+   any config. If it is slow on an *idle* machine, try excluding the install
+   directory from endpoint-protection real-time scanning: 589 npm packages of
+   small files is the profile on-open scanning punishes hardest. (Plausible, not
+   measured — toggling Defender needs admin rights.)
+
+**Two things that do not help**, both measured rather than assumed:
+
+- `NODE_COMPILE_CACHE`: 6.5s → 6.4s CPU. V8's bytecode cache does not cover the
+  TypeScript transform that dominates here.
+- `PI_OFFLINE=1`: no difference at startup (4.2-4.8s wall either way). pi does not
+  refresh remote model catalogues on the startup path; that happens when you open
+  the `/model` picker.
+
+Bundling the packages with esbuild was considered and rejected: `pi-subagents`
+spawns child processes by path and `pi-hermes-memory` loads a native SQLite
+binding, so bundling changes third-party semantics for a win the `--fast` path
+already delivers.
+
+### Qwen is faster than Llama here — Llama is not a speed optimisation
+
+Measured against the gateway directly, so machine load does not enter into it:
+
+| | Qwen 3.5 397B | Llama 3.3 70B |
+|---|---|---|
+| ~180 tokens out | 2.7-3.0s, **68-76 tok/s** | 3.7-5.7s, 30-47 tok/s |
+| 8 concurrent | 2.1s wall, **399 tok/s** | 3.4s wall, 295 tok/s |
+| 12 concurrent, all Qwen | **2.5-2.7s wall, 535-566 tok/s** | |
+| 12 concurrent, 6 + 6 split | 3.7-4.0s wall, 309-347 tok/s | |
+
+A 397B MoE with 17B active parameters beats a 70B dense model on the same tp4
+hardware, and Qwen scales cleanly to 12 concurrent requests. **Splitting a fan-out
+across both models is slower than sending it all to Qwen** — the Llama half sets
+the wall time.
+
+Llama still has its uses — a fallback when Qwen is rate-limited, and possibly a
+cheaper allocation charge (ELM's `guidanceCost` is only visible in the web UI, so
+that is unverified). It is reached with:
+
+```bash
+pi --llama -p "..."                                    # via the shim
+pi --model elm-shim/meta-llama/Llama-3.3-70B-Instruct  # the long form
+```
+
+Both go through the local tool-call shim, which buffers the whole response before
+re-emitting it, so Llama also loses streaming. `agent/AGENTS.md` now tells
+sub-agents to default to Qwen.
 
 ### Thinking is off by default
 

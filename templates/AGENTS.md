@@ -114,29 +114,37 @@ without doing the work.
 
 As a sub-agent it is less reliable still - across two fan-out runs of three agents,
 one to two of three completed unaided and the orchestrator had to finish the rest.
-Always verify a Llama sub-agent's output rather than trusting its report.
+Always verify a Llama sub-agent's output rather than trusting its report. It is not
+a speed optimisation either: see the measurements below.
 
 ## Choosing a model for sub-agents
 
-Two models are available to sub-agents. Pick per task with `subagent({ model: ... })`.
+**Default to Qwen for everything, including sub-agents.** Measured directly
+against the gateway, Qwen 3.5 397B is both faster and more capable than Llama 3.3
+70B here - the MoE model with 17B active parameters beats the 70B dense one:
 
-| Model | Use for |
-|---|---|
-| `elm-shim/meta-llama/Llama-3.3-70B-Instruct` | **Default for simple, single-step sub-agents.** Reading one file, grepping, summarising, answering one factual question, one mechanical edit. Roughly 2-3x faster than Qwen on this work. |
-| `elm/Qwen/Qwen3.5-397B-A17B-FP8` | Sub-agents that need real multi-step reasoning, or that will chain several tool calls to reach an answer. Also the orchestrator, always. |
+| | Qwen 3.5 397B | Llama 3.3 70B |
+|---|---|---|
+| Single request, ~180 tokens out | 2.7-3.0s, 68-76 tok/s | 3.7-5.7s, 30-47 tok/s |
+| 8 concurrent | 2.1s wall, 399 tok/s aggregate | 3.4s wall, 295 tok/s |
+| 12 concurrent, all Qwen | **2.5-2.7s wall, 535-566 tok/s** | - |
+| 12 concurrent, 6 Qwen + 6 Llama | 3.7-4.0s wall, 309-347 tok/s | - |
 
-Llama reaches tool calling through a local translating proxy (the `elm-shim`
-provider, started automatically by the `elm-shim` extension). Its native ELM
-endpoint cannot call tools at all.
+Splitting a fan-out across both models makes it **slower**, not faster: the Llama
+half sets the wall time. Qwen also holds up under concurrency - 12 parallel
+sub-agents came back in 2.5s.
+
+`elm-shim/meta-llama/Llama-3.3-70B-Instruct` remains available for when Qwen is
+rate-limited or unavailable, and it reaches tool calling through a local
+translating proxy (the `elm-shim` provider, started automatically by the
+`elm-shim` extension); its native ELM endpoint cannot call tools at all. The shim
+buffers the whole response before re-emitting it, so it loses streaming as well.
 
 **Llama's limit is real: it drifts on multi-step work.** It has invented commands
-and referenced files that do not exist when asked to plan across several files. Give
-it one concrete, bounded job and a clear statement of what to report back. The moment
-a sub-agent needs to decide *what* to do rather than *do* one thing, use Qwen.
-
-A good split: fan out many cheap Llama sub-agents to gather, then reason over their
-results yourself on Qwen.
-
+and referenced files that do not exist when asked to plan across several files.
+Give it one concrete, bounded job and a clear statement of what to report back,
+and verify what it reports. The moment a sub-agent needs to decide *what* to do
+rather than *do* one thing, use Qwen.
 
 ## Project memory
 
