@@ -1,0 +1,8 @@
+{
+  "name": "elm-pi-agent",
+  "private": true,
+  "description": "Self-contained pi coding agent wired to Edinburgh ELM, university-hosted models only",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.85.1"
+  }
+}

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>elm-pi</title>
+<meta name="description" content="A coding agent on the University of Edinburgh's own GPUs. One command to install on macOS or Linux.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#960;</text></svg>">
+<style>
+  :root {
+    --bg: #fbfaf8;
+    --panel: #ffffff;
+    --ink: #1c1b19;
+    --muted: #6b6862;
+    --line: #e5e1da;
+    --accent: #0a5c6e;
+    --accent-soft: #e6f1f3;
+    --term-bg: #16201f;
+    --term-ink: #e8f0ee;
+    --term-prompt: #6fcf97;
+    --warn-bg: #fdf6e3;
+    --warn-line: #e8d9a8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14161a;
+      --panel: #1b1e23;
+      --ink: #e8e6e1;
+      --muted: #9a9790;
+      --line: #2c3038;
+      --accent: #6fd0e2;
+      --accent-soft: #17303a;
+      --term-bg: #0e1413;
+      --term-ink: #e8f0ee;
+      --warn-bg: #241f14;
+      --warn-line: #4a3f22;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14161a; --panel: #1b1e23; --ink: #e8e6e1; --muted: #9a9790;
+    --line: #2c3038; --accent: #6fd0e2; --accent-soft: #17303a;
+    --term-bg: #0e1413; --term-ink: #e8f0ee; --warn-bg: #241f14; --warn-line: #4a3f22;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 17px/1.65 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  code, kbd, pre { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px; }
+
+  /* ---- hero ---- */
+  header { padding: 72px 0 8px; text-align: center; }
+  .logo {
+    font-size: 40px; line-height: 1; margin: 0 0 14px;
+    letter-spacing: -0.02em; font-weight: 700;
+  }
+  .logo .pi { color: var(--accent); }
+  .tagline { font-size: 20px; color: var(--muted); margin: 0 auto; max-width: 30em; }
+  .sub { font-size: 15px; color: var(--muted); margin-top: 10px; }
+
+  /* ---- install box ---- */
+  .install { margin: 34px 0 10px; }
+  .term {
+    background: var(--term-bg);
+    color: var(--term-ink);
+    border-radius: 10px;
+    padding: 18px 54px 18px 18px;
+    position: relative;
+    text-align: left;
+    overflow-x: auto;
+    box-shadow: 0 1px 2px rgba(0,0,0,.18), 0 8px 24px rgba(0,0,0,.10);
+  }
+  .term pre { margin: 0; font-size: 13.5px; line-height: 1.55; white-space: pre; }
+  .term .prompt { color: var(--term-prompt); user-select: none; }
+  .copy {
+    position: absolute; top: 10px; right: 10px;
+    background: rgba(255,255,255,.08); color: var(--term-ink);
+    border: 1px solid rgba(255,255,255,.16); border-radius: 6px;
+    font: 500 12px/1 ui-sans-serif, system-ui, sans-serif;
+    padding: 7px 9px; cursor: pointer;
+  }
+  .copy:hover { background: rgba(255,255,255,.16); }
+  .copy.done { color: var(--term-prompt); border-color: var(--term-prompt); }
+  .requires { font-size: 14px; color: var(--muted); text-align: center; margin: 12px 0 0; }
+
+  /* ---- sections ---- */
+  main { padding: 26px 0 80px; }
+  section { margin: 46px 0 0; }
+  h2 {
+    font-size: 15px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); font-weight: 600;
+    margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  h3 { font-size: 17px; margin: 26px 0 6px; }
+  p { margin: 0 0 14px; }
+  ul { margin: 0 0 14px; padding-left: 22px; }
+  li { margin: 5px 0; }
+
+  pre.block {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.6; margin: 0 0 14px;
+  }
+  p code, li code, td code { background: var(--accent-soft); color: var(--ink);
+    padding: 1px 5px; border-radius: 4px; font-size: .88em; }
+
+  table { width: 100%; border-collapse: collapse; margin: 0 0 14px; font-size: 15.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; }
+  td:first-child { white-space: nowrap; }
+
+  .note {
+    background: var(--warn-bg); border: 1px solid var(--warn-line);
+    border-radius: 8px; padding: 14px 16px; font-size: 15.5px; margin: 0 0 14px;
+  }
+  .note p:last-child, .block:last-child { margin-bottom: 0; }
+
+  footer {
+    border-top: 1px solid var(--line); padding: 26px 0 60px;
+    font-size: 14.5px; color: var(--muted); text-align: center;
+  }
+  footer a { margin: 0 8px; }
+
+  @media (max-width: 560px) {
+    header { padding-top: 48px; }
+    .logo { font-size: 32px; }
+    .tagline { font-size: 18px; }
+    .term { padding: 16px 16px 16px; }
+    .term pre { font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+    .copy { position: static; display: block; margin-top: 12px; width: 100%; padding: 9px; }
+    td:first-child { white-space: normal; }
+  }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <h1 class="logo">elm-<span class="pi">&pi;</span></h1>
+  <p class="tagline">A coding agent that runs on the University&rsquo;s own GPUs, not a commercial provider.</p>
+  <p class="sub">Qwen&nbsp;3.5&nbsp;397B via the Edinburgh ELM gateway &middot; macOS and Linux</p>
+
+  <div class="install">
+    <div class="term">
+      <button class="copy" id="copy" type="button">Copy</button>
+<pre><span class="prompt">$</span> <span id="cmd">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</span></pre>
+    </div>
+    <p class="requires">Paste into a terminal. No <code>sudo</code>, nothing installed system-wide. You&rsquo;ll be asked for your ELM API key.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section>
+  <h2>What this is</h2>
+  <p>
+    <a href="https://pi.dev">pi</a> is a terminal coding agent &mdash; it reads your files,
+    edits them, runs commands and iterates, the way Claude Code or Codex do. This install
+    points it at the University of Edinburgh&rsquo;s
+    <a href="https://elm.edina.ac.uk">ELM gateway</a> so the model doing the work is
+    <strong>Qwen&nbsp;3.5&nbsp;397B running on university hardware</strong>, billed against your
+    departmental allocation rather than a credit card.
+  </p>
+  <p>
+    Commercial providers are removed from the install on purpose. A staff allocation of
+    $500 at industry token rates is a few weeks of real coding-agent use; the same money on
+    ELM lasts far longer, and the GPUs are ones the University already owns.
+  </p>
+</section>
+
+<section>
+  <h2>Before you start: get an ELM key</h2>
+  <p>
+    ELM keys are <strong>issued on request, not self-service</strong>. In the ELM web UI,
+    submit the API-key request form describing what you want to use it for; it goes to an
+    approval queue. Keys look like <code>elm-xxxxxxxx-xxxxxxxxxxxxxxxx</code> and are
+    typically valid for 12 months.
+  </p>
+  <div class="note">
+    <p><strong>Check whether you already have one</strong> before requesting a second. On any
+    ELM browser tab, open the console (<kbd>&#8997;&#8984;I</kbd>) and run:</p>
+    <pre class="block">await (await fetch("/api/elm-key-requests?page=0&amp;size=20",
+      {credentials:"include"})).json()</pre>
+    <p style="margin-bottom:0">Look for <code>"status": "KEY_ISSUED"</code> &mdash; the key is in
+    <code>elmKeyValue</code>.</p>
+  </div>
+  <p>
+    You can run the install command first and paste the key when it asks, or set it up front:
+  </p>
+  <pre class="block">ELM_API_KEY=elm-... /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
+</section>
+
+<section>
+  <h2>What the command does</h2>
+  <ul>
+    <li>Downloads this repository to <code>~/.local/share/elm-pi</code>.</li>
+    <li>Installs its own copy of Node&nbsp;24 inside that directory &mdash; your system Node,
+        <code>brew</code> and <code>nvm</code> are untouched.</li>
+    <li>Installs pi and its extensions: sub-agents, cross-session memory, web access,
+        anchor-based editing.</li>
+    <li>Asks for your ELM key, writes it to <code>.env</code> with mode <code>600</code>,
+        resolves the current model id from the gateway and smoke-tests one completion.</li>
+    <li>Verifies the ELM-only policy actually holds, then links
+        <code>~/.local/bin/elm-pi</code>.</li>
+  </ul>
+  <p>
+    About 650&nbsp;MB and three minutes on a warm network. Re-running is safe: it never
+    overwrites your key, your sessions, your memory or a config you have edited. Everything
+    lives under one directory, so uninstalling is:
+  </p>
+  <pre class="block">rm -rf ~/.local/share/elm-pi ~/.local/bin/elm-pi</pre>
+  <p>
+    Prefer to read before you run? The script is
+    <a href="https://github.com/rob-c/elm-pi/blob/main/install.sh">install.sh</a>, and
+    <a href="https://github.com/rob-c/elm-pi/blob/main/INSTALL.md">INSTALL.md</a> spells out the
+    manual equivalent of every step.
+  </p>
+</section>
+
+<section>
+  <h2>Using it</h2>
+  <pre class="block">elm-pi                          # interactive, in whatever directory you're working in
+elm-pi -p "explain this repo"    # one-shot
+cat paper.tex | elm-pi -p "find the undefined references"</pre>
+  <table>
+    <tr><th>Command</th><th>What it does</th></tr>
+    <tr><td><code>/model</code></td><td>switch between the ELM models</td></tr>
+    <tr><td><code>/thinking</code></td><td>reasoning &mdash; off by default here, and deliberately so</td></tr>
+    <tr><td><code>/ulw &lt;task&gt;</code></td><td>ultrawork: delegate, verify, keep going until done</td></tr>
+    <tr><td><code>/elm-policy</code></td><td>why only ELM models are available</td></tr>
+    <tr><td><code>/export</code></td><td>save the session to HTML or JSONL</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>What you get</h2>
+  <table>
+    <tr><td><strong>Model</strong></td><td><code>Qwen/Qwen3.5-397B-A17B-FP8</code> &mdash; 262K context, tool calling, vision</td></tr>
+    <tr><td><strong>Sub-agents</strong></td><td>64-child fan-out budget, with cheap Llama&nbsp;3.3 workers via a local tool-call shim</td></tr>
+    <tr><td><strong>Editing</strong></td><td>anchor-based, which survives long files better than line-number patches</td></tr>
+    <tr><td><strong>Memory</strong></td><td>per-project <code>AGENTS.md</code>, plus searchable cross-session memory</td></tr>
+    <tr><td><strong>Web</strong></td><td>DuckDuckGo, then Exa</td></tr>
+    <tr><td><strong>Sessions</strong></td><td>kept in <code>.pi/sessions/</code> inside each project, not one central pile</td></tr>
+  </table>
+  <p>
+    The configuration carries a number of settings that were measured rather than guessed
+    &mdash; thinking off, retry budgets tuned for a shared gateway, a refusal to launch when the
+    machine is already saturated with sub-agents. The reasoning and the numbers are in
+    <a href="https://github.com/rob-c/elm-pi/blob/main/INSTALL.md#measured-behaviour">INSTALL.md</a>.
+  </p>
+</section>
+
+<section>
+  <h2>Cost, and a word about policy</h2>
+  <p>
+    The ELM key is university-issued and metered. Qwen carries a guidance cost of 2 per unit
+    against your department&rsquo;s allocation &mdash; far cheaper than a commercial model, running
+    on university hardware that ELM flags &ldquo;Climate Sensitive&rdquo; and &ldquo;University
+    Hosted&rdquo; &mdash; but not free.
+  </p>
+  <p>
+    A coding agent&rsquo;s usage profile looks nothing like the ELM chat UI: whole source files,
+    long loops, retries. <strong>If your key was approved for a different stated purpose, tell
+    the ELM team before they find out from a quota alert.</strong>
+  </p>
+</section>
+
+<section>
+  <h2>If something goes wrong</h2>
+  <table>
+    <tr><th>Symptom</th><th>Cause</th></tr>
+    <tr><td><code>elm-pi: command not found</code></td><td><code>~/.local/bin</code> is not on your PATH &mdash; the installer prints the line to add</td></tr>
+    <tr><td><code>401 Invalid API key</code></td><td>key wrong, revoked, or past its expiry date</td></tr>
+    <tr><td>Chats fine, never edits files</td><td>the backend returned no tool calls &mdash; see verify step 3 in INSTALL.md</td></tr>
+    <tr><td><code>-p "..."</code> seems to hang</td><td>not a bug: print mode reads stdin. Pipe something in, or add <code>&lt; /dev/null</code></td></tr>
+    <tr><td>A commercial model is refused</td><td>working as designed &mdash; see LOCKDOWN.md</td></tr>
+  </table>
+  <p>
+    The full table is in
+    <a href="https://github.com/rob-c/elm-pi/blob/main/INSTALL.md#troubleshooting">INSTALL.md</a>.
+    Anything else: <a href="https://github.com/rob-c/elm-pi/issues">open an issue</a>.
+  </p>
+</section>
+
+</main>
+
+<footer class="wrap">
+  <a href="https://github.com/rob-c/elm-pi">Source</a>
+  <a href="https://github.com/rob-c/elm-pi/blob/main/INSTALL.md">Install guide</a>
+  <a href="https://github.com/rob-c/elm-pi/blob/main/LOCKDOWN.md">Why ELM-only</a>
+  <a href="https://github.com/rob-c/elm-pi/issues">Issues</a>
+</footer>
+
+<script>
+  var btn = document.getElementById('copy');
+  btn.addEventListener('click', function () {
+    var text = document.getElementById('cmd').textContent;
+    var done = function () {
+      btn.textContent = 'Copied';
+      btn.classList.add('done');
+      setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else { fallback(); }
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) { btn.textContent = 'Select it'; }
+      document.body.removeChild(ta);
+    }
+  });
+</script>
+
+</body>
+</html>

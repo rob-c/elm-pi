@@ -1,0 +1,7 @@
+{
+  "memoryMode": "legacy-inject",
+  "sessionRetentionDays": 30,
+  "memoryCharLimit": 5000,
+  "projectCharLimit": 5000,
+  "llmThinkingOverride": "off"
+}

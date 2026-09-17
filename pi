@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# pi, wired to Edinburgh ELM and locked to university-hosted models.
+# Self-contained: bundled Node, local config dir, nothing installed system-wide.
+set -euo pipefail
+
+# Resolve through symlinks: the installer puts ~/.local/bin/elm-pi -> here, and
+# "$(dirname "$0")" on a symlink points at the link, not the install.
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  LINKDIR="$(cd "$(dirname "$SELF")" && pwd)"
+  SELF="$(readlink "$SELF")"
+  case "$SELF" in /*) ;; *) SELF="$LINKDIR/$SELF" ;; esac
+done
+HERE="$(cd "$(dirname "$SELF")" && pwd)"
+
+# bundled Node
+export PATH="$HERE/.node/bin:$PATH"
+
+if [ -f "$HERE/.env" ]; then
+  set -a; . "$HERE/.env"; set +a
+fi
+
+if [ -z "${ELM_API_KEY:-}" ]; then
+  echo "ELM_API_KEY is not set. Copy $HERE/.env.example to $HERE/.env and add your ELM key." >&2
+  echo "Run $HERE/bootstrap.sh if this install has not been set up yet." >&2
+  exit 1
+fi
+
+# keep config, sessions and credentials inside this directory, not ~/.pi
+export PI_CODING_AGENT_DIR="$HERE/agent"
+# the elm-shim extension starts this proxy so Llama can call tools
+export ELM_SHIM_PATH="${ELM_SHIM_PATH:-$HERE/shim/shim.py}"
+
+# --- ELM-only policy ---------------------------------------------------------
+# Staff allocations are funded at industry token rates, which does not buy a
+# meaningful amount of commercial-model usage. This install offers the
+# university's self-hosted models only. See LOCKDOWN.md.
+#
+# Three layers, all deliberately visible and reversible:
+#   1. credential scrub  - a stray key in ~/.zshrc cannot enable a paid provider
+#   2. argument guard    - --provider/--model/--api-key cannot route elsewhere
+#   3. elm-only extension - strips every non-ELM provider's model catalogue
+#
+# Escape hatch, for when someone genuinely needs it:
+#   PI_ELM_UNLOCK=1 pi ...            lifts layers 1 and 2 for that run
+#   PI_ELM_UNLOCK=1 PI_ELM_ALLOWED_PROVIDERS="elm,elm-shim,anthropic" pi ...
+UNLOCK="${PI_ELM_UNLOCK:-0}"
+
+# Provider ids pi ships built in. Regenerate with:
+#   ./pi -p 'x' plus the probe in LOCKDOWN.md, or read dist/bundle/chunks.
+DENIED_PROVIDERS="amazon-bedrock ant-ling anthropic azure-openai-responses baseten \
+cerebras cloudflare-ai-gateway cloudflare-workers-ai deepseek fireworks github-copilot \
+google google-vertex groq huggingface kimi-coding minimax minimax-cn mistral moonshotai \
+moonshotai-cn nvidia openai openai-codex opencode opencode-go openrouter qwen-token-plan \
+qwen-token-plan-cn qwen-token-plan-individual together vercel-ai-gateway xai xiaomi \
+xiaomi-token-plan-ams xiaomi-token-plan-cn xiaomi-token-plan-sgp zai zai-coding-cn"
+
+if [ "$UNLOCK" != "1" ]; then
+  # 1. credential scrub. Only LLM-provider credentials are removed, and only
+  #    from pi's own environment - your shell is untouched. AWS_* and GITHUB_*
+  #    are deliberately left alone: the agent's bash tool needs them for real
+  #    work, and layer 3 already removes bedrock/copilot from the catalogue.
+  unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_OAUTH_TOKEN ANTHROPIC_BASE_URL \
+        OPENAI_API_KEY OPENAI_BASE_URL OPENAI_ORGANIZATION \
+        AZURE_OPENAI_API_KEY AZURE_OPENAI_BASE_URL AZURE_OPENAI_RESOURCE_NAME \
+        GEMINI_API_KEY GOOGLE_API_KEY GOOGLE_GENERATIVE_AI_API_KEY \
+        AWS_BEARER_TOKEN_BEDROCK \
+        ANT_LING_API_KEY DEEPSEEK_API_KEY NVIDIA_API_KEY GROQ_API_KEY CEREBRAS_API_KEY \
+        XAI_API_KEY FIREWORKS_API_KEY TOGETHER_API_KEY BASETEN_API_KEY OPENROUTER_API_KEY \
+        AI_GATEWAY_API_KEY ZAI_API_KEY ZAI_CODING_CN_API_KEY MISTRAL_API_KEY \
+        MINIMAX_API_KEY MOONSHOT_API_KEY OPENCODE_API_KEY KIMI_API_KEY \
+        CLOUDFLARE_API_KEY CLOUDFLARE_GATEWAY_ID HUGGINGFACE_API_KEY HF_TOKEN \
+        QWEN_TOKEN_PLAN_API_KEY QWEN_TOKEN_PLAN_CN_API_KEY \
+        XIAOMI_API_KEY XIAOMI_TOKEN_PLAN_CN_API_KEY XIAOMI_TOKEN_PLAN_AMS_API_KEY \
+        XIAOMI_TOKEN_PLAN_SGP_API_KEY 2>/dev/null || true
+  unset PI_ELM_ALLOWED_PROVIDERS 2>/dev/null || true
+
+  # 2. argument guard
+  refuse() {
+    echo "pi: $1" >&2
+    echo "    This install is restricted to the University's self-hosted ELM models." >&2
+    echo "    Why, and how to lift it: $HERE/LOCKDOWN.md" >&2
+    exit 2
+  }
+  denied_prefix() {   # $1 = "provider/model-id" or a bare pattern
+    local head="${1%%/*}"
+    for d in $DENIED_PROVIDERS; do [ "$head" = "$d" ] && return 0; done
+    return 1
+  }
+  prev=""
+  for a in "$@"; do
+    case "$prev" in
+      --provider)
+        denied_prefix "$a" && refuse "provider \"$a\" is not available." ;;
+      --model|-m|--models)
+        # comma-separated patterns; each may carry a provider/ prefix
+        IFS=',' read -r -a pats <<< "$a"
+        for p in ${pats[@]+"${pats[@]}"}; do
+          denied_prefix "${p%%:*}" && refuse "model \"$p\" belongs to a provider that is not available."
+        done ;;
+    esac
+    case "$a" in
+      --api-key) refuse "--api-key is disabled: it would route this session to an external, billable provider." ;;
+      --api-key=*) refuse "--api-key is disabled: it would route this session to an external, billable provider." ;;
+    esac
+    prev="$a"
+  done
+fi
+# ---------------------------------------------------------------------------
+
+# --- preflight: do not pile onto a saturated machine ------------------------
+# Each sub-agent is a full node process. On a 12-thread laptop a 32-worker run
+# drove load average to 104 and made every new pi invocation hang.
+CORES="$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 8)"
+if [ -r /proc/loadavg ]; then
+  LOAD1="$(awk '{print $1}' /proc/loadavg)"
+else
+  LOAD1="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
+fi
+RUNNERS="$(ps -Ao command 2>/dev/null | grep -c '[p]i-subagents/runner-peer-preload' || true)"
+if [ -n "${LOAD1:-}" ]; then
+  OVER=$(awk -v l="$LOAD1" -v c="$CORES" 'BEGIN{print (l > c*1.5) ? 1 : 0}')
+  if [ "$OVER" = "1" ] && [ "${PI_FORCE:-0}" != "1" ]; then
+    echo "pi: load average is $LOAD1 on $CORES threads, and $RUNNERS sub-agent runners are live." >&2
+    echo "    Launching now will queue behind them and may appear to hang." >&2
+    echo "    Wait for them to finish, or set PI_FORCE=1 to launch anyway." >&2
+    exit 1
+  fi
+  if [ "${RUNNERS:-0}" -gt 0 ]; then
+    echo "pi: note - $RUNNERS sub-agent runner(s) already running (load $LOAD1/$CORES)." >&2
+  fi
+fi
+# ---------------------------------------------------------------------------
+
+# --- stdin guard ------------------------------------------------------------
+# In print mode pi reads stdin so you can pipe input to it. A pipe ends with EOF
+# and all is well; an interactive terminal never does, so `pi -p "..."` typed at
+# a prompt waits on stdin forever and looks hung. When stdin is a TTY there is
+# nothing to pipe, so close it. Real piped input is untouched.
+PRINT_MODE=0
+for a in "$@"; do
+  case "$a" in -p|--print) PRINT_MODE=1 ;; esac
+done
+CLI="$HERE/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"
+if [ ! -f "$CLI" ]; then
+  echo "pi is not installed here. Run $HERE/bootstrap.sh first." >&2
+  exit 1
+fi
+if [ "$PRINT_MODE" = "1" ] && [ -t 0 ]; then
+  exec node "$CLI" "$@" < /dev/null
+fi
+# ---------------------------------------------------------------------------
+
+exec node "$CLI" "$@"

@@ -1,0 +1,4 @@
+{
+  "globalConcurrencyLimit": 8,
+  "maxSubagentSpawnsPerRun": 64
+}

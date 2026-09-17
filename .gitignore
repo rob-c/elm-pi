@@ -1,0 +1,12 @@
+# secrets
+.env
+# installed software
+.node/
+node_modules/
+package-lock.json
+agent/npm/
+# generated at install time from templates/ by bootstrap.sh
+agent/
+shim/shim.log
+shim/__pycache__/
+.pi/

@@ -1,0 +1,412 @@
+# Installing elm-pi on a new machine or host
+
+Verified on macOS 15.8 (Intel) and written to work unchanged on Apple Silicon and
+Linux x64/arm64. Requires: `curl`, `tar`, `python3`, and an ELM API key. `git` is
+optional — the installer falls back to a source tarball without it.
+
+---
+
+## The short version
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
+```
+
+That is `install.sh`: it checks the machine, fetches this repository to
+`~/.local/share/elm-pi`, runs `bootstrap.sh`, and links `~/.local/bin/elm-pi`.
+Use the `bash -c "$(curl ...)"` form rather than `curl | bash` — piping replaces
+stdin, and bootstrap would not be able to prompt you for the key.
+
+If the directory is already on the host (git clone, `scp -r`, tar):
+
+```bash
+cd ~/.local/share/elm-pi
+./bootstrap.sh
+```
+
+Only these need to travel: `install.sh`, `bootstrap.sh`, `pi`, `configure.sh`,
+`templates/`, `shim/`, and the docs. Everything else is downloaded or generated.
+`.gitignore` already excludes the key, the installed software and all runtime
+state, so the repository is safe to push.
+
+Bootstrap installs Node into `.node/`, pi into `node_modules/`, the pi packages
+into `agent/npm/`, generates `agent/` from `templates/`, asks for your ELM key,
+resolves the model id from the gateway, smoke-tests a completion, and verifies
+the ELM-only policy. Roughly 650 MB and 3 minutes on a warm network.
+
+Unattended:
+
+```bash
+ELM_API_KEY=elm-... ./bootstrap.sh --non-interactive
+# or, from scratch:
+ELM_API_KEY=elm-... /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
+```
+
+Re-running either is safe: neither overwrites `.env`, sessions, memory, or a
+config you have edited. `./bootstrap.sh --update` refreshes pi, the packages and
+the extensions, keeping your configs.
+
+Installer knobs, if the defaults do not suit:
+
+| Variable | Default |
+|---|---|
+| `ELM_PI_PREFIX` | `~/.local/share/elm-pi` — where the install lives |
+| `ELM_PI_BINDIR` | `~/.local/bin` — where `elm-pi` is linked |
+| `ELM_PI_BRANCH` | `main` |
+| `ELM_PI_UPDATE` | `0`; `1` passes `--update` through to bootstrap |
+
+To remove everything: `rm -rf ~/.local/share/elm-pi ~/.local/bin/elm-pi`.
+
+---
+
+## Step 1 — Get an ELM API key
+
+Keys are **issued on request, not self-service**. In the ELM web UI, submit the
+API-key request form describing your use case; it goes to an approval queue.
+
+Check status from the browser console on an ELM tab (⌥⌘I → Console):
+
+```js
+await (await fetch("/api/elm-key-requests?page=0&size=20", {credentials:"include"})).json()
+```
+
+Look for `"status": "KEY_ISSUED"`; the key is in `elmKeyValue`, with an
+`expiryDate` (12 months, typically). Keys look like `elm-xxxxxxxx-xxxxxxxxxxxxxxxx`.
+
+**Check before you request** — you may already have one issued.
+
+Two things people get wrong:
+
+- `/api/key-requests` (no `elm-` prefix) is a *different, older* queue that issues
+  raw OpenAI `sk-...` keys hitting OpenAI directly. Not what you want.
+- ELM has two APIs. `/api/*` is the web app's cookie-authenticated backend;
+  `/api/v1/*` is the OpenAI-compatible gateway and accepts **only**
+  `Authorization: Bearer <key>`. Being logged in to ELM in your browser buys you
+  nothing at the API level.
+
+---
+
+## Step 2 — Run bootstrap
+
+```bash
+./bootstrap.sh
+```
+
+| Flag | |
+|---|---|
+| `--non-interactive` | take the key from `$ELM_API_KEY`, never prompt |
+| `--update` | refresh pi, packages and extensions; keep configs |
+| `--no-packages` | pi only: no sub-agents, memory, web access or anchor editing |
+| `--no-shim` | no Llama tool-call shim (Qwen unaffected) |
+| `--no-auth-lock` | leave `agent/auth.json` writable, so `/login` works |
+
+---
+
+## What bootstrap does, and the manual equivalent
+
+Useful when a step fails, or when a host needs something done differently.
+
+### 1. Node, bundled
+
+pi needs Node ≥ 22.19. The official prebuilt tarball is extracted into `.node/`,
+after a SHA-256 check against `SHASUMS256.txt`.
+
+> **Do not `brew install node` on an Intel Mac.** There is no bottle for that
+> combination any more, so Homebrew compiles V8 from source — over an hour.
+
+```bash
+V=v24.21.0; ARCH=x64        # arm64 on Apple Silicon
+TAR=node-$V-darwin-$ARCH.tar.gz
+curl -fsSL -o "/tmp/$TAR" "https://nodejs.org/dist/$V/$TAR"
+curl -fsSL -o /tmp/SHASUMS256.txt "https://nodejs.org/dist/$V/SHASUMS256.txt"
+grep " $TAR\$" /tmp/SHASUMS256.txt | shasum -a 256 -c -   # must say OK
+mkdir -p .node && tar -xzf "/tmp/$TAR" -C .node --strip-components=1
+```
+
+### 2. pi
+
+`templates/package.json` → `package.json`, then `npm install`. npm warns that
+esbuild, protobufjs and `@google/genai` have unapproved install scripts; pi runs
+from a prebuilt bundle and does not need them.
+
+### 3. `agent/` from `templates/`
+
+`PI_CODING_AGENT_DIR=./agent` (set by the launcher) is what keeps this deployment
+self-contained — without it pi writes to `~/.pi/agent` and collides with any other
+pi install.
+
+| Generated file | Purpose |
+|---|---|
+| `agent/models.json` | the ELM provider: base URL, `$ELM_API_KEY`, the two models |
+| `agent/settings.json` | defaults, packages, extensions, retry, `sessionDir` |
+| `agent/AGENTS.md` | loaded every session: delegation policy, model choice, memory rules |
+| `agent/prompts/ulw.md` | the `/ulw` ultrawork mode |
+| `agent/extensions/elm-only.ts` | the ELM-only policy — always refreshed |
+| `agent/extensions/elm-shim.ts` | registers the Llama tool-shim provider |
+| `agent/extensions/protected-paths.ts` | blocks writes to `.env`, `.git/`, `node_modules/` |
+| `agent/extensions/todo.ts` | adds a `todo` tool for multi-step work |
+| `agent/extensions/subagent/config.json` | fan-out budget: 8 concurrent, 64 per run |
+| `agent/web-search.json` | DuckDuckGo then Exa; `unpdf` for PDFs |
+| `agent/hermes-memory-config.json` | cross-session memory, 30-day retention |
+
+`agent/` is generated. Put durable changes in `templates/` and re-run
+`./bootstrap.sh --update` so every host gets them.
+
+### 4. pi packages
+
+pi resolves `npm:<name>` from `agent/npm/node_modules`, so bootstrap writes
+`agent/npm/package.json` and runs `npm install` there. Equivalent to
+`./pi install npm:pi-subagents` etc., but deterministic and offline-friendly.
+
+| Package | |
+|---|---|
+| `pi-subagents` | sub-agent fan-out (`subagent`, `bg_wait`, `subagent_supervisor`) |
+| `pi-hashline-edit-pro` | anchor-based editing; the built-in `edit` tool is disabled |
+| `pi-hermes-memory` | cross-session memory with SQLite FTS5 search |
+| `pi-web-access` | web search and fetch |
+
+> pi packages run with full system access. Review before adding more.
+
+### 5. The Llama tool-call shim
+
+ELM's vLLM instance for Llama 3.3 was started without
+`--enable-auto-tool-choice` / `--tool-call-parser`, so **any** request carrying
+`tools` returns HTTP 400 — Llama cannot call tools on ELM natively. `shim/shim.py`
+lifts tool definitions into a system prompt, strips `tools`, and parses the JSON
+call back out of the reply, re-emitting it as OpenAI `tool_calls`.
+
+`elm-shim.ts` starts it on demand on `127.0.0.1:8811` and reuses a running one, so
+a fan-out of sub-agents does not start dozens of copies. Qwen never goes through
+it. No shim, no Llama sub-agents; everything else is unaffected.
+
+### 6. The key, the model id, the smoke test
+
+`.env` is written mode 600 and is gitignored. Then `./configure.sh`:
+
+- queries `GET /api/v1/models` with your key — **the gateway is authoritative**;
+  the published Information Services model list was seven months stale when
+  checked, naming Llama 3.3 and EuroLLM and not mentioning Qwen at all
+- picks the best match for a substring (default `qwen`) and **merges** it into
+  `agent/models.json` and `agent/settings.json`, leaving your other settings alone
+- sends one completion and prints the reply
+
+Run it again any time: `./configure.sh` or `./configure.sh llama`.
+
+Model ids are exact: `Qwen/Qwen3.5-397B-A17B-FP8` — vendor prefix, capital Q,
+`-A17B-FP8` suffix. Not `qwen-3.5-397b`. The other university-hosted models are
+`meta-llama/Llama-3.3-70B-Instruct` and `utter-project/EuroLLM-22B-Instruct-2512`;
+everything else your key can see is a commercial model proxied through ELM.
+
+**`maxTokens` from ELM's metadata is the context window, not the output budget.**
+ELM reports 262144 for Qwen — that belongs in `contextWindow`, with a smaller
+`maxTokens` for output. Conflating them produces 400s partway through a session
+rather than a clean error at startup.
+
+---
+
+## Verify the install
+
+Bootstrap runs checks 1 and 4 for you.
+
+**1. Only ELM models are offered** — with commercial keys in the environment:
+
+```bash
+ANTHROPIC_API_KEY=x OPENAI_API_KEY=x ./pi --list-models
+```
+
+```
+provider  model                              context  max-out  thinking  images
+elm       meta-llama/Llama-3.3-70B-Instruct  128K     16.4K    no        no
+elm       Qwen/Qwen3.5-397B-A17B-FP8         262.1K   32.8K    yes       yes
+elm-shim  meta-llama/Llama-3.3-70B-Instruct  128K     16.4K    no        no
+```
+
+**2. A round trip completes:**
+
+```bash
+./pi -p "Reply with exactly: hello from Qwen"
+```
+
+**3. Tool calling actually works** — the one that matters. A coding agent drives
+everything through tool calls; a model that chats fine but never emits them will
+never edit a file:
+
+```bash
+mkdir -p /tmp/pitest && cd /tmp/pitest
+printf 'def add(a, b):\n    return a - b\n' > calc.py
+~/.local/bin/elm-pi -p "Read calc.py, fix the bug in add, write it back. Then say DONE."
+cat calc.py          # expect: return a + b
+```
+
+**4. The policy holds:**
+
+```bash
+./pi --model anthropic/claude-opus-5 -p x     # exit 2, refused by the launcher
+```
+
+If 3 fails while 2 succeeds, test the gateway directly:
+
+```bash
+curl -s -H "Authorization: Bearer $ELM_API_KEY" -H "Content-Type: application/json" \
+  https://elm.edina.ac.uk/api/v1/chat/completions \
+  -d '{"model":"Qwen/Qwen3.5-397B-A17B-FP8",
+       "messages":[{"role":"user","content":"Read /etc/hosts using the tool."}],
+       "tools":[{"type":"function","function":{
+         "name":"read_file","description":"Read a file",
+         "parameters":{"type":"object","properties":{"path":{"type":"string"}},
+                       "required":["path"]}}}],
+       "tool_choice":"auto"}'
+```
+
+You want `finish_reason: "tool_calls"` and a populated `tool_calls` array. If it is
+empty, that model's vLLM deployment has no tool-call parser — server side, report
+it to the ELM team.
+
+---
+
+## Measured behaviour
+
+Numbers from this deployment, not from documentation. They are why the config
+looks the way it does.
+
+### Thinking is off by default
+
+Same task, same 32K output budget:
+
+| | thinking off | thinking on |
+|---|---|---|
+| Latency | 0.7s | 286.7s |
+| Answer | caught both bugs | caught one, missed the other |
+
+~400x slower and worse. At smaller output budgets it is worse still: reasoning
+consumes the whole allowance and `content` comes back empty with
+`finish_reason: "length"`. `/thinking` turns it on per session when a task
+genuinely warrants it.
+
+### Prefix caching gives ~8x
+
+ELM's vLLM does prefix caching, measured directly:
+
+| | Latency |
+|---|---|
+| 30,215-token prefix, first call | 3.34s |
+| Same prefix, repeat | **0.40s / 0.55s** |
+| Fresh prefix | 3.01s |
+
+pi's half is verified too, by capturing its real request bodies through a
+streaming-preserving proxy: the `developer` system message is byte-identical every
+turn, each message list is a strict verbatim extension of the last, and TTFB fell
+from 3.02s to 0.96s **while the prompt grew** — the cache signature.
+
+So: `AGENTS.md` and long stable context are nearly free, and **turn count, not
+prompt length, is what to optimise**. Nothing needs enabling.
+
+Two settings were tried and removed: `compat.sendSessionAffinityHeaders` /
+`sessionAffinityFormat`, and `PI_CACHE_RETENTION=long`. Neither produced a
+measurable gain.
+
+### Sub-agent fan-out
+
+| Concurrent sub-agents | Wall time | Result |
+|---|---|---|
+| 3 | 98s | all correct |
+| 6 | 110s | all correct |
+| 12 | 269s | all correct |
+| 20 | 264s | all correct |
+
+Wide fan-out is close to free past the fixed startup cost. But delegation is
+priced per round trip: forcing it on a four-file docstring task turned a
+36-second direct edit into a 560-second run that never finished. `AGENTS.md`
+therefore keys the rule to **work size, not file count**.
+
+At 20 children some results came back as "previews omitted by budget" — tell
+sub-agents to report tersely or raise `maxOutput`.
+
+Each sub-agent is a full Node process. A 32-worker run drove load average to 104
+on a 12-thread laptop and made every new pi invocation hang, which is why the
+launcher refuses to start above 1.5x core count (`PI_FORCE=1` overrides).
+
+### Retry under a gateway storm
+
+Verified by injecting faults through a local proxy: five injected 503s, then a
+success, backing off 2/4/8/16/32s — exact doubling from `baseDelayMs`, and the
+agent run continued as if nothing had happened.
+
+The default `maxRetries: 3` gives ~14s of tolerance; against a 429 storm on a
+shared university gateway pi surfaced `429: Rate limit exceeded` after ~15s.
+**5** gives ~62s. `retry.provider.maxRetries` stays at **0** — SDK-level retries
+can swallow out-of-quota errors before pi sees them, blocking the agent until the
+provider quota resets. pi uses its own backoff and ignores `Retry-After`.
+
+### Latency variance is pi, not ELM
+
+Identical pi tasks have ranged from 8s to 98s. Twelve identical calls straight to
+ELM measured min 2.89s, median 3.43s, max 5.53s. The spread comes from pi's agent
+loop taking more turns on some runs. Do not tune config against a single timing
+sample — the noise is larger than most config effects.
+
+### Extensions: add them one at a time
+
+Same survey task, same directory:
+
+| Extensions loaded | Result |
+|---|---|
+| none (`--no-extensions`) | 18s, correct |
+| `protected-paths` + `todo` | 77s, correct |
+| \+ `notify`, `session-name`, `model-status` | 540s timeout, no output |
+| \+ `git-checkpoint`, `dirty-repo-guard` | 540s timeout, no output |
+
+`git-checkpoint` and `dirty-repo-guard` act on git state and hang outside a
+repository; the others were not isolated individually. Only the three that measure
+clean ship here. Add any more one at a time and time a known task before and after.
+
+### Llama needs steps, not goals
+
+With anchor editing in place:
+
+| Task given to Llama | Result |
+|---|---|
+| Single file, "fix the bug" | works, 18s |
+| Two files, "read each and add docstrings" | **claimed FINISHED, changed nothing** |
+| Two files, numbered steps | **both correct, 17s** |
+
+The difference is planning, not editing. Give a Llama sub-agent a numbered list of
+concrete actions and exact paths, and always verify its report. Anything that
+needs deciding *what* to do goes to Qwen.
+
+---
+
+## Sessions, memory and artefacts
+
+`sessionDir: ".pi/sessions"` is **relative**, so it resolves against the working
+directory and each project keeps its own history. This also fixed an accumulation
+problem: sessions had reached 1.9 GB across 699 files in one central directory.
+
+Add `.pi/` to each project's `.gitignore` — transcripts contain whatever the agent
+read, which may include secrets.
+
+Precedence is `--session-dir` > `PI_CODING_AGENT_SESSION_DIR` > `sessionDir`.
+
+Durable project facts go in that project's own `AGENTS.md`, which pi loads from
+the working directory and its ancestors on every session, so they travel with the
+repo. `agent/AGENTS.md` carries the policy for what belongs there (durable,
+project-specific, not derivable from the code — and never secrets).
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| `401 Missing or invalid Authorization header` | No bearer token. Cookies don't work on `/api/v1`. |
+| `401 Invalid API key` | Key wrong, revoked or expired — check `expiryDate` on the request record. |
+| `Model not found` for an ELM model | Wrong case or missing vendor prefix. Copy it verbatim from `/api/v1/models`, or re-run `./configure.sh`. |
+| `Model not found` for a commercial model | Working as designed — see [LOCKDOWN.md](LOCKDOWN.md). |
+| Empty response, `finish_reason: "length"` | Reasoning consumed the output budget. Raise `maxTokens` or keep thinking off. |
+| Chats fine, never edits files | No `tool_calls` from the backend. Test the gateway directly (verify step 3). |
+| 400s partway through a session | `contextWindow` set higher than the model supports. |
+| `pi -p "..."` hangs at a prompt | Not a bug: print mode reads stdin and a terminal never sends EOF. The launcher closes stdin when it is a TTY; if you bypass the launcher, add `< /dev/null`. |
+| `pi: load average is ...` | Sub-agent runners are still live. Wait, or `PI_FORCE=1`. |
+| `env: node: No such file or directory` | Launcher bypassed, or `.node/` missing — re-run `./bootstrap.sh`. |
+| Llama sub-agents unavailable | `python3` missing, or port 8811 taken. `ELM_SHIM_PORT` moves it. |
+| Startup hangs with no output at all | Seen in clusters, cause unknown; ruled out config, extensions, the launcher, ELM itself and leftover processes. Wait and retry rather than changing config — a change made during a bad window will look causal and is not. |

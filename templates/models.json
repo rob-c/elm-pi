@@ -1,0 +1,60 @@
+{
+  "providers": {
+    "elm": {
+      "baseUrl": "https://elm.edina.ac.uk/api/v1",
+      "api": "openai-completions",
+      "apiKey": "$ELM_API_KEY",
+      "models": [
+        {
+          "id": "Qwen/Qwen3.5-397B-A17B-FP8",
+          "name": "Qwen 3.5 397B (ELM, university-hosted)",
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
+          "contextWindow": 262144,
+          "maxTokens": 32768,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "thinkingLevelMap": {
+            "off": "none",
+            "minimal": null,
+            "low": null,
+            "medium": null,
+            "high": "high",
+            "xhigh": null,
+            "max": null
+          },
+          "compat": {
+            "supportsReasoningEffort": true,
+            "thinkingFormat": "reasoning_effort"
+          },
+          "samplingParams": {
+            "temperature": 0.6
+          }
+        },
+        {
+          "id": "meta-llama/Llama-3.3-70B-Instruct",
+          "name": "Llama 3.3 70B (ELM, university-hosted)",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 128000,
+          "maxTokens": 16384,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      ]
+    }
+  }
+}

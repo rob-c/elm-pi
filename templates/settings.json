@@ -1,0 +1,29 @@
+{
+  "defaultProvider": "elm",
+  "defaultModel": "Qwen/Qwen3.5-397B-A17B-FP8",
+  "defaultThinkingLevel": "off",
+  "theme": "dark",
+  "quietStartup": false,
+  "modelThinkingLevels": {
+    "elm/Qwen/Qwen3.5-397B-A17B-FP8": "off"
+  },
+  "packages": [
+    "npm:pi-subagents",
+    "npm:pi-hermes-memory",
+    "npm:pi-web-access",
+    "npm:pi-hashline-edit-pro"
+  ],
+  "extensions": [
+    "${PI_CODING_AGENT_DIR}/extensions"
+  ],
+  "retry": {
+    "enabled": true,
+    "maxRetries": 5,
+    "baseDelayMs": 2000,
+    "provider": {
+      "maxRetries": 0,
+      "maxRetryDelayMs": 60000
+    }
+  },
+  "sessionDir": ".pi/sessions"
+}
