@@ -98,8 +98,9 @@ Hard-won settings that are in here deliberately. Full measurements in
   out-of-quota errors before pi sees them.
 - **`pi -p` from a terminal is not hung**, it is reading stdin. The launcher closes
   stdin when it is a TTY.
-- **Don't pile on load.** Each sub-agent is a full Node process; the launcher
-  refuses to start above 1.5x core count (`PI_FORCE=1` overrides).
+- **Load is reported, not policed.** Each sub-agent is a full Node process, and
+  above ~1.5x core count startup gets slow. The launcher says so and starts
+  anyway; `PI_FORCE=1` silences the note, `PI_STRICT_LOAD=1` refuses instead.
 
 ## Cost and policy
 

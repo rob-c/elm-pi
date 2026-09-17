@@ -108,9 +108,16 @@ if [ "$UNLOCK" != "1" ]; then
 fi
 # ---------------------------------------------------------------------------
 
-# --- preflight: do not pile onto a saturated machine ------------------------
+# --- preflight: note a saturated machine, but do not stand in the way -------
 # Each sub-agent is a full node process. On a 12-thread laptop a 32-worker run
 # drove load average to 104 and made every new pi invocation hang.
+#
+# This used to refuse to start. It now warns and carries on. A shared login
+# node, a compute host or simply a busy desktop sits over the threshold most of
+# the day, and "pi refused to start" is a worse first hour for someone new than
+# a slow start they were told about. Force is therefore the default:
+#   PI_FORCE=1        start silently, no warning at all
+#   PI_STRICT_LOAD=1  restore the old refusal (for unattended or batch use)
 CORES="$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 8)"
 if [ -r /proc/loadavg ]; then
   LOAD1="$(awk '{print $1}' /proc/loadavg)"
@@ -118,15 +125,16 @@ else
   LOAD1="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
 fi
 RUNNERS="$(ps -Ao command 2>/dev/null | grep -c '[p]i-subagents/runner-peer-preload' || true)"
-if [ -n "${LOAD1:-}" ]; then
+if [ -n "${LOAD1:-}" ] && [ "${PI_FORCE:-0}" != "1" ]; then
   OVER=$(awk -v l="$LOAD1" -v c="$CORES" 'BEGIN{print (l > c*1.5) ? 1 : 0}')
-  if [ "$OVER" = "1" ] && [ "${PI_FORCE:-0}" != "1" ]; then
-    echo "pi: load average is $LOAD1 on $CORES threads, and $RUNNERS sub-agent runners are live." >&2
-    echo "    Launching now will queue behind them and may appear to hang." >&2
-    echo "    Wait for them to finish, or set PI_FORCE=1 to launch anyway." >&2
-    exit 1
-  fi
-  if [ "${RUNNERS:-0}" -gt 0 ]; then
+  if [ "$OVER" = "1" ]; then
+    echo "pi: this machine is busy - load $LOAD1 across $CORES threads, $RUNNERS sub-agent runner(s) live." >&2
+    if [ "${PI_STRICT_LOAD:-0}" = "1" ]; then
+      echo "    PI_STRICT_LOAD=1 is set, so not starting. Unset it, or set PI_FORCE=1." >&2
+      exit 1
+    fi
+    echo "    Starting anyway; it may take longer than usual to come up." >&2
+  elif [ "${RUNNERS:-0}" -gt 0 ]; then
     echo "pi: note - $RUNNERS sub-agent runner(s) already running (load $LOAD1/$CORES)." >&2
   fi
 fi

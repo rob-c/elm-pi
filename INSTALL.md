@@ -324,7 +324,11 @@ sub-agents to report tersely or raise `maxOutput`.
 
 Each sub-agent is a full Node process. A 32-worker run drove load average to 104
 on a 12-thread laptop and made every new pi invocation hang, which is why the
-launcher refuses to start above 1.5x core count (`PI_FORCE=1` overrides).
+launcher warns above 1.5x core count and starts anyway: a shared login node or a
+busy desktop sits over that line most of the day, and a refusal there costs more
+than the slow start it prevents. `PI_FORCE=1` drops the warning too;
+`PI_STRICT_LOAD=1` restores the old refusal, which is what you want in a batch
+job or a cron run.
 
 ### Retry under a gateway storm
 
@@ -406,7 +410,7 @@ project-specific, not derivable from the code — and never secrets).
 | Chats fine, never edits files | No `tool_calls` from the backend. Test the gateway directly (verify step 3). |
 | 400s partway through a session | `contextWindow` set higher than the model supports. |
 | `pi -p "..."` hangs at a prompt | Not a bug: print mode reads stdin and a terminal never sends EOF. The launcher closes stdin when it is a TTY; if you bypass the launcher, add `< /dev/null`. |
-| `pi: load average is ...` | Sub-agent runners are still live. Wait, or `PI_FORCE=1`. |
+| `pi: this machine is busy ...` | Informational. It starts anyway, just slowly. `PI_FORCE=1` silences it. |
 | `env: node: No such file or directory` | Launcher bypassed, or `.node/` missing — re-run `./bootstrap.sh`. |
 | Llama sub-agents unavailable | `python3` missing, or port 8811 taken. `ELM_SHIM_PORT` moves it. |
 | Startup hangs with no output at all | Seen in clusters, cause unknown; ruled out config, extensions, the launcher, ELM itself and leftover processes. Wait and retry rather than changing config — a change made during a bad window will look causal and is not. |
