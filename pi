@@ -208,17 +208,21 @@ PRINT_MODE=0
 for a in "$@"; do
   case "$a" in -p|--print) PRINT_MODE=1 ;; esac
 done
-CLI="$HERE/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"
-if [ ! -f "$CLI" ]; then
-  echo "pi is not installed here. Run $HERE/bootstrap.sh first." >&2
+# pi.orig is the unwrapped CLI: this wrapper is `pi`, and it hands over to the
+# original the way a `mv thing thing.orig` wrapper always has. Everything this
+# script exported - the key, PI_CODING_AGENT_DIR, the ELM-only policy - is
+# inherited across the exec.
+ORIG="$HERE/pi.orig"
+if [ ! -x "$ORIG" ]; then
+  echo "pi is not installed here: $ORIG is missing. Run $HERE/bootstrap.sh first." >&2
   exit 1
 fi
 # Anything this process spawns is a child of ours; see the preflight above.
 export PI_ELM_CHILD=1
 
 if [ "$PRINT_MODE" = "1" ] && [ -t 0 ]; then
-  exec node "$CLI" ${PRE[@]+"${PRE[@]}"} "$@" < /dev/null
+  exec "$ORIG" ${PRE[@]+"${PRE[@]}"} "$@" < /dev/null
 fi
 # ---------------------------------------------------------------------------
 
-exec node "$CLI" ${PRE[@]+"${PRE[@]}"} "$@"
+exec "$ORIG" ${PRE[@]+"${PRE[@]}"} "$@"

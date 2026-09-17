@@ -89,6 +89,8 @@ echo "    $(node node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js
 # --- 3. agent config --------------------------------------------------------
 # PI_CODING_AGENT_DIR points here, so config, sessions and credentials stay in
 # this directory instead of ~/.pi.
+chmod +x pi pi.orig configure.sh 2>/dev/null || true
+
 say "agent configuration"
 mkdir -p agent/extensions/subagent agent/prompts
 install_if_absent() {   # never clobber a config someone has tuned
@@ -116,12 +118,13 @@ install_if_absent templates/hermes-memory-config.json  agent/hermes-memory-confi
 
 # agent/bin is pi's managed-binary directory (fd, rg), and pi prepends it to
 # PATH for every child process it spawns. pi-subagents falls back to a bare
-# `pi` PATH lookup when it cannot resolve the CLI any other way, and this
-# install puts no `pi` on PATH - the command is elm-pi - so that fallback
-# failed and sub-agents would not start. The symlink makes the fallback land on
-# this launcher, which keeps the ELM-only policy and the .env key in force for
-# children. The launcher also exports PI_SUBAGENT_PI_BINARY, which covers the
-# same ground by the documented route; either alone is enough.
+# `pi` PATH lookup when it cannot resolve the CLI any other way, which used to
+# find nothing here. The installer now links ~/.local/bin/pi, but that only
+# helps when BINDIR is on the child's PATH, so the symlink stays: it makes the
+# fallback land on this launcher whatever PATH looks like, keeping the ELM-only
+# policy and the .env key in force for children. The launcher also exports
+# PI_SUBAGENT_PI_BINARY, the documented override; any one of the three is
+# enough on its own.
 mkdir -p agent/bin
 ln -sfn "$HERE/pi" agent/bin/pi
 echo "    agent/bin/pi -> $HERE/pi (sub-agent children)"
@@ -232,8 +235,8 @@ esac
 
 say "done"
 cat <<EOM
-    Run it:        $HERE/pi
-    Alias it:      alias elm-pi=$HERE/pi
+    Run it:        pi            (or $HERE/pi if it is not on your PATH yet)
+    Unwrapped:     $HERE/pi.orig   (vanilla CLI, no ELM config - debugging only)
     Policy:        $HERE/LOCKDOWN.md   (/elm-policy inside pi)
     Fast one-shot: $HERE/pi --fast -p "..."    (skips the npm packages)
     Verify:        see "Verify the install" in INSTALL.md

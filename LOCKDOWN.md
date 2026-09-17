@@ -96,6 +96,17 @@ gracefully the `/login` flow reports the failed write. Install with
   `api.openai.com`, ...) actually prevents commercial API use on a managed host.
   If that is the requirement, this install is the wrong layer; talk to IT.
 
+## `pi.orig` is not a hole, but know it is there
+
+The install ships `pi.orig`, the unwrapped CLI that `pi` hands over to. Run
+directly it is vanilla pi: pi's own `~/.pi` config, no `.env`, no ELM provider
+and none of the three layers above. On a fresh account that means **no models at
+all** — it is a debugging tool, not a route to Claude — but someone who ran
+`/login` under it would be using a commercial provider on their own credentials.
+
+It is therefore not linked onto your PATH; only the wrapper is. The supported way
+to lift the policy is below, and it keeps your key and configuration.
+
 ## Lifting it
 
 For one run:

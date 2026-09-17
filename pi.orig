@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# The unwrapped pi CLI, as shipped by @earendil-works/pi-coding-agent.
+#
+# `pi` in this directory is the wrapper: it loads .env, pins PI_CODING_AGENT_DIR
+# to ./agent, applies the ELM-only policy and adds --fast/--llama. It finishes by
+# exec'ing this script, so there is exactly one place that knows how to start the
+# CLI - the classic `mv thing thing.orig` pattern.
+#
+# Run directly, it is vanilla pi: no .env, no ELM provider, no ELM-only policy,
+# and pi's own default config directory (~/.pi). That makes it the right tool for
+# answering "is this the wrapper's fault?" and the wrong tool for daily work - on
+# a fresh ~/.pi it has no models configured at all.
+#
+# It is deliberately NOT linked onto your PATH. To bypass the ELM-only policy for
+# a run, use the supported route instead, which keeps your key and config:
+#     PI_ELM_UNLOCK=1 pi ...
+# See LOCKDOWN.md.
+set -euo pipefail
+
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  LINKDIR="$(cd "$(dirname "$SELF")" && pwd)"
+  SELF="$(readlink "$SELF")"
+  case "$SELF" in /*) ;; *) SELF="$LINKDIR/$SELF" ;; esac
+done
+HERE="$(cd "$(dirname "$SELF")" && pwd)"
+
+export PATH="$HERE/.node/bin:$PATH"
+
+CLI="$HERE/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"
+if [ ! -f "$CLI" ]; then
+  echo "pi is not installed here. Run $HERE/bootstrap.sh first." >&2
+  exit 1
+fi
+
+exec node "$CLI" "$@"

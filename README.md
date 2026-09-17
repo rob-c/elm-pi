@@ -12,13 +12,17 @@ on purpose — see [LOCKDOWN.md](LOCKDOWN.md).
 ```
 
 macOS or Linux, x86_64 or arm64. No `sudo`, nothing installed system-wide. It
-lands in `~/.local/share/elm-pi`, links `~/.local/bin/elm-pi`, puts that directory
-on your `PATH` in the shell profile you actually use (zsh, bash or fish —
+lands in `~/.local/share/elm-pi`, links `~/.local/bin/pi`, puts that directory on
+your `PATH` in the shell profile you actually use (zsh, bash or fish —
 `--no-path` skips it), and asks for your ELM API key —
 [how to get one](INSTALL.md#step-1--get-an-elm-api-key).
 
+**The command is `pi`.** The wrapper takes the name and hands over to `pi.orig`,
+the unwrapped CLI inside the install, so anything expecting a `pi` gets the
+wrapped, ELM-only one — including pi-subagents when it spawns children.
+
 ```bash
-elm-pi                                 # start working
+pi                                 # start working
 ```
 
 Nothing lands outside the install directory: bundled Node, local `node_modules`,
@@ -26,7 +30,7 @@ and `PI_CODING_AGENT_DIR` pointed at `./agent` so config, sessions and
 credentials never touch `~/.pi`. To remove it all:
 
 ```bash
-rm -rf ~/.local/share/elm-pi ~/.local/bin/elm-pi
+rm -rf ~/.local/share/elm-pi ~/.local/bin/pi
 ```
 
 Already have the directory (git clone, `scp -r`, tar)? Skip the installer and run
@@ -51,7 +55,8 @@ every step: **[INSTALL.md](INSTALL.md)**. Web version of this page:
 ```
 install.sh          the curl|bash entry point: fetch, bootstrap, link
 bootstrap.sh        one-command install / update, idempotent
-pi                  launcher: bundled Node, .env, ELM-only guards, preflight
+pi                  the wrapper: bundled Node, .env, ELM-only guards, preflight
+pi.orig             the unwrapped CLI the wrapper hands over to
 configure.sh        resolves the model id from the gateway, merges it into config
 templates/          the source of truth for everything under agent/
 docs/               the GitHub Pages site
@@ -67,15 +72,18 @@ directly for one-off local tuning — a plain `./bootstrap.sh` will not overwrit
 ## Daily use
 
 ```bash
-elm-pi                             # interactive, starts on Qwen 397B
-elm-pi -p "..."                    # one-shot
-elm-pi --fast -p "..."             # one-shot, ~3x quicker to start
-elm-pi --llama -p "..."            # run on Llama 3.3 70B through the tool-call shim
-cat file | elm-pi -p "summarise"
+pi                             # interactive, starts on Qwen 397B
+pi -p "..."                    # one-shot
+pi --fast -p "..."             # one-shot, ~3x quicker to start
+pi --llama -p "..."            # run on Llama 3.3 70B through the tool-call shim
+cat file | pi -p "summarise"
 ```
 
-`elm-pi` is a symlink to `~/.local/share/elm-pi/pi`; the launcher resolves it, so
-you can move or re-link it freely.
+`pi` is a symlink to `~/.local/share/elm-pi/pi`; the launcher resolves symlinks,
+so you can move or re-link it freely. `pi.orig` in the install directory is the
+unwrapped CLI — vanilla pi, its own `~/.pi` config, no ELM provider and no
+policy. It is deliberately not on your PATH; it exists to answer "is this the
+wrapper's fault?".
 
 | Flag | |
 |---|---|

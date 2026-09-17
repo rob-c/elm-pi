@@ -4,21 +4,23 @@
 #
 #   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
 #
-# Installs into ~/.local/share/elm-pi and links ~/.local/bin/elm-pi. Nothing is
+# Installs into ~/.local/share/elm-pi and links ~/.local/bin/pi. Nothing is
 # installed system-wide and nothing needs sudo. The only file touched outside
 # those two paths is your shell profile, and only to put ~/.local/bin on PATH
 # when it is not already there - skip that with --no-path. Re-running is safe.
 #
 # Environment overrides:
 #   ELM_PI_PREFIX=/path      where to install        (default ~/.local/share/elm-pi)
-#   ELM_PI_BINDIR=/path      where to link elm-pi    (default ~/.local/bin)
+#   ELM_PI_BINDIR=/path      where to link pi         (default ~/.local/bin)
 #   ELM_PI_REPO=url          source repository
 #   ELM_PI_BRANCH=name       branch to install       (default main)
 #   ELM_API_KEY=elm-...      skip the interactive key prompt
 #   ELM_PI_UPDATE=1          refresh pi and the extensions, keeping your configs
 #   ELM_PI_NO_PATH=1         do not touch any shell profile
+#   ELM_PI_FORCE_LINK=1      replace an existing ~/.local/bin/pi symlink
 #
 #   --no-path                do not add ~/.local/bin to PATH in a shell profile
+#   --force-link             replace an existing ~/.local/bin/pi symlink
 #
 # Flags forwarded to bootstrap.sh:
 #   --no-memory              drop pi-hermes-memory: ~1.8s off every launch
@@ -38,10 +40,12 @@ DOCS="${ELM_PI_DOCS:-https://rob-c.github.io/elm-pi/}"
 
 PASS_ARGS=""
 NO_PATH="${ELM_PI_NO_PATH:-0}"
+FORCE_LINK="${ELM_PI_FORCE_LINK:-0}"
 for arg in "$@"; do
   case "$arg" in
     --update)  UPDATE=1 ;;
     --no-path) NO_PATH=1 ;;
+    --force-link) FORCE_LINK=1 ;;
     --no-memory|--no-packages|--no-shim|--no-auth-lock) PASS_ARGS="$PASS_ARGS $arg" ;;
     -h|--help) sed -n '3,24p' "$0" 2>/dev/null || true; exit 0 ;;
   esac
@@ -136,7 +140,7 @@ else
   fetch_tarball "$PREFIX"
   echo "    downloaded $SLUG@$BRANCH"
 fi
-chmod +x "$PREFIX/pi" "$PREFIX/bootstrap.sh" "$PREFIX/configure.sh" 2>/dev/null || true
+chmod +x "$PREFIX/pi" "$PREFIX/pi.orig" "$PREFIX/bootstrap.sh" "$PREFIX/configure.sh" 2>/dev/null || true
 
 # --- 3. hand over to bootstrap ----------------------------------------------
 # bootstrap.sh does the real work: Node, pi, packages, agent/, the key, the
@@ -154,16 +158,46 @@ else
   "$PREFIX/bootstrap.sh" $BOOT_ARGS --non-interactive
 fi
 
-# --- 4. put elm-pi on the PATH ----------------------------------------------
+# --- 4. put pi on the PATH --------------------------------------------------
+# The command is `pi`. The wrapper takes the name and hands over to pi.orig, the
+# unwrapped CLI inside the install, so everything that expects a `pi` - muscle
+# memory, scripts, and pi-subagents' own bare-`pi` fallback when it spawns
+# children - gets the wrapped, ELM-only one.
 say "linking the launcher"
 mkdir -p "$BINDIR"
-LINK="$BINDIR/elm-pi"
+LINK="$BINDIR/pi"
+LINKED=0
 if [ -e "$LINK" ] && [ ! -L "$LINK" ]; then
   warn "$LINK exists and is not a symlink — leaving it alone"
-  warn "run elm-pi as: $PREFIX/pi"
+  warn "run pi as: $PREFIX/pi"
+elif [ -L "$LINK" ] && [ "$(readlink "$LINK")" != "$PREFIX/pi" ] && [ "$FORCE_LINK" != "1" ]; then
+  warn "$LINK already points at $(readlink "$LINK") — leaving it alone"
+  warn "replace it with:  ln -sfn $PREFIX/pi $LINK   (or re-run with --force-link)"
 else
   ln -sfn "$PREFIX/pi" "$LINK"
   echo "    $LINK -> $PREFIX/pi"
+  LINKED=1
+fi
+
+# This install used to be called elm-pi. Retire that symlink, but only when it is
+# ours: someone else's elm-pi is none of our business.
+OLD_LINK="$BINDIR/elm-pi"
+if [ "$LINKED" = "1" ] && [ -L "$OLD_LINK" ]; then
+  case "$(readlink "$OLD_LINK")" in
+    "$PREFIX/pi") rm -f "$OLD_LINK"; echo "    removed the old $OLD_LINK symlink (the command is now pi)" ;;
+  esac
+fi
+
+# Say so plainly if another pi will win on PATH: ours is only first once BINDIR
+# is, and a globally installed pi in /usr/local/bin is a common way to lose.
+OTHER_PI="$(command -v pi 2>/dev/null || true)"
+if [ "$LINKED" = "1" ] && [ -n "$OTHER_PI" ] && [ "$OTHER_PI" != "$LINK" ]; then
+  case ":${PATH}:" in
+    *":$BINDIR:"*)
+      warn "another pi is earlier on your PATH: $OTHER_PI"
+      warn "that one will keep winning — remove it, or move $BINDIR ahead of it" ;;
+    *) : ;;   # BINDIR is not on PATH yet; the next step fixes that
+  esac
 fi
 
 # Put BINDIR on PATH for the shells this account actually uses. Writing the
@@ -231,11 +265,11 @@ fi
 # --- 5. what to do next -----------------------------------------------------
 say "done"
 PATH_NOTE=""
-[ "$PATH_ADDED" = "1" ] || [ "$PATH_PRESENT" = "1" ] && [ "$ON_PATH" = "0" ] && PATH_NOTE="    New shells will find elm-pi. For this one:  export PATH=\"$BINDIR:\$PATH\"
+[ "$PATH_ADDED" = "1" ] || [ "$PATH_PRESENT" = "1" ] && [ "$ON_PATH" = "0" ] && PATH_NOTE="    New shells will find pi. For this one:  export PATH=\"$BINDIR:\$PATH\"
 
 "
 if [ "$ON_PATH" = "1" ] || [ "$PATH_ADDED" = "1" ] || [ "$PATH_PRESENT" = "1" ]; then
-  RUN="elm-pi"
+  RUN="pi"
 else
   RUN="$PREFIX/pi"
 fi
@@ -246,7 +280,8 @@ ${PATH_NOTE}    Start it:      $RUN
 
     Installed in:  $PREFIX
     Your key:      $PREFIX/.env   (mode 600, never committed)
-    Uninstall:     rm -rf $PREFIX $BINDIR/elm-pi
+    Unwrapped pi:  $PREFIX/pi.orig     (vanilla CLI, no ELM config - debugging only)
+    Uninstall:     rm -rf $PREFIX $BINDIR/pi
 
     Docs:          $DOCS
 EOM
