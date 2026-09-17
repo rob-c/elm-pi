@@ -24,6 +24,7 @@ PREFIX="${ELM_PI_PREFIX:-$HOME/.local/share/elm-pi}"
 BINDIR="${ELM_PI_BINDIR:-$HOME/.local/bin}"
 UPDATE="${ELM_PI_UPDATE:-0}"
 SLUG="$(printf '%s' "$REPO" | sed -e 's#^.*github\.com[:/]##' -e 's#\.git$##')"
+DOCS="${ELM_PI_DOCS:-https://rob-c.github.io/elm-pi/}"
 
 for arg in "$@"; do
   case "$arg" in
@@ -181,5 +182,5 @@ cat <<EOM
     Your key:      $PREFIX/.env   (mode 600, never committed)
     Uninstall:     rm -rf $PREFIX $BINDIR/elm-pi
 
-    Docs:          https://$(printf '%s' "$SLUG" | sed 's#/.*##').github.io/$(printf '%s' "$SLUG" | sed 's#.*/##')/
+    Docs:          $DOCS
 EOM
