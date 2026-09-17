@@ -12,8 +12,10 @@ on purpose — see [LOCKDOWN.md](LOCKDOWN.md).
 ```
 
 macOS or Linux, x86_64 or arm64. No `sudo`, nothing installed system-wide. It
-lands in `~/.local/share/elm-pi`, links `~/.local/bin/elm-pi`, and asks for your
-ELM API key — [how to get one](INSTALL.md#step-1--get-an-elm-api-key).
+lands in `~/.local/share/elm-pi`, links `~/.local/bin/elm-pi`, puts that directory
+on your `PATH` in the shell profile you actually use (zsh, bash or fish —
+`--no-path` skips it), and asks for your ELM API key —
+[how to get one](INSTALL.md#step-1--get-an-elm-api-key).
 
 ```bash
 elm-pi                                 # start working

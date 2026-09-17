@@ -146,6 +146,7 @@ pi install.
 | `agent/extensions/protected-paths.ts` | blocks writes to `.env`, `.git/`, `node_modules/` |
 | `agent/extensions/todo.ts` | adds a `todo` tool for multi-step work |
 | `agent/extensions/subagent/config.json` | fan-out budget: 8 concurrent, 64 per run |
+| `agent/bin/pi` | symlink to the launcher, so sub-agent children can find `pi` |
 | `agent/web-search.json` | DuckDuckGo then Exa; `unpdf` for PDFs |
 | `agent/hermes-memory-config.json` | cross-session memory, 30-day retention |
 
@@ -166,6 +167,25 @@ pi resolves `npm:<name>` from `agent/npm/node_modules`, so bootstrap writes
 | `pi-web-access` | web search and fetch |
 
 > pi packages run with full system access. Review before adding more.
+
+**How sub-agent children find pi.** `pi-subagents` spawns each child by resolving
+the pi CLI from `process.argv[1]`, then from package resolution, and if both fail
+it falls back to `{ command: "pi" }` — a bare PATH lookup. This install puts
+`elm-pi` on PATH, not `pi`, so on hosts where the first two routes fail that
+fallback found nothing and sub-agents would not start.
+
+Two independent fixes, either of which is sufficient:
+
+- the launcher exports `PI_SUBAGENT_PI_BINARY="$HERE/pi"`, the documented
+  override, which short-circuits resolution entirely;
+- `bootstrap.sh` creates `agent/bin/pi -> <install>/pi`. `agent/bin` is pi's
+  managed-binary directory (`fd`, `rg`) and pi prepends it to `PATH` for every
+  child process it spawns, so a bare `pi` now lands on the launcher.
+
+Children go through the **launcher** rather than `cli.js` on purpose: the
+ELM-only policy, the `.env` key and the bundled Node then apply to them too. The
+launcher sets `PI_ELM_CHILD=1` before exec so nested invocations skip the load
+preflight instead of printing one warning per child.
 
 ### 5. The Llama tool-call shim
 
@@ -509,4 +529,6 @@ project-specific, not derivable from the code — and never secrets).
 | `pi: this machine is busy ...` | Informational. It starts anyway, just slowly. `PI_FORCE=1` silences it. |
 | `env: node: No such file or directory` | Launcher bypassed, or `.node/` missing — re-run `./bootstrap.sh`. |
 | Llama sub-agents unavailable | `python3` missing, or port 8811 taken. `ELM_SHIM_PORT` moves it. |
+| Sub-agents fail to start, or something reports `pi: command not found` | pi-subagents falls back to a bare `pi` on PATH when it cannot resolve the CLI, and this install puts `elm-pi` on PATH, not `pi`. Fixed two ways — the launcher exports `PI_SUBAGENT_PI_BINARY`, and `bootstrap.sh` creates `agent/bin/pi` pointing at the launcher. Re-run `./bootstrap.sh --update` if `agent/bin/pi` is missing. |
+| `elm-pi: command not found` in a new shell | The installer adds `~/.local/bin` to your shell profile; open a new shell, or `export PATH="$HOME/.local/bin:$PATH"` for the current one. |
 | Startup hangs with no output at all | Seen in clusters, cause unknown; ruled out config, extensions, the launcher, ELM itself and leftover processes. Wait and retry rather than changing config — a change made during a bad window will look causal and is not. |

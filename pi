@@ -31,6 +31,20 @@ export PI_CODING_AGENT_DIR="$HERE/agent"
 # the elm-shim extension starts this proxy so Llama can call tools
 export ELM_SHIM_PATH="${ELM_SHIM_PATH:-$HERE/shim/shim.py}"
 
+# --- sub-agent children find this launcher, not a bare "pi" ------------------
+# pi-subagents spawns children by resolving the pi CLI from process.argv[1] and
+# from package resolution, and when both fail it falls back to `command: "pi"` -
+# a bare PATH lookup. This install has no `pi` on PATH (the command is elm-pi),
+# so that fallback failed and sub-agents could not start until a `pi` symlink
+# was dropped into agent/bin, which pi prepends to PATH for child processes.
+#
+# Both routes are now covered: PI_SUBAGENT_PI_BINARY is the documented override
+# and short-circuits the resolution entirely, and bootstrap.sh creates
+# agent/bin/pi -> this launcher for anything else that looks for `pi` on PATH.
+# Children go through the launcher deliberately, so the ELM-only policy, the
+# .env key and the bundled Node apply to them too.
+export PI_SUBAGENT_PI_BINARY="${PI_SUBAGENT_PI_BINARY:-$HERE/pi}"
+
 # --- --fast / --llama ------------------------------------------------------
 # Measured on this install: pi core plus the four npm packages costs ~4.4s of CPU
 # at every launch, because the packages ship raw TypeScript and are transpiled and
@@ -170,7 +184,7 @@ else
   LOAD1="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
 fi
 RUNNERS="$(ps -Ao command 2>/dev/null | grep -c '[p]i-subagents/runner-peer-preload' || true)"
-if [ -n "${LOAD1:-}" ] && [ "${PI_FORCE:-0}" != "1" ]; then
+if [ -n "${LOAD1:-}" ] && [ "${PI_FORCE:-0}" != "1" ] && [ -z "${PI_ELM_CHILD:-}" ]; then
   OVER=$(awk -v l="$LOAD1" -v c="$CORES" 'BEGIN{print (l > c*1.5) ? 1 : 0}')
   if [ "$OVER" = "1" ]; then
     echo "pi: this machine is busy - load $LOAD1 across $CORES threads, $RUNNERS sub-agent runner(s) live." >&2
@@ -199,6 +213,9 @@ if [ ! -f "$CLI" ]; then
   echo "pi is not installed here. Run $HERE/bootstrap.sh first." >&2
   exit 1
 fi
+# Anything this process spawns is a child of ours; see the preflight above.
+export PI_ELM_CHILD=1
+
 if [ "$PRINT_MODE" = "1" ] && [ -t 0 ]; then
   exec node "$CLI" ${PRE[@]+"${PRE[@]}"} "$@" < /dev/null
 fi

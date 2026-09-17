@@ -5,8 +5,9 @@
 #   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
 #
 # Installs into ~/.local/share/elm-pi and links ~/.local/bin/elm-pi. Nothing is
-# installed system-wide, nothing needs sudo, and no file outside those two paths
-# is written. Re-running is safe.
+# installed system-wide and nothing needs sudo. The only file touched outside
+# those two paths is your shell profile, and only to put ~/.local/bin on PATH
+# when it is not already there - skip that with --no-path. Re-running is safe.
 #
 # Environment overrides:
 #   ELM_PI_PREFIX=/path      where to install        (default ~/.local/share/elm-pi)
@@ -15,6 +16,9 @@
 #   ELM_PI_BRANCH=name       branch to install       (default main)
 #   ELM_API_KEY=elm-...      skip the interactive key prompt
 #   ELM_PI_UPDATE=1          refresh pi and the extensions, keeping your configs
+#   ELM_PI_NO_PATH=1         do not touch any shell profile
+#
+#   --no-path                do not add ~/.local/bin to PATH in a shell profile
 #
 # Flags forwarded to bootstrap.sh:
 #   --no-memory              drop pi-hermes-memory: ~1.8s off every launch
@@ -33,9 +37,11 @@ SLUG="$(printf '%s' "$REPO" | sed -e 's#^.*github\.com[:/]##' -e 's#\.git$##')"
 DOCS="${ELM_PI_DOCS:-https://rob-c.github.io/elm-pi/}"
 
 PASS_ARGS=""
+NO_PATH="${ELM_PI_NO_PATH:-0}"
 for arg in "$@"; do
   case "$arg" in
     --update)  UPDATE=1 ;;
+    --no-path) NO_PATH=1 ;;
     --no-memory|--no-packages|--no-shim|--no-auth-lock) PASS_ARGS="$PASS_ARGS $arg" ;;
     -h|--help) sed -n '3,24p' "$0" 2>/dev/null || true; exit 0 ;;
   esac
@@ -160,29 +166,81 @@ else
   echo "    $LINK -> $PREFIX/pi"
 fi
 
+# Put BINDIR on PATH for the shells this account actually uses. Writing the
+# line is the whole point of an installer - printing "add this yourself" is how
+# people end up running the launcher by full path forever. Every write is
+# marked and idempotent, re-running never duplicates it, and --no-path (or
+# ELM_PI_NO_PATH=1) skips the whole step.
 ON_PATH=0
 case ":${PATH}:" in *":$BINDIR:"*) ON_PATH=1 ;; esac
-if [ "$ON_PATH" = "0" ]; then
-  case "$(basename "${SHELL:-bash}")" in
-    zsh)  PROFILE="$HOME/.zshrc" ;;
-    bash) [ -f "$HOME/.bash_profile" ] && PROFILE="$HOME/.bash_profile" || PROFILE="$HOME/.bashrc" ;;
-    fish) PROFILE="$HOME/.config/fish/config.fish" ;;
-    *)    PROFILE="your shell profile" ;;
-  esac
-  printf '\n'
-  warn "$BINDIR is not on your PATH. Add it:"
-  if [ "$PROFILE" = "$HOME/.config/fish/config.fish" ]; then
-    printf '\n      fish_add_path %s\n\n' "$BINDIR"
+
+PATH_ADDED=0
+PATH_PRESENT=0
+add_path_to() {   # $1 = profile file, $2 = syntax: posix|fish
+  PROFILE="$1"
+  if [ -f "$PROFILE" ] && grep -qF "$BINDIR" "$PROFILE" 2>/dev/null; then
+    echo "    already in $(basename "$PROFILE")"
+    PATH_PRESENT=1
+    return 0
+  fi
+  mkdir -p "$(dirname "$PROFILE")" 2>/dev/null || true
+  if [ "$2" = "fish" ]; then
+    printf '\n# added by the elm-pi installer\nfish_add_path %s\n' "$BINDIR" >> "$PROFILE" \
+      || { warn "could not write $PROFILE"; return 1; }
   else
-    printf '\n      echo '\''export PATH="%s:$PATH"'\'' >> %s && exec $SHELL\n\n' "$BINDIR" "$PROFILE"
+    printf '\n# added by the elm-pi installer\nexport PATH="%s:$PATH"\n' "$BINDIR" >> "$PROFILE" \
+      || { warn "could not write $PROFILE"; return 1; }
+  fi
+  echo "    added $BINDIR to $(basename "$PROFILE")"
+  PATH_ADDED=1
+}
+
+if [ "$ON_PATH" = "1" ]; then
+  echo "    $BINDIR is already on PATH"
+elif [ "$NO_PATH" = "1" ]; then
+  warn "$BINDIR is not on PATH, and --no-path was given. Run elm-pi as: $PREFIX/pi"
+else
+  # The shell you are in now, plus any other login shell configured on this
+  # account: $SHELL is often stale (or root's default) and people switch.
+  USER_SHELL="$(basename "${SHELL:-}")"
+  case "$USER_SHELL" in
+    zsh)  add_path_to "$HOME/.zshrc" posix ;;
+    fish) add_path_to "$HOME/.config/fish/config.fish" fish ;;
+    bash)
+      # Linux interactive shells read .bashrc; macOS Terminal opens login
+      # shells, which read .bash_profile and often nothing else.
+      if [ "$OS" = "macOS" ]; then
+        add_path_to "$HOME/.bash_profile" posix
+      else
+        add_path_to "$HOME/.bashrc" posix
+      fi ;;
+    *)    : ;;
+  esac
+  # Cover the other shell if this account has one configured - a $SHELL of bash
+  # with a populated .zshrc is common, and the reverse happens on new macOS.
+  [ "$USER_SHELL" != "zsh" ]  && [ -f "$HOME/.zshrc" ]  && add_path_to "$HOME/.zshrc" posix
+  [ "$USER_SHELL" != "bash" ] && [ -f "$HOME/.bashrc" ] && add_path_to "$HOME/.bashrc" posix
+  [ "$USER_SHELL" != "bash" ] && [ "$OS" = "macOS" ] && [ -f "$HOME/.bash_profile" ] \
+    && add_path_to "$HOME/.bash_profile" posix
+  if [ "$PATH_ADDED" = "0" ] && [ "$PATH_PRESENT" = "0" ]; then
+    warn "could not work out which shell profile to edit. Add this line yourself:"
+    printf '\n      export PATH="%s:$PATH"\n\n' "$BINDIR"
   fi
 fi
 
 # --- 5. what to do next -----------------------------------------------------
 say "done"
-if [ "$ON_PATH" = "1" ]; then RUN="elm-pi"; else RUN="$PREFIX/pi"; fi
+PATH_NOTE=""
+[ "$PATH_ADDED" = "1" ] || [ "$PATH_PRESENT" = "1" ] && [ "$ON_PATH" = "0" ] && PATH_NOTE="    New shells will find elm-pi. For this one:  export PATH=\"$BINDIR:\$PATH\"
+
+"
+if [ "$ON_PATH" = "1" ] || [ "$PATH_ADDED" = "1" ] || [ "$PATH_PRESENT" = "1" ]; then
+  RUN="elm-pi"
+else
+  RUN="$PREFIX/pi"
+fi
 cat <<EOM
-    Start it:      $RUN
+${PATH_NOTE}    Start it:      $RUN
     One-shot:      $RUN -p "explain this repo"
     Update later:  $PREFIX/bootstrap.sh --update   (or re-run this install command)
 

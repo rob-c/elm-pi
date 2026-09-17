@@ -113,6 +113,18 @@ install_if_absent templates/prompts/ulw.md             agent/prompts/ulw.md
 install_if_absent templates/web-search.json            agent/web-search.json
 install_if_absent templates/hermes-memory-config.json  agent/hermes-memory-config.json
 [ -f agent/auth.json ] || printf '{}\n' > agent/auth.json
+
+# agent/bin is pi's managed-binary directory (fd, rg), and pi prepends it to
+# PATH for every child process it spawns. pi-subagents falls back to a bare
+# `pi` PATH lookup when it cannot resolve the CLI any other way, and this
+# install puts no `pi` on PATH - the command is elm-pi - so that fallback
+# failed and sub-agents would not start. The symlink makes the fallback land on
+# this launcher, which keeps the ELM-only policy and the .env key in force for
+# children. The launcher also exports PI_SUBAGENT_PI_BINARY, which covers the
+# same ground by the documented route; either alone is enough.
+mkdir -p agent/bin
+ln -sfn "$HERE/pi" agent/bin/pi
+echo "    agent/bin/pi -> $HERE/pi (sub-agent children)"
 if [ "$AUTH_LOCK" = "1" ]; then
   # /login writes the credential it obtains to agent/auth.json. Read-only means
   # that write fails, so a commercial subscription cannot be attached to this
@@ -207,6 +219,11 @@ if printf '%s' "$LIST" | grep -qE '^(anthropic|openai|google) '; then
   die "commercial providers are still visible - the credential scrub in ./pi is not working"
 fi
 printf '%s\n' "$LIST" | sed 's/^/    /'
+if [ -x agent/bin/pi ] && [ "$(cd "$(dirname "$(readlink agent/bin/pi)")" && pwd)/$(basename "$(readlink agent/bin/pi)")" = "$HERE/pi" ]; then
+  echo "    sub-agent launcher: agent/bin/pi resolves to the launcher"
+else
+  warn "agent/bin/pi is missing or points elsewhere - sub-agents may fail to start"
+fi
 GUARD="$(PI_FORCE=1 ./pi --model anthropic/claude-opus-5 -p x </dev/null 2>&1 || true)"
 case "$GUARD" in
   *"not available"*) echo "    argument guard: --model anthropic/... refused" ;;
