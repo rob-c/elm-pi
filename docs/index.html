@@ -56,39 +56,53 @@
   .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px; }
 
   /* ---- hero ---- */
-  header { padding: 72px 0 8px; text-align: center; }
+  /* The install command is the point of the page, so it gets the room: a wider
+     column than the prose, centred, and type that scales with the viewport
+     rather than sitting at body size. */
+  header { padding: 96px 0 8px; text-align: center; }
+  .wrap-wide { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
   .logo {
-    font-size: 40px; line-height: 1; margin: 0 0 14px;
+    font-size: clamp(38px, 5.5vw, 58px); line-height: 1; margin: 0 0 18px;
     letter-spacing: -0.02em; font-weight: 700;
   }
   .logo .pi { color: var(--accent); }
-  .tagline { font-size: 20px; color: var(--muted); margin: 0 auto; max-width: 30em; }
-  .sub { font-size: 15px; color: var(--muted); margin-top: 10px; }
+  .tagline { font-size: clamp(19px, 2.4vw, 24px); color: var(--muted); margin: 0 auto; max-width: 26em; }
+  .sub { font-size: 15px; color: var(--muted); margin-top: 12px; }
 
   /* ---- install box ---- */
-  .install { margin: 34px 0 10px; }
+  .install { margin: 44px auto 12px; }
+  .install-label {
+    font-size: 13px; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--muted); font-weight: 600; margin: 0 0 12px;
+  }
   .term {
     background: var(--term-bg);
     color: var(--term-ink);
-    border-radius: 10px;
-    padding: 18px 54px 18px 18px;
+    border-radius: 14px;
+    padding: 30px 26px 26px;
     position: relative;
-    text-align: left;
-    overflow-x: auto;
-    box-shadow: 0 1px 2px rgba(0,0,0,.18), 0 8px 24px rgba(0,0,0,.10);
+    text-align: center;
+    box-shadow: 0 1px 2px rgba(0,0,0,.18), 0 14px 40px rgba(0,0,0,.14);
   }
-  .term pre { margin: 0; font-size: 13.5px; line-height: 1.55; white-space: pre; }
-  .term .prompt { color: var(--term-prompt); user-select: none; }
+  .term pre {
+    margin: 0;
+    font-size: clamp(13px, 1.8vw, 18px);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    -webkit-user-select: all; user-select: all;
+  }
   .copy {
-    position: absolute; top: 10px; right: 10px;
+    position: absolute; top: 12px; right: 12px;
     background: rgba(255,255,255,.08); color: var(--term-ink);
-    border: 1px solid rgba(255,255,255,.16); border-radius: 6px;
-    font: 500 12px/1 ui-sans-serif, system-ui, sans-serif;
-    padding: 7px 9px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.16); border-radius: 8px;
+    font: 500 13px/1 ui-sans-serif, system-ui, sans-serif;
+    padding: 9px 12px; cursor: pointer;
   }
   .copy:hover { background: rgba(255,255,255,.16); }
   .copy.done { color: var(--term-prompt); border-color: var(--term-prompt); }
-  .requires { font-size: 14px; color: var(--muted); text-align: center; margin: 12px 0 0; }
+  .requires { font-size: 15px; color: var(--muted); text-align: center; margin: 16px auto 0; max-width: 42em; }
 
   /* ---- sections ---- */
   main { padding: 26px 0 80px; }
@@ -128,27 +142,29 @@
   footer a { margin: 0 8px; }
 
   @media (max-width: 560px) {
-    header { padding-top: 48px; }
-    .logo { font-size: 32px; }
+    header { padding-top: 52px; }
     .tagline { font-size: 18px; }
-    .term { padding: 16px 16px 16px; }
-    .term pre { font-size: 12px; white-space: pre-wrap; word-break: break-all; }
-    .copy { position: static; display: block; margin-top: 12px; width: 100%; padding: 9px; }
+    .term { padding: 20px 16px 16px; border-radius: 12px; }
+    .term pre { font-size: 13px; }
+    .copy { position: static; display: block; margin: 16px auto 0; width: 100%; padding: 11px; }
     td:first-child { white-space: normal; }
   }
 </style>
 </head>
 <body>
 
-<header class="wrap">
-  <h1 class="logo">elm-<span class="pi">&pi;</span></h1>
-  <p class="tagline">A coding agent that runs on the University&rsquo;s own GPUs, not a commercial provider.</p>
-  <p class="sub">Qwen&nbsp;3.5&nbsp;397B via the Edinburgh ELM gateway &middot; macOS and Linux</p>
+<header>
+  <div class="wrap">
+    <h1 class="logo">elm-<span class="pi">&pi;</span></h1>
+    <p class="tagline">A coding agent that runs on the University&rsquo;s own GPUs, not a commercial provider.</p>
+    <p class="sub">Qwen&nbsp;3.5&nbsp;397B via the Edinburgh ELM gateway &middot; macOS and Linux</p>
+  </div>
 
-  <div class="install">
+  <div class="wrap-wide install">
+    <p class="install-label">Install</p>
     <div class="term">
       <button class="copy" id="copy" type="button">Copy</button>
-<pre><span class="prompt">$</span> <span id="cmd">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</span></pre>
+<pre id="cmd">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
     </div>
     <p class="requires">Paste into a terminal. No <code>sudo</code>, nothing installed system-wide. You&rsquo;ll be asked for your ELM API key.</p>
   </div>
@@ -205,15 +221,16 @@
         anchor-based editing.</li>
     <li>Asks for your ELM key, writes it to <code>.env</code> with mode <code>600</code>,
         resolves the current model id from the gateway and smoke-tests one completion.</li>
-    <li>Verifies the ELM-only policy actually holds, then links
-        <code>~/.local/bin/elm-pi</code>.</li>
+    <li>Verifies the ELM-only policy actually holds, links <code>~/.local/bin/pi</code>
+        and puts that directory on your <code>PATH</code> in the shell profile you
+        actually use &mdash; zsh, bash or fish.</li>
   </ul>
   <p>
     About 650&nbsp;MB and three minutes on a warm network. Re-running is safe: it never
     overwrites your key, your sessions, your memory or a config you have edited. Everything
     lives under one directory, so uninstalling is:
   </p>
-  <pre class="block">rm -rf ~/.local/share/elm-pi ~/.local/bin/elm-pi</pre>
+  <pre class="block">rm -rf ~/.local/share/elm-pi ~/.local/bin/pi</pre>
   <p>
     Prefer to read before you run? The script is
     <a href="https://github.com/rob-c/elm-pi/blob/main/install.sh">install.sh</a>, and
@@ -224,9 +241,15 @@
 
 <section>
   <h2>Using it</h2>
-  <pre class="block">elm-pi                          # interactive, in whatever directory you're working in
-elm-pi -p "explain this repo"    # one-shot
-cat paper.tex | elm-pi -p "find the undefined references"</pre>
+  <pre class="block">pi                           # interactive, in whatever directory you're working in
+pi -p "explain this repo"    # one-shot
+pi --fast -p "..."           # one-shot, ~3x quicker to start
+cat paper.tex | pi -p "find the undefined references"</pre>
+  <p>
+    The command is <code>pi</code>: the wrapper takes the name and hands over to
+    <code>pi.orig</code>, the unwrapped CLI inside the install. Anything that expects a
+    <code>pi</code> therefore gets the wrapped, ELM-only one.
+  </p>
   <table>
     <tr><th>Command</th><th>What it does</th></tr>
     <tr><td><code>/model</code></td><td>switch between the ELM models</td></tr>
@@ -274,7 +297,7 @@ cat paper.tex | elm-pi -p "find the undefined references"</pre>
   <h2>If something goes wrong</h2>
   <table>
     <tr><th>Symptom</th><th>Cause</th></tr>
-    <tr><td><code>elm-pi: command not found</code></td><td><code>~/.local/bin</code> is not on your PATH &mdash; the installer prints the line to add</td></tr>
+    <tr><td><code>pi: command not found</code></td><td><code>~/.local/bin</code> is not on your PATH &mdash; the installer adds it to your shell profile, so open a new shell</td></tr>
     <tr><td><code>401 Invalid API key</code></td><td>key wrong, revoked, or past its expiry date</td></tr>
     <tr><td>Chats fine, never edits files</td><td>the backend returned no tool calls &mdash; see verify step 3 in INSTALL.md</td></tr>
     <tr><td><code>-p "..."</code> seems to hang</td><td>not a bug: print mode reads stdin. Pipe something in, or add <code>&lt; /dev/null</code></td></tr>

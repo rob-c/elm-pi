@@ -232,7 +232,7 @@ add_path_to() {   # $1 = profile file, $2 = syntax: posix|fish
 if [ "$ON_PATH" = "1" ]; then
   echo "    $BINDIR is already on PATH"
 elif [ "$NO_PATH" = "1" ]; then
-  warn "$BINDIR is not on PATH, and --no-path was given. Run elm-pi as: $PREFIX/pi"
+  warn "$BINDIR is not on PATH, and --no-path was given. Run pi as: $PREFIX/pi"
 else
   # The shell you are in now, plus any other login shell configured on this
   # account: $SHELL is often stale (or root's default) and people switch.
