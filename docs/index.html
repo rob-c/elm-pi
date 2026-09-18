@@ -1,92 +1,135 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>elm-pi</title>
 <meta name="description" content="A coding agent on the University of Edinburgh's own GPUs. One command to install on macOS or Linux.">
+<meta property="og:title" content="elm-pi">
+<meta property="og:description" content="A coding agent on the University of Edinburgh's own GPUs. One command, macOS or Linux.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#960;</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,400..800,40,1;1,9..144,400..700,40,1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  /* ELM flags this compute "Climate Sensitive" and "University Hosted", and the
+     gateway is named for a tree. The page is therefore built in elm greens, with
+     sodium-lamp amber reserved for the one thing that actually blocks people:
+     getting a key. Nothing else is allowed to be amber. */
   :root {
-    --bg: #fbfaf8;
-    --panel: #ffffff;
-    --ink: #1c1b19;
-    --muted: #6b6862;
-    --line: #e5e1da;
-    --accent: #0a5c6e;
-    --accent-soft: #e6f1f3;
-    --term-bg: #16201f;
-    --term-ink: #e8f0ee;
-    --term-prompt: #6fcf97;
-    --warn-bg: #fdf6e3;
-    --warn-line: #e8d9a8;
+    --night:  #0b241c;
+    --night-2:#123528;
+    --paper:  #f2f4f0;
+    --panel:  #ffffff;
+    --ink:    #14261f;
+    --stone:  #5f6f68;
+    --line:   #d9e0da;
+    --elm:    #1f6145;
+    --elm-lit:#3f9d72;
+    --sodium: #e8a33d;
+    --sodium-deep: #8a5a10;
+    --sodium-bg: #fdf3e0;
+    --term:   #0a1f18;
+    --term-ink:#e9f2ec;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #14161a;
-      --panel: #1b1e23;
-      --ink: #e8e6e1;
-      --muted: #9a9790;
-      --line: #2c3038;
-      --accent: #6fd0e2;
-      --accent-soft: #17303a;
-      --term-bg: #0e1413;
-      --term-ink: #e8f0ee;
-      --warn-bg: #241f14;
-      --warn-line: #4a3f22;
+      --paper:  #0d1a16;
+      --panel:  #132420;
+      --ink:    #e4ece7;
+      --stone:  #96a79f;
+      --line:   #24382f;
+      --elm:    #6cc79a;
+      --sodium-deep: #f0b968;
+      --sodium-bg: #2a2114;
+      --term:   #061511;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #14161a; --panel: #1b1e23; --ink: #e8e6e1; --muted: #9a9790;
-    --line: #2c3038; --accent: #6fd0e2; --accent-soft: #17303a;
-    --term-bg: #0e1413; --term-ink: #e8f0ee; --warn-bg: #241f14; --warn-line: #4a3f22;
+    --paper:#0d1a16; --panel:#132420; --ink:#e4ece7; --stone:#96a79f;
+    --line:#24382f; --elm:#6cc79a; --sodium-deep:#f0b968; --sodium-bg:#2a2114; --term:#061511;
   }
 
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
-    background: var(--bg);
+    background: var(--paper);
     color: var(--ink);
-    font: 17px/1.65 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font: 17px/1.62 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-synthesis-weight: none;
   }
-  code, kbd, pre { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
-  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  code, kbd, pre { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  a { color: var(--elm); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:hover { text-decoration-thickness: 2px; }
+  :focus-visible { outline: 2px solid var(--elm-lit); outline-offset: 3px; border-radius: 2px; }
 
-  .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 20px; }
+  .wrap-wide { max-width: 1020px; margin: 0 auto; padding: 0 20px; }
 
-  /* ---- hero ---- */
-  /* The install command is the point of the page, so it gets the room: a wider
-     column than the prose, centred, and type that scales with the viewport
-     rather than sitting at body size. */
-  header { padding: 96px 0 8px; text-align: center; }
-  .wrap-wide { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
-  .logo {
-    font-size: clamp(38px, 5.5vw, 58px); line-height: 1; margin: 0 0 18px;
-    letter-spacing: -0.02em; font-weight: 700;
-  }
-  .logo .pi { color: var(--accent); }
-  .tagline { font-size: clamp(19px, 2.4vw, 24px); color: var(--muted); margin: 0 auto; max-width: 26em; }
-  .sub { font-size: 15px; color: var(--muted); margin-top: 12px; }
-
-  /* ---- install box ---- */
-  .install { margin: 44px auto 12px; }
-  .install-label {
-    font-size: 13px; text-transform: uppercase; letter-spacing: .1em;
-    color: var(--muted); font-weight: 600; margin: 0 0 12px;
-  }
-  .term {
-    background: var(--term-bg);
-    color: var(--term-ink);
-    border-radius: 14px;
-    padding: 30px 26px 26px;
+  /* ---------- hero: one bold thing, the π, and the command on top of it ---------- */
+  .hero {
     position: relative;
-    text-align: center;
-    box-shadow: 0 1px 2px rgba(0,0,0,.18), 0 14px 40px rgba(0,0,0,.14);
+    overflow: hidden;
+    background: radial-gradient(120% 140% at 12% 0%, var(--night-2) 0%, var(--night) 62%);
+    color: #eaf3ee;
+    padding: clamp(56px, 9vw, 104px) 0 clamp(52px, 7vw, 84px);
   }
-  .term pre {
+  /* The mark, drawn huge and hollow, cropped by the band it sits in. */
+  .mark {
+    position: absolute;
+    right: -4vw; top: 48%; transform: translateY(-50%);
+    font-family: Fraunces, Georgia, serif;
+    font-variation-settings: "SOFT" 40, "WONK" 1, "opsz" 144;
+    font-weight: 700;
+    font-size: clamp(340px, 52vw, 680px);
+    line-height: .78;
+    color: transparent;
+    -webkit-text-stroke: 2px rgba(159, 214, 186, .26);
+    pointer-events: none;
+    user-select: none;
+  }
+  @supports not (-webkit-text-stroke: 1px red) {
+    .mark { color: rgba(159, 214, 186, .10); }
+  }
+  .hero > :not(.mark) { position: relative; z-index: 1; }
+
+  .wordmark {
+    font-family: Fraunces, Georgia, serif;
+    font-variation-settings: "SOFT" 40, "WONK" 1, "opsz" 100;
+    font-weight: 700;
+    font-size: clamp(46px, 7.4vw, 88px);
+    line-height: .95;
+    letter-spacing: -.025em;
+    margin: 0 0 18px;
+    text-align: center;
+  }
+  .wordmark em { font-style: normal; color: var(--sodium); }
+  .promise {
+    font-size: clamp(19px, 2.3vw, 25px);
+    line-height: 1.42;
+    max-width: 21em;
+    margin: 0 auto;
+    text-align: center;
+    color: #cfe3d8;
+  }
+  .promise b { color: #fff; font-weight: 600; }
+
+  .install { margin: clamp(34px, 5vw, 52px) auto 0; }
+  .plate {
+    position: relative;
+    background: var(--term);
+    border: 1px solid rgba(159, 214, 186, .22);
+    border-radius: 16px;
+    padding: 30px 26px 26px;
+    text-align: center;
+    box-shadow: 0 22px 50px rgba(0, 0, 0, .34);
+  }
+  .plate pre {
     margin: 0;
-    font-size: clamp(13px, 1.8vw, 18px);
+    color: var(--term-ink);
+    font-size: clamp(13px, 1.75vw, 18px);
+    font-weight: 500;
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
@@ -95,82 +138,160 @@
   }
   .copy {
     position: absolute; top: 12px; right: 12px;
-    background: rgba(255,255,255,.08); color: var(--term-ink);
-    border: 1px solid rgba(255,255,255,.16); border-radius: 8px;
-    font: 500 13px/1 ui-sans-serif, system-ui, sans-serif;
-    padding: 9px 12px; cursor: pointer;
+    background: rgba(233, 242, 236, .1); color: var(--term-ink);
+    border: 1px solid rgba(233, 242, 236, .22); border-radius: 9px;
+    font-weight: 500; font-size: 13px; line-height: 1;
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 9px 13px; cursor: pointer;
   }
-  .copy:hover { background: rgba(255,255,255,.16); }
-  .copy.done { color: var(--term-prompt); border-color: var(--term-prompt); }
-  .requires { font-size: 15px; color: var(--muted); text-align: center; margin: 16px auto 0; max-width: 42em; }
+  .copy:hover { background: rgba(233, 242, 236, .2); }
+  .copy.done { color: #8ee0b3; border-color: #8ee0b3; }
+  .requires {
+    margin: 16px auto 0; max-width: 46em; text-align: center;
+    font-size: 15px; color: #a9c4b8;
+  }
+  .requires b { color: var(--sodium); font-weight: 600; }
+  .requires code { color: #cfe3d8; }
 
-  /* ---- sections ---- */
-  main { padding: 26px 0 80px; }
-  section { margin: 46px 0 0; }
+  /* Facts, set as a sentence rather than a row of stat tiles. */
+  .facts {
+    margin: clamp(30px, 4vw, 44px) auto 0;
+    max-width: 30em; text-align: center;
+    font-size: 16.5px; line-height: 1.9; color: #a9c4b8;
+  }
+  .facts b {
+    font-family: Fraunces, Georgia, serif;
+    font-variation-settings: "SOFT" 40, "WONK" 1;
+    font-weight: 600; font-size: 1.28em; color: #eaf3ee;
+    letter-spacing: -.01em;
+  }
+
+  /* One page-load moment, then the page stays still. */
+  @media (prefers-reduced-motion: no-preference) {
+    .rise { animation: rise .7s cubic-bezier(.2, .7, .3, 1) both; }
+    .rise-2 { animation-delay: .07s; }
+    .rise-3 { animation-delay: .16s; }
+    .rise-4 { animation-delay: .26s; }
+    @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+  }
+
+  /* ---------- body ---------- */
+  main { padding: clamp(44px, 6vw, 72px) 0 90px; }
+  section { margin: 0 0 clamp(40px, 5vw, 60px); }
   h2 {
-    font-size: 15px; text-transform: uppercase; letter-spacing: .08em;
-    color: var(--muted); font-weight: 600;
-    margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+    font-family: Fraunces, Georgia, serif;
+    font-variation-settings: "SOFT" 40, "WONK" 1, "opsz" 72;
+    font-weight: 600;
+    font-size: clamp(25px, 3.1vw, 33px);
+    line-height: 1.18;
+    letter-spacing: -.018em;
+    margin: 0 0 16px;
+    padding-left: 18px;
+    border-left: 4px solid var(--elm);
   }
   h3 { font-size: 17px; margin: 26px 0 6px; }
-  p { margin: 0 0 14px; }
-  ul { margin: 0 0 14px; padding-left: 22px; }
-  li { margin: 5px 0; }
+  p { margin: 0 0 15px; max-width: 68ch; }
+  ul { margin: 0 0 15px; padding-left: 20px; }
+  li { margin: 7px 0; max-width: 66ch; }
+  li::marker { color: var(--elm); }
+  strong { font-weight: 650; }
 
   pre.block {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-    padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.6; margin: 0 0 14px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-left: 4px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto;
+    font-size: 13.5px; line-height: 1.65; margin: 0 0 15px;
   }
-  p code, li code, td code { background: var(--accent-soft); color: var(--ink);
-    padding: 1px 5px; border-radius: 4px; font-size: .88em; }
-
-  table { width: 100%; border-collapse: collapse; margin: 0 0 14px; font-size: 15.5px; }
-  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; }
-  td:first-child { white-space: nowrap; }
-
-  .note {
-    background: var(--warn-bg); border: 1px solid var(--warn-line);
-    border-radius: 8px; padding: 14px 16px; font-size: 15.5px; margin: 0 0 14px;
+  p code, li code, td code, .requires code { background: rgba(31, 97, 69, .1); color: inherit;
+    padding: 1.5px 5px; border-radius: 5px; font-size: .86em; }
+  kbd {
+    background: var(--panel); border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 5px; padding: 1px 6px; font-size: .85em;
   }
-  .note p:last-child, .block:last-child { margin-bottom: 0; }
+
+  table { width: 100%; border-collapse: collapse; margin: 4px 0 15px; font-size: 16px; }
+  th, td { text-align: left; padding: 11px 12px 11px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--stone); font-weight: 600; font-size: 14px; }
+  td:first-child { white-space: nowrap; padding-right: 20px; }
+  tr:last-child td { border-bottom: 0; }
+
+  /* Amber is only ever the API key: the one thing that stops an install dead. */
+  .key-note {
+    background: var(--sodium-bg);
+    border: 1px solid rgba(232, 163, 61, .45);
+    border-left: 5px solid var(--sodium);
+    border-radius: 12px; padding: 18px 20px; margin: 0 0 18px;
+  }
+  .key-note h2 { border: 0; padding: 0; margin: 0 0 10px; font-size: clamp(22px, 2.6vw, 27px); }
+  .key-note p:last-child, .key-note pre:last-child { margin-bottom: 0; }
+  .key-note pre.block { background: rgba(255, 255, 255, .55); border-color: rgba(232, 163, 61, .35); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .key-note pre.block { background: rgba(0, 0, 0, .25); }
+  }
 
   footer {
-    border-top: 1px solid var(--line); padding: 26px 0 60px;
-    font-size: 14.5px; color: var(--muted); text-align: center;
+    border-top: 1px solid var(--line); padding: 28px 0 70px;
+    font-size: 15px; color: var(--stone);
   }
-  footer a { margin: 0 8px; }
+  footer nav { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+  footer p { margin: 16px 0 0; color: var(--stone); font-size: 14.5px; }
 
-  @media (max-width: 560px) {
-    header { padding-top: 52px; }
-    .tagline { font-size: 18px; }
-    .term { padding: 20px 16px 16px; border-radius: 12px; }
-    .term pre { font-size: 13px; }
-    .copy { position: static; display: block; margin: 16px auto 0; width: 100%; padding: 11px; }
+  @media (max-width: 620px) {
+    .mark { font-size: 300px; right: -18vw; opacity: .8; }
+    .plate { padding: 22px 16px 16px; border-radius: 12px; }
+    .plate pre { font-size: 13px; }
+    .copy { position: static; display: block; width: 100%; margin: 16px 0 0; padding: 12px; }
     td:first-child { white-space: normal; }
   }
 </style>
 </head>
 <body>
 
-<header>
+<header class="hero">
+  <div class="mark" aria-hidden="true">&pi;</div>
+
   <div class="wrap">
-    <h1 class="logo">elm-<span class="pi">&pi;</span></h1>
-    <p class="tagline">A coding agent that runs on the University&rsquo;s own GPUs, not a commercial provider.</p>
-    <p class="sub">Qwen&nbsp;3.5&nbsp;397B via the Edinburgh ELM gateway &middot; macOS and Linux</p>
+    <h1 class="wordmark rise">elm-<em>&pi;</em></h1>
+    <p class="promise rise rise-2">A coding agent whose model runs on <b>the University&rsquo;s own GPUs</b>, two miles away, not on a credit card.</p>
   </div>
 
-  <div class="wrap-wide install">
-    <p class="install-label">Install</p>
-    <div class="term">
+  <div class="wrap-wide install rise rise-3">
+    <div class="plate">
       <button class="copy" id="copy" type="button">Copy</button>
 <pre id="cmd">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
     </div>
-    <p class="requires">Paste into a terminal. No <code>sudo</code>, nothing installed system-wide. You&rsquo;ll be asked for your ELM API key.</p>
+    <p class="requires">macOS or Linux. No <code>sudo</code>, nothing installed system-wide, one directory you can delete. <b>You will need an ELM API key first</b> &mdash; how to get one is below.</p>
   </div>
+
+  <p class="facts rise rise-4">
+    Qwen&nbsp;3.5, <b>397B</b> parameters and a <b>262K</b> context, answering from Edinburgh,
+    with <b>64</b> sub-agents on tap when one is not enough.
+  </p>
 </header>
 
 <main class="wrap">
+
+<section class="key-note">
+  <h2>Start here: you need an ELM key</h2>
+  <p>
+    ELM keys are <strong>issued on request, not self-service</strong>. In the ELM web UI, submit
+    the API-key request form describing what you want to use it for; it goes to an approval
+    queue. Keys look like <code>elm-xxxxxxxx-xxxxxxxxxxxxxxxx</code> and are typically valid for
+    12 months.
+  </p>
+  <p>
+    Check whether you already have one before requesting a second. On any ELM browser tab, open
+    the console (<kbd>&#8997;&#8984;I</kbd>) and run:
+  </p>
+  <pre class="block">await (await fetch("/api/elm-key-requests?page=0&amp;size=20",
+      {credentials:"include"})).json()</pre>
+  <p>
+    Look for <code>"status": "KEY_ISSUED"</code> &mdash; the key is in <code>elmKeyValue</code>.
+    Paste it when the installer asks, or set it up front:
+  </p>
+  <pre class="block">ELM_API_KEY=elm-... /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
+</section>
 
 <section>
   <h2>What this is</h2>
@@ -178,37 +299,15 @@
     <a href="https://pi.dev">pi</a> is a terminal coding agent &mdash; it reads your files,
     edits them, runs commands and iterates, the way Claude Code or Codex do. This install
     points it at the University of Edinburgh&rsquo;s
-    <a href="https://elm.edina.ac.uk">ELM gateway</a> so the model doing the work is
-    <strong>Qwen&nbsp;3.5&nbsp;397B running on university hardware</strong>, billed against your
+    <a href="https://elm.edina.ac.uk">ELM gateway</a>, so the model doing the work is
+    <strong>Qwen&nbsp;3.5&nbsp;397B on university hardware</strong>, billed against your
     departmental allocation rather than a credit card.
   </p>
   <p>
-    Commercial providers are removed from the install on purpose. A staff allocation of
-    $500 at industry token rates is a few weeks of real coding-agent use; the same money on
-    ELM lasts far longer, and the GPUs are ones the University already owns.
+    Commercial providers are removed from the install on purpose. A staff allocation of $500 at
+    industry token rates is a few weeks of real coding-agent use; the same money on ELM lasts far
+    longer, and the GPUs are ones the University already owns.
   </p>
-</section>
-
-<section>
-  <h2>Before you start: get an ELM key</h2>
-  <p>
-    ELM keys are <strong>issued on request, not self-service</strong>. In the ELM web UI,
-    submit the API-key request form describing what you want to use it for; it goes to an
-    approval queue. Keys look like <code>elm-xxxxxxxx-xxxxxxxxxxxxxxxx</code> and are
-    typically valid for 12 months.
-  </p>
-  <div class="note">
-    <p><strong>Check whether you already have one</strong> before requesting a second. On any
-    ELM browser tab, open the console (<kbd>&#8997;&#8984;I</kbd>) and run:</p>
-    <pre class="block">await (await fetch("/api/elm-key-requests?page=0&amp;size=20",
-      {credentials:"include"})).json()</pre>
-    <p style="margin-bottom:0">Look for <code>"status": "KEY_ISSUED"</code> &mdash; the key is in
-    <code>elmKeyValue</code>.</p>
-  </div>
-  <p>
-    You can run the install command first and paste the key when it asks, or set it up front:
-  </p>
-  <pre class="block">ELM_API_KEY=elm-... /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
 </section>
 
 <section>
@@ -219,11 +318,11 @@
         <code>brew</code> and <code>nvm</code> are untouched.</li>
     <li>Installs pi and its extensions: sub-agents, cross-session memory, web access,
         anchor-based editing.</li>
-    <li>Asks for your ELM key, writes it to <code>.env</code> with mode <code>600</code>,
-        resolves the current model id from the gateway and smoke-tests one completion.</li>
-    <li>Verifies the ELM-only policy actually holds, links <code>~/.local/bin/pi</code>
-        and puts that directory on your <code>PATH</code> in the shell profile you
-        actually use &mdash; zsh, bash or fish.</li>
+    <li>Writes your key to <code>.env</code> with mode <code>600</code>, resolves the current
+        model id from the gateway, and smoke-tests one completion.</li>
+    <li>Checks the ELM-only policy actually holds, links <code>~/.local/bin/pi</code>, and puts
+        that directory on your <code>PATH</code> in the shell profile you really use &mdash; zsh,
+        bash or fish.</li>
   </ul>
   <p>
     About 650&nbsp;MB and three minutes on a warm network. Re-running is safe: it never
@@ -246,9 +345,9 @@ pi -p "explain this repo"    # one-shot
 pi --fast -p "..."           # one-shot, ~3x quicker to start
 cat paper.tex | pi -p "find the undefined references"</pre>
   <p>
-    The command is <code>pi</code>: the wrapper takes the name and hands over to
-    <code>pi.orig</code>, the unwrapped CLI inside the install. Anything that expects a
-    <code>pi</code> therefore gets the wrapped, ELM-only one.
+    The command is <code>pi</code>. The wrapper takes the name and hands over to
+    <code>pi.orig</code>, the unwrapped CLI inside the install, so anything expecting a
+    <code>pi</code> gets the wrapped, ELM-only one.
   </p>
   <table>
     <tr><th>Command</th><th>What it does</th></tr>
@@ -264,7 +363,7 @@ cat paper.tex | pi -p "find the undefined references"</pre>
   <h2>What you get</h2>
   <table>
     <tr><td><strong>Model</strong></td><td><code>Qwen/Qwen3.5-397B-A17B-FP8</code> &mdash; 262K context, tool calling, vision</td></tr>
-    <tr><td><strong>Sub-agents</strong></td><td>64-child fan-out budget, with cheap Llama&nbsp;3.3 workers via a local tool-call shim</td></tr>
+    <tr><td><strong>Sub-agents</strong></td><td>64-child fan-out budget, with Llama&nbsp;3.3 workers via a local tool-call shim</td></tr>
     <tr><td><strong>Editing</strong></td><td>anchor-based, which survives long files better than line-number patches</td></tr>
     <tr><td><strong>Memory</strong></td><td>per-project <code>AGENTS.md</code>, plus searchable cross-session memory</td></tr>
     <tr><td><strong>Web</strong></td><td>DuckDuckGo, then Exa</td></tr>
@@ -297,7 +396,7 @@ cat paper.tex | pi -p "find the undefined references"</pre>
   <h2>If something goes wrong</h2>
   <table>
     <tr><th>Symptom</th><th>Cause</th></tr>
-    <tr><td><code>pi: command not found</code></td><td><code>~/.local/bin</code> is not on your PATH &mdash; the installer adds it to your shell profile, so open a new shell</td></tr>
+    <tr><td><code>pi: command not found</code></td><td><code>~/.local/bin</code> is not on your PATH yet &mdash; the installer adds it to your shell profile, so open a new shell</td></tr>
     <tr><td><code>401 Invalid API key</code></td><td>key wrong, revoked, or past its expiry date</td></tr>
     <tr><td>Chats fine, never edits files</td><td>the backend returned no tool calls &mdash; see verify step 3 in INSTALL.md</td></tr>
     <tr><td><code>-p "..."</code> seems to hang</td><td>not a bug: print mode reads stdin. Pipe something in, or add <code>&lt; /dev/null</code></td></tr>
@@ -313,10 +412,13 @@ cat paper.tex | pi -p "find the undefined references"</pre>
 </main>
 
 <footer class="wrap">
-  <a href="https://github.com/rob-c/elm-pi">Source</a>
-  <a href="https://github.com/rob-c/elm-pi/blob/main/INSTALL.md">Install guide</a>
-  <a href="https://github.com/rob-c/elm-pi/blob/main/LOCKDOWN.md">Why ELM-only</a>
-  <a href="https://github.com/rob-c/elm-pi/issues">Issues</a>
+  <nav>
+    <a href="https://github.com/rob-c/elm-pi">Source</a>
+    <a href="https://github.com/rob-c/elm-pi/blob/main/INSTALL.md">Install guide</a>
+    <a href="https://github.com/rob-c/elm-pi/blob/main/LOCKDOWN.md">Why ELM-only</a>
+    <a href="https://github.com/rob-c/elm-pi/issues">Issues</a>
+  </nav>
+  <p>Built on <a href="https://pi.dev">pi</a>, pointed at ELM. Not an official University service.</p>
 </footer>
 
 <script>
