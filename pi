@@ -165,7 +165,32 @@ if [ "$UNLOCK" != "1" ]; then
     prev="$a"
   done
 fi
+
 # ---------------------------------------------------------------------------
+
+# --- intercept 'pi update' --------------------------------------------------
+# When invoked with 'update' (no --extensions/--models), re-run the GitHub
+# installer to get latest elm-pi + pi, not just pi from npm.
+if [ "${1:-}" = "update" ]; then
+    HAS_EXTENSIONS=0
+    HAS_MODELS=0
+    for arg in "$@"; do
+        case "$arg" in
+            --extensions) HAS_EXTENSIONS=1 ;;
+            --models) HAS_MODELS=1 ;;
+        esac
+    done
+    
+    if [ "$HAS_EXTENSIONS" = "0" ] && [ "$HAS_MODELS" = "0" ]; then
+        echo "pi: updating elm-pi from GitHub (latest main branch)..." >&2
+        echo "    This updates both elm-pi and the pi package." >&2
+        echo "    For pi-only updates: pi update --extensions" >&2
+        echo "" >&2
+        exec "$HERE/bootstrap.sh" --update --non-interactive
+    fi
+fi
+# ---------------------------------------------------------------------------
+
 
 # --- preflight: note a saturated machine, but do not stand in the way -------
 # Each sub-agent is a full node process. On a 12-thread laptop a 32-worker run
@@ -198,6 +223,9 @@ if [ -n "${LOAD1:-}" ] && [ "${PI_FORCE:-0}" != "1" ] && [ -z "${PI_ELM_CHILD:-}
   fi
 fi
 # ---------------------------------------------------------------------------
+
+
+
 
 # --- stdin guard ------------------------------------------------------------
 # In print mode pi reads stdin so you can pipe input to it. A pipe ends with EOF

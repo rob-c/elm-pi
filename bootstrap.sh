@@ -17,8 +17,19 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
+
+
+
+
 NODE_VERSION="${NODE_VERSION:-v24.21.0}"
-PI_VERSION="${PI_VERSION:-^0.85.1}"
+
+# Always install latest pi from npm (no version pin)
+# Set PI_VERSION to a specific version only if you need to freeze it
+PI_VERSION="${PI_VERSION:-latest}"
+
+
+
+
 WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; WITH_MEMORY=1
 for arg in "$@"; do
   case "$arg" in
