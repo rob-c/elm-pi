@@ -8,6 +8,7 @@
 #   ./bootstrap.sh --update         refresh pi and packages, keep configs
 #   ./bootstrap.sh --force          force npm reinstall even if packages exist
 #   ./bootstrap.sh --no-auth-lock   leave agent/auth.json writable (allows /login)
+#   ./bootstrap.sh --no-tools       skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
 #
 # Idempotent: re-running never overwrites .env, sessions, memory or any config
 # you have edited. Nothing is installed system-wide; delete this directory and
@@ -30,6 +31,7 @@ PI_VERSION="${PI_VERSION:-latest}"
 
 
 WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; WITH_MEMORY=1; FORCE=0
+WITH_TOOLS=1
 for arg in "$@"; do
   case "$arg" in
     --no-shim) WITH_SHIM=0 ;;
@@ -39,7 +41,8 @@ for arg in "$@"; do
     --update) UPDATE=1 ;;
     --force) FORCE=1 ;;
     --no-auth-lock) AUTH_LOCK=0 ;;
-    -h|--help) sed -n '3,14p' "$0"; exit 0 ;;
+    --no-tools) WITH_TOOLS=0 ;;
+    -h|--help) sed -n '3,15p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -47,6 +50,18 @@ done
 say()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m    %s\033[0m\n' "$*"; }
 die()  { printf '\033[31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
+
+# macOS ships shasum, most Linux distros ship sha256sum. Pick before piping:
+# a missing binary inside a pipeline still exits 0 through awk.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    die "neither sha256sum nor shasum found - cannot verify downloads"
+  fi
+}
 
 # --- 1. Node ----------------------------------------------------------------
 # Bundled inside the install: no brew, no system Node, no version conflict.
@@ -72,15 +87,7 @@ else
   curl -fsSL -o "$TMP/$TAR" "https://nodejs.org/dist/$NODE_VERSION/$TAR"
   curl -fsSL -o "$TMP/SHASUMS256.txt" "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt"
   want=$(grep " $TAR\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')
-  # macOS ships shasum, most Linux distros ship sha256sum. Pick before piping:
-  # a missing binary inside a pipeline still exits 0 through awk.
-  if command -v sha256sum >/dev/null 2>&1; then
-    got=$(sha256sum "$TMP/$TAR" | awk '{print $1}')
-  elif command -v shasum >/dev/null 2>&1; then
-    got=$(shasum -a 256 "$TMP/$TAR" | awk '{print $1}')
-  else
-    die "neither sha256sum nor shasum found - cannot verify the Node download"
-  fi
+  got=$(sha256_of "$TMP/$TAR")
   [ -n "$want" ] && [ "$want" = "$got" ] || die "checksum mismatch for $TAR"
   rm -rf .node && mkdir -p .node
   tar -xzf "$TMP/$TAR" -C .node --strip-components=1
@@ -162,6 +169,154 @@ if [ "$AUTH_LOCK" = "1" ]; then
 else
   chmod 600 agent/auth.json
   echo "    agent/auth.json is writable (--no-auth-lock)"
+fi
+
+# --- 3b. command-line tools -------------------------------------------------
+# pi's find and grep tools shell out to fd and rg. It looks for them in
+# agent/bin first, then on PATH, and if it finds neither it downloads them from
+# GitHub on the first interactive launch - awaited before the prompt is drawn,
+# which is what made the first start crawl. Installing them here means the
+# first launch costs what the tenth does.
+#
+# The rest of the list is for the agent's bash tool rather than for pi: the
+# things a model reaches for constantly and cannot rely on finding, on a Mac or
+# on a login node. All are a single static binary from the project's own GitHub
+# release, so the install stays one directory you can delete.
+#
+#   - fd          file finding               (pi's find tool)
+#   - rg          content search             (pi's grep tool)
+#   - jq          JSON on the command line   - macOS 15 ships it, most Linux does not
+#   - yq          the same for YAML          - CI configs, k8s, conda envs
+#   - shellcheck  lints shell before it runs - this install is mostly bash
+#   - ast-grep    structural search and rewrite by syntax tree, not by regex
+#
+# (The list marker is not decoration: a comment whose first word is the name of
+# a certain linter is read by that linter as a directive, and it then refuses to
+# parse the rest of the file.)
+#
+# They are installed even when the machine already has them, so that every host
+# behaves the same: the launcher puts agent/bin at the front of PATH, so the
+# agent gets these versions and not whatever a login node last updated in 2019.
+# Nothing lands outside this directory - rm -rf takes the lot.
+#
+#   --no-tools          install none of them; the system's own are used instead
+#   ELM_PI_TOOLS=fd,rg,jq   install a subset - shellcheck and ast-grep are 35MB
+#                           and 51MB respectively, the other four total ~23MB
+#   FD_VERSION=10.5.0   pin any of them      (checksums: templates/tools.sha256)
+#   RG_VERSION=15.2.0   JQ_VERSION=1.8.2     YQ_VERSION=4.53.6
+#   SHELLCHECK_VERSION=0.11.0                ASTGREP_VERSION=0.45.3
+if [ "$WITH_TOOLS" = "1" ]; then
+  TOOLSET="${ELM_PI_TOOLS:-fd,rg,jq,yq,shellcheck,ast-grep}"
+  want_tool() { case ",$TOOLSET," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
+  say "command-line tools (${TOOLSET//,/, })"
+  # Three projects, three naming schemes: Rust triples, Go's os_arch, and jq's
+  # own spelling of macOS.
+  case "$(uname -s)" in
+    Darwin) RUST_OS=apple-darwin      ; GNU_OS=apple-darwin        ; GO_OS=darwin ; JQ_OS=macos ;;
+    Linux)  RUST_OS=unknown-linux-musl; GNU_OS=unknown-linux-gnu   ; GO_OS=linux  ; JQ_OS=linux ;;
+    *) die "unsupported OS: $(uname -s)" ;;
+  esac
+  case "$(uname -m)" in
+    x86_64|amd64)  RUST_ARCH=x86_64 ; GO_ARCH=amd64 ;;
+    arm64|aarch64) RUST_ARCH=aarch64; GO_ARCH=arm64 ;;
+    *) die "unsupported architecture: $(uname -m)" ;;
+  esac
+  # musl where it is offered: a static binary has no glibc version to match.
+  # ast-grep publishes no musl build, so on Linux it gets the glibc one.
+  TRIPLE="$RUST_ARCH-$RUST_OS"
+  GNU_TRIPLE="$RUST_ARCH-$GNU_OS"
+  # fd 10.4+ is built against a macOS SDK newer than the Intel Macs in the
+  # estate. pi pins 10.3.0 there for the same reason; match it.
+  if [ "$TRIPLE" = "x86_64-apple-darwin" ]; then
+    FD_VERSION="${FD_VERSION:-10.3.0}"
+  else
+    FD_VERSION="${FD_VERSION:-10.5.0}"
+  fi
+  RG_VERSION="${RG_VERSION:-15.2.0}"
+  JQ_VERSION="${JQ_VERSION:-1.8.2}"
+  YQ_VERSION="${YQ_VERSION:-4.53.6}"
+  SHELLCHECK_VERSION="${SHELLCHECK_VERSION:-0.11.0}"
+  ASTGREP_VERSION="${ASTGREP_VERSION:-0.45.3}"
+
+  TOOLS_TMP="$(mktemp -d)"; trap 'rm -rf "${TMP:-}" "${TOOLS_TMP:-}"' EXIT
+
+  install_tool() {   # $1 binary  $2 version  $3 asset  $4 url  $5 sha256 url ("" if none)
+    local bin="$1" version="$2" asset="$3" url="$4" shaurl="$5"
+    local dest="agent/bin/$bin" want got found
+    want_tool "$bin" || { echo "    $bin skipped (not in ELM_PI_TOOLS)"; return 0; }
+    if [ "$UPDATE" != "1" ] && [ "$FORCE" != "1" ] && [ -x "$dest" ] \
+       && "$dest" --version 2>/dev/null | grep -q -- "$version"; then
+      echo "    $bin $version already in agent/bin"
+      return 0
+    fi
+    echo "    downloading $asset"
+    if ! curl -fsSL -o "$TOOLS_TMP/$asset" "$url"; then
+      warn "could not download $asset - $bin not installed"
+      return 0
+    fi
+    # Pinned versions are checksummed here, the way the Node tarball is. A
+    # version someone pinned by hand falls back to the project's own published
+    # checksum, and installs with a warning when there is none to be had.
+    want="$(awk -v a="$asset" '$2 == a {print $1}' templates/tools.sha256 2>/dev/null | head -1)"
+    if [ -z "$want" ] && [ -n "$shaurl" ]; then
+      want="$(curl -fsSL "$shaurl" 2>/dev/null \
+              | awk -v a="$asset" '$2 == a {print $1; exit} NF == 1 {print $1; exit}')"
+    fi
+    got="$(sha256_of "$TOOLS_TMP/$asset")"
+    if [ -n "$want" ]; then
+      [ "$want" = "$got" ] || die "checksum mismatch for $asset"
+    else
+      warn "no published checksum for $asset - installing unverified ($got)"
+    fi
+    rm -rf "$TOOLS_TMP/x" && mkdir -p "$TOOLS_TMP/x"
+    case "$asset" in
+      # `tar -xf` auto-detects gzip and xz on both bsdtar and GNU tar; GNU tar
+      # needs an `xz` binary on PATH for the latter, bsdtar does not.
+      *.tar.gz|*.tar.xz|*.tgz)
+        tar -xf "$TOOLS_TMP/$asset" -C "$TOOLS_TMP/x" 2>/dev/null || true ;;
+      # bsdtar reads zip files, GNU tar does not - try unzip first.
+      *.zip)
+        unzip -q "$TOOLS_TMP/$asset" -d "$TOOLS_TMP/x" 2>/dev/null \
+          || tar -xf "$TOOLS_TMP/$asset" -C "$TOOLS_TMP/x" 2>/dev/null || true ;;
+      *)  # a bare binary, no archive
+        mv -f "$TOOLS_TMP/$asset" "$TOOLS_TMP/x/$bin" ;;
+    esac
+    found="$(find "$TOOLS_TMP/x" -type f -name "$bin" | head -1)"
+    if [ -z "$found" ]; then
+      warn "could not unpack $bin from $asset - $bin not installed"
+      return 0
+    fi
+    mv -f "$found" "$dest" && chmod 755 "$dest"
+    if ! "$dest" --version >/dev/null 2>&1; then
+      rm -f "$dest"
+      warn "the downloaded $bin does not run on this machine - $bin not installed"
+      return 0
+    fi
+    echo "    $bin $version -> agent/bin/$bin"
+  }
+
+  GH=https://github.com
+  install_tool fd "$FD_VERSION" "fd-v$FD_VERSION-$TRIPLE.tar.gz" \
+    "$GH/sharkdp/fd/releases/download/v$FD_VERSION/fd-v$FD_VERSION-$TRIPLE.tar.gz" ""
+  install_tool rg "$RG_VERSION" "ripgrep-$RG_VERSION-$TRIPLE.tar.gz" \
+    "$GH/BurntSushi/ripgrep/releases/download/$RG_VERSION/ripgrep-$RG_VERSION-$TRIPLE.tar.gz" \
+    "$GH/BurntSushi/ripgrep/releases/download/$RG_VERSION/ripgrep-$RG_VERSION-$TRIPLE.tar.gz.sha256"
+  install_tool jq "$JQ_VERSION" "jq-$JQ_OS-$GO_ARCH" \
+    "$GH/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-$JQ_OS-$GO_ARCH" \
+    "$GH/jqlang/jq/releases/download/jq-$JQ_VERSION/sha256sum.txt"
+  install_tool yq "$YQ_VERSION" "yq_${GO_OS}_${GO_ARCH}" \
+    "$GH/mikefarah/yq/releases/download/v$YQ_VERSION/yq_${GO_OS}_${GO_ARCH}" ""
+  install_tool shellcheck "$SHELLCHECK_VERSION" \
+    "shellcheck-v$SHELLCHECK_VERSION.$GO_OS.$RUST_ARCH.tar.xz" \
+    "$GH/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.$GO_OS.$RUST_ARCH.tar.xz" ""
+  # The zip also contains `sg`, which is a real command on Linux (shadow-utils).
+  # Only ast-grep is installed; shadowing `sg` on PATH would be rude.
+  install_tool ast-grep "$ASTGREP_VERSION" "app-$GNU_TRIPLE.zip" \
+    "$GH/ast-grep/ast-grep/releases/download/$ASTGREP_VERSION/app-$GNU_TRIPLE.zip" ""
+  echo "    agent/bin is $(du -sh agent/bin 2>/dev/null | awk '{print $1}')"
+else
+  say "command-line tools"
+  echo "    skipped (--no-tools): the system's own fd/rg/jq/... are used instead"
 fi
 
 if [ "$WITH_PACKAGES" = "1" ]; then
@@ -281,5 +436,6 @@ cat <<EOM
     Unwrapped:     $HERE/pi.orig   (vanilla CLI, no ELM config - debugging only)
     Policy:        $HERE/LOCKDOWN.md   (/elm-policy inside pi)
     Fast one-shot: $HERE/pi --fast -p "..."    (skips the npm packages)
+    Update it:     pi update      (elm-pi + pi from GitHub, then the pi packages)
     Verify:        see "Verify the install" in INSTALL.md
 EOM

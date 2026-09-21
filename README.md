@@ -62,6 +62,7 @@ templates/          the source of truth for everything under agent/
 docs/               the GitHub Pages site
 shim/               Llama tool-call shim (Python, loopback only)
 agent/              generated: PI_CODING_AGENT_DIR (config, sessions, memory)
+agent/bin/          generated: fd rg jq yq shellcheck ast-grep, pinned + checksummed
 .node/ node_modules/  generated: Node 24 + pi, ~650 MB
 ```
 
@@ -77,7 +78,12 @@ pi -p "..."                    # one-shot
 pi --fast -p "..."             # one-shot, ~3x quicker to start
 pi --llama -p "..."            # run on Llama 3.3 70B through the tool-call shim
 cat file | pi -p "summarise"
+pi update                      # elm-pi + pi from GitHub, then the pi packages
 ```
+
+Nothing updates itself while you are trying to start work: the launcher runs pi
+with `PI_OFFLINE=1`, so no version check, package check or tool download happens
+at launch. `pi update` is the one place updates happen.
 
 `pi` is a symlink to `~/.local/share/elm-pi/pi`; the launcher resolves symlinks,
 so you can move or re-link it freely. `pi.orig` in the install directory is the

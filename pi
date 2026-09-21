@@ -13,8 +13,14 @@ while [ -L "$SELF" ]; do
 done
 HERE="$(cd "$(dirname "$SELF")" && pwd)"
 
-# bundled Node
-export PATH="$HERE/.node/bin:$PATH"
+# bundled Node, and this install's own tools ahead of anything the machine has.
+# agent/bin is pi's managed-binary directory: bootstrap.sh puts the toolbox
+# there (fd, rg, jq, yq, ast-grep and a shell linter), pi looks there before it
+# looks at PATH for the two it uses itself, and putting it on PATH here means
+# the agent's bash tool gets the same binaries on every host rather than
+# whatever is lying around. A comment line must not begin with the linter's
+# name - that is a directive, and it stops the file being checked at all.
+export PATH="$HERE/agent/bin:$HERE/.node/bin:$PATH"
 
 
 
@@ -174,9 +180,42 @@ fi
 
 # ---------------------------------------------------------------------------
 
+# --- no update work at launch -----------------------------------------------
+# pi does four things over the network while it starts, and on a fresh install
+# the first one blocks the prompt from appearing at all:
+#
+#   1. downloads fd and ripgrep from GitHub  - awaited before the TUI renders
+#   2. `npm view` on each package in settings.json (4 npm processes)
+#   3. asks pi.dev whether a newer pi exists, and reports the install
+#   4. refreshes the remote model catalogue - useless here, ELM models are local
+#
+# (1) is the slow first launch. bootstrap.sh now installs fd and rg into
+# agent/bin, so there is nothing left to download; the rest is still work this
+# install never wants at startup, and pi bundles all of it behind one switch,
+# its own --offline / PI_OFFLINE. It disables startup network operations only:
+# ELM requests, web search and everything you type are untouched.
+#
+# Updates therefore happen when you ask for them, not when you start work:
+#     pi update                 elm-pi + pi + the extension packages
+#     PI_ELM_STARTUP_CHECKS=1 pi     restore pi's own startup checks for a run
+#
+# A package subcommand (update/install/remove) needs the network by definition,
+# so it is exempt.
+case "${1:-}" in
+  update|install|remove) ;;
+  *)
+    if [ "${PI_ELM_STARTUP_CHECKS:-0}" != "1" ]; then
+      export PI_OFFLINE="${PI_OFFLINE:-1}"
+      export PI_SKIP_VERSION_CHECK="${PI_SKIP_VERSION_CHECK:-1}"
+    fi ;;
+esac
+# ---------------------------------------------------------------------------
+
 # --- intercept 'pi update' --------------------------------------------------
-# When invoked with 'update' (no --extensions/--models), re-run the GitHub
-# installer to get latest elm-pi + pi, not just pi from npm.
+# `pi update` on its own means "update this install", which is two things: the
+# GitHub installer (elm-pi itself, and pi from npm) and pi's own package
+# updater for the extensions. One command runs both.
+# `pi update --extensions` and `pi update --models` are pi's, and pass through.
 if [ "${1:-}" = "update" ]; then
     HAS_EXTENSIONS=0
     HAS_MODELS=0
@@ -188,11 +227,29 @@ if [ "${1:-}" = "update" ]; then
     done
     
     if [ "$HAS_EXTENSIONS" = "0" ] && [ "$HAS_MODELS" = "0" ]; then
-        echo "pi: updating elm-pi from GitHub (latest main branch)..." >&2
-        echo "    This updates both elm-pi and the pi package." >&2
-        echo "    For pi-only updates: pi update --extensions" >&2
+        # One command updates the whole install, in the order the pieces depend
+        # on each other: the repo and pi first, then the extension packages pi
+        # itself manages. Doing only the first leaves pi-subagents et al. on
+        # whatever npm resolved at install time, which is the half-updated
+        # state this used to produce.
+        echo "pi: updating this install." >&2
+        echo "    1/2 elm-pi and pi, from GitHub (latest main branch)" >&2
+        echo "    2/2 extension packages, via pi update --extensions" >&2
+        echo "    For the extension packages alone: pi update --extensions" >&2
         echo "" >&2
-        exec "$HERE/bootstrap.sh" --update --non-interactive
+        # The launch-time offline default must not follow us into an update.
+        unset PI_OFFLINE PI_SKIP_VERSION_CHECK
+        "$HERE/bootstrap.sh" --update --non-interactive || {
+            echo "pi: the elm-pi update failed; extension packages were left alone." >&2
+            exit 1
+        }
+        echo "" >&2
+        echo "pi: updating extension packages..." >&2
+        [ -x "$HERE/pi.orig" ] || {
+            echo "pi: $HERE/pi.orig is missing - cannot update the extension packages." >&2
+            exit 1
+        }
+        exec "$HERE/pi.orig" update --extensions
     fi
 fi
 # ---------------------------------------------------------------------------

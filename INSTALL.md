@@ -300,6 +300,57 @@ it to the ELM team.
 Numbers from this deployment, not from documentation. They are why the config
 looks the way it does.
 
+### The first interactive launch, and why it used to crawl
+
+The first `pi` on a fresh install took far longer than every launch after it, and
+none of that time was pi's own startup. Reading `dist/bundle`, interactive mode
+does four things over the network while it comes up:
+
+| What | When | Cost |
+|---|---|---|
+| downloads `fd` and `rg` from GitHub into `agent/bin` | **awaited before the prompt is drawn** | two release lookups + two tarballs, and a 10s/120s timeout each if GitHub is slow |
+| `npm view <pkg> version` for every package in `settings.json` | after the prompt appears | four npm processes, concurrently with the TypeScript transpile below |
+| asks `pi.dev` for the latest pi version, and reports the install | after the prompt appears | one request each |
+| refreshes the remote model catalogue | after the prompt appears | one request, useless here — the ELM catalogue is `agent/models.json` |
+
+Only the first one blocks, and it only blocks once, because pi keeps the binaries
+it downloads. The fix is to have them there already:
+
+- **`bootstrap.sh` installs `fd` and `rg` into `agent/bin`** (pinned versions,
+  sha256-checked against `templates/tools.sha256`), whether or not the machine
+  already has them. The install owns its tools — `rm -rf` this directory and they
+  go with it — and the launcher puts `agent/bin` first on `PATH`, so the agent's
+  `bash` tool gets the same two binaries the `find` and `grep` tools use.
+  `--no-tools` skips this and leaves pi to find a system `fd`/`rg`.
+
+### The rest of the toolbox
+
+`fd` and `rg` are there because pi needs them. Four more are there because the
+*model* keeps reaching for them and cannot rely on finding them — not on a Mac,
+and not on a login node someone else administers:
+
+| | | |
+|---|---|---|
+| `jq` | JSON on the command line | macOS 15 ships it, most Linux images do not |
+| `yq` | the same for YAML | CI configs, k8s manifests, conda envs |
+| `shellcheck` | lints shell before it runs | this install is mostly bash; it found a stray character in `install.sh` the first time it was pointed at it |
+| `ast-grep` | structural search and rewrite, by syntax tree rather than by regex | the thing `rg` cannot do |
+
+All six are a single static binary from the project's own GitHub release,
+pinned and sha256-checked, installed the same way and deleted the same way.
+`ELM_PI_TOOLS=fd,rg,jq` installs a subset: `shellcheck` and `ast-grep` are 35 MB
+and 51 MB, against ~23 MB for the other four.
+
+`fd` and `rg` are also the two pi will otherwise download for itself, so they
+are the two that must be there before the first launch. The others only need to
+exist by the time the model types them.
+- **The launcher sets `PI_OFFLINE=1`**, pi's own `--offline`, which disables the
+  remaining three. It covers startup network operations only: ELM requests, web
+  search and anything you type are untouched. `PI_ELM_STARTUP_CHECKS=1 pi`
+  restores pi's default behaviour for a run.
+
+Updates then happen when you ask for them, which is what `pi update` is for.
+
 ### Startup time: where it goes, and how to cut it
 
 `pi` itself starts in well under a second. The four npm packages are what you wait
@@ -350,9 +401,10 @@ So: `pi-hermes-memory` ~1.8s, `pi-subagents` + `pi-hashline-edit-pro` ~1.6s,
 
 - `NODE_COMPILE_CACHE`: 6.5s → 6.4s CPU. V8's bytecode cache does not cover the
   TypeScript transform that dominates here.
-- `PI_OFFLINE=1`: no difference at startup (4.2-4.8s wall either way). pi does not
-  refresh remote model catalogues on the startup path; that happens when you open
-  the `/model` picker.
+- `PI_OFFLINE=1`: no difference to `pi -p` (4.2-4.8s wall either way). Print mode
+  runs none of the startup checks in the first place, and the model catalogue is
+  refreshed when you open the `/model` picker, not on this path. It is set by
+  default anyway, for the interactive launch it does change — see above.
 
 Bundling the packages with esbuild was considered and rejected: `pi-subagents`
 spawns child processes by path and `pi-hermes-memory` loads a native SQLite
