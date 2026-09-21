@@ -3,6 +3,7 @@
   "private": true,
   "description": "Self-contained pi coding agent wired to Edinburgh ELM, university-hosted models only",
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "latest"
+    "@earendil-works/pi-coding-agent": "latest",
+    "better-sqlite3": "^11.0.0"
   }
 }

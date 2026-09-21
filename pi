@@ -16,15 +16,21 @@ HERE="$(cd "$(dirname "$SELF")" && pwd)"
 # bundled Node
 export PATH="$HERE/.node/bin:$PATH"
 
+
+
 if [ -f "$HERE/.env" ]; then
   set -a; . "$HERE/.env"; set +a
 fi
+
+# Disable telemetry by default (can be overridden with PI_TELEMETRY=1)
+export PI_TELEMETRY="${PI_TELEMETRY:-0}"
 
 if [ -z "${ELM_API_KEY:-}" ]; then
   echo "ELM_API_KEY is not set. Copy $HERE/.env.example to $HERE/.env and add your ELM key." >&2
   echo "Run $HERE/bootstrap.sh if this install has not been set up yet." >&2
   exit 1
 fi
+
 
 # keep config, sessions and credentials inside this directory, not ~/.pi
 export PI_CODING_AGENT_DIR="$HERE/agent"

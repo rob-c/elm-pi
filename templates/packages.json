@@ -2,6 +2,7 @@
   "name": "pi-extensions",
   "private": true,
   "dependencies": {
+    "better-sqlite3": "^11.0.0",
     "pi-hashline-edit-pro": "^4.2.6",
     "pi-hermes-memory": "^0.9.9",
     "pi-subagents": "^0.67.0",

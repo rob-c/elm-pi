@@ -92,10 +92,21 @@ export PATH="$HERE/.node/bin:$PATH"
 say "pi coding agent"
 cp -f templates/package.json package.json
 if [ "$UPDATE" = "1" ]; then rm -f package-lock.json; fi
-# Skip npm install if node_modules exists and neither --update nor --force is set
-if [ "$UPDATE" = "1" ] || [ "$FORCE" = "1" ] || [ ! -d "node_modules/@earendil-works/pi-coding-agent" ]; then
+
+
+# When --update or --force is passed, always reinstall to get the latest npm version.
+# npm install with "latest" does not update an already-installed package unless we
+# remove node_modules first. For --update, we remove and reinstall.
+if [ "$UPDATE" = "1" ] || [ "$FORCE" = "1" ]; then
+  rm -rf node_modules
+  npm install --no-audit --no-fund --loglevel=error
+elif [ ! -d "node_modules/@earendil-works/pi-coding-agent" ]; then
   npm install --no-audit --no-fund --loglevel=error
 fi
+
+
+
+
 echo "    $(node node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js --version 2>/dev/null || echo installed)"
 # npm warns that esbuild / protobufjs / @google/genai have unapproved install
 # scripts. pi runs from a prebuilt bundle and does not need them.
@@ -175,13 +186,26 @@ json.dump(s, open("agent/settings.json", "w"), indent=2); open("agent/settings.j
 if drop:
     print("    dropped: " + ", ".join(sorted(drop)))
 PYX
-  # Skip npm install if node_modules exists and neither --update nor --force is set
-  if [ "$UPDATE" = "1" ] || [ "$FORCE" = "1" ] || [ ! -d "agent/npm/node_modules/pi-subagents" ]; then
+
+
+
+  # When --update or --force is passed, remove node_modules first to ensure npm
+  # actually installs the latest versions. npm install with "latest" won't update
+  # existing packages otherwise.
+  if [ "$UPDATE" = "1" ] || [ "$FORCE" = "1" ]; then
+    rm -rf agent/npm/node_modules
+    ( cd agent/npm && npm install --no-audit --no-fund --loglevel=error )
+    echo "    installed into agent/npm/node_modules"
+  elif [ ! -d "agent/npm/node_modules/pi-subagents" ]; then
     ( cd agent/npm && npm install --no-audit --no-fund --loglevel=error )
     echo "    installed into agent/npm/node_modules"
   else
     echo "    packages already installed (use --force to reinstall)"
   fi
+
+
+
+
 else
   python3 - <<'PY'
 import json
