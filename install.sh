@@ -7,7 +7,7 @@
 # those two paths is your shell profile, and only to put ~/.local/bin on PATH
 # when it is not already there - skip that with --no-path. Re-running is safe.
 # Re-running the installer on an existing installation automatically updates
-  │# pi and npm packages while preserving your configs and sessions.
+ # pi and npm packages while preserving your configs and sessions.
 # Environment overrides:
 #   ELM_PI_PREFIX=/path      where to install        (default ~/.local/share/elm-pi)
 #   ELM_PI_BINDIR=/path      where to link pi         (default ~/.local/bin)
