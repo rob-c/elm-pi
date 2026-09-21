@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 #
-# Reproduce this pi + ELM install on a fresh machine or host.
-#
 #   ./bootstrap.sh                  install everything, prompt for the ELM key
 #   ELM_API_KEY=elm-... ./bootstrap.sh --non-interactive
 #   ./bootstrap.sh --no-shim        skip the Llama tool-call shim
 #   ./bootstrap.sh --no-packages    pi only, no sub-agent/memory/web packages
 #   ./bootstrap.sh --no-memory      drop pi-hermes-memory: ~1.8s off every launch
 #   ./bootstrap.sh --update         refresh pi and packages, keep configs
+#   ./bootstrap.sh --force          force npm reinstall even if packages exist
 #   ./bootstrap.sh --no-auth-lock   leave agent/auth.json writable (allows /login)
 #
 # Idempotent: re-running never overwrites .env, sessions, memory or any config
@@ -30,7 +29,7 @@ PI_VERSION="${PI_VERSION:-latest}"
 
 
 
-WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; WITH_MEMORY=1
+WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; WITH_MEMORY=1; FORCE=0
 for arg in "$@"; do
   case "$arg" in
     --no-shim) WITH_SHIM=0 ;;
@@ -38,6 +37,7 @@ for arg in "$@"; do
     --no-memory) WITH_MEMORY=0 ;;
     --non-interactive) INTERACTIVE=0 ;;
     --update) UPDATE=1 ;;
+    --force) FORCE=1 ;;
     --no-auth-lock) AUTH_LOCK=0 ;;
     -h|--help) sed -n '3,14p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
@@ -92,11 +92,13 @@ export PATH="$HERE/.node/bin:$PATH"
 say "pi coding agent"
 cp -f templates/package.json package.json
 if [ "$UPDATE" = "1" ]; then rm -f package-lock.json; fi
-npm install --no-audit --no-fund --loglevel=error
+# Skip npm install if node_modules exists and neither --update nor --force is set
+if [ "$UPDATE" = "1" ] || [ "$FORCE" = "1" ] || [ ! -d "node_modules/@earendil-works/pi-coding-agent" ]; then
+  npm install --no-audit --no-fund --loglevel=error
+fi
 echo "    $(node node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js --version 2>/dev/null || echo installed)"
 # npm warns that esbuild / protobufjs / @google/genai have unapproved install
 # scripts. pi runs from a prebuilt bundle and does not need them.
-
 # --- 3. agent config --------------------------------------------------------
 # PI_CODING_AGENT_DIR points here, so config, sessions and credentials stay in
 # this directory instead of ~/.pi.
@@ -173,8 +175,13 @@ json.dump(s, open("agent/settings.json", "w"), indent=2); open("agent/settings.j
 if drop:
     print("    dropped: " + ", ".join(sorted(drop)))
 PYX
-  ( cd agent/npm && npm install --no-audit --no-fund --loglevel=error )
-  echo "    installed into agent/npm/node_modules"
+  # Skip npm install if node_modules exists and neither --update nor --force is set
+  if [ "$UPDATE" = "1" ] || [ "$FORCE" = "1" ] || [ ! -d "agent/npm/node_modules/pi-subagents" ]; then
+    ( cd agent/npm && npm install --no-audit --no-fund --loglevel=error )
+    echo "    installed into agent/npm/node_modules"
+  else
+    echo "    packages already installed (use --force to reinstall)"
+  fi
 else
   python3 - <<'PY'
 import json

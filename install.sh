@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 #
-# elm-pi installer — a coding agent on the University of Edinburgh's own GPUs.
-#
 #   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
 #
 # Installs into ~/.local/share/elm-pi and links ~/.local/bin/pi. Nothing is
 # installed system-wide and nothing needs sudo. The only file touched outside
 # those two paths is your shell profile, and only to put ~/.local/bin on PATH
 # when it is not already there - skip that with --no-path. Re-running is safe.
-#
+# Re-running the installer on an existing installation automatically updates
+  │# pi and npm packages while preserving your configs and sessions.
 # Environment overrides:
 #   ELM_PI_PREFIX=/path      where to install        (default ~/.local/share/elm-pi)
 #   ELM_PI_BINDIR=/path      where to link pi         (default ~/.local/bin)
@@ -148,7 +147,14 @@ chmod +x "$PREFIX/pi" "$PREFIX/pi.orig" "$PREFIX/bootstrap.sh" "$PREFIX/configur
 # config you have edited.
 say "running bootstrap (Node, pi, extensions — a few minutes)"
 BOOT_ARGS="$PASS_ARGS"
+# If this is an existing install, treat it as an update (refresh pi and packages)
+EXISTING_INSTALL=0
+if [ -d "$PREFIX/node_modules" ] || [ -d "$PREFIX/agent/npm/node_modules" ]; then
+  EXISTING_INSTALL=1
+  echo "    existing installation detected — updating pi and packages"
+fi
 [ "$UPDATE" = "1" ] && BOOT_ARGS="--update$BOOT_ARGS"
+[ "$EXISTING_INSTALL" = "1" ] && BOOT_ARGS="$BOOT_ARGS --force"
 if [ -t 0 ]; then
   # Invoked as bash -c "$(curl ...)", so stdin is still the terminal and
   # bootstrap can prompt for the ELM key.
