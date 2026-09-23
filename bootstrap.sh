@@ -437,6 +437,10 @@ OWNED = {
         "permission",            # the gate: outside-cwd, secrets, bash
         "piInfrastructureReadPaths",
     ),
+    "config/pi-task-models/config.json": (
+        "profiles",              # frontier/balanced/fast -> Qwen+think, Qwen, Llama
+        "tasks",                 # compaction routed to balanced
+    ),
     "web-search.json": (
         "pdf",                   # provider unpdf: keeps PDFs off Datalab/Gemini
     ),

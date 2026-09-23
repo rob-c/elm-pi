@@ -1,8 +1,19 @@
 {
   "profiles": {
-    "fast": {
+    "frontier": {
+      "primary": { "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8", "thinkingLevel": "high" },
+      "fallback": { "model": "elm-shim/meta-llama/Llama-3.3-70B-Instruct", "thinkingLevel": "off" }
+    },
+    "balanced": {
       "primary": { "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8", "thinkingLevel": "off" },
       "fallback": { "model": "elm-shim/meta-llama/Llama-3.3-70B-Instruct", "thinkingLevel": "off" }
+    },
+    "fast": {
+      "primary": { "model": "elm-shim/meta-llama/Llama-3.3-70B-Instruct", "thinkingLevel": "off" },
+      "fallback": { "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8", "thinkingLevel": "off" }
     }
+  },
+  "tasks": {
+    "pi-auto-compact/autoCompact": "balanced"
   }
 }
