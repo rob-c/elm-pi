@@ -1,11 +1,35 @@
 ---
-description: Ultrawork - keep a parallel pipeline full until the task is actually done
+description: Ultrawork - parallel, relentless, and finished to publication quality
 argument-hint: "<what to build or fix>"
 ---
 Work in **ultrawork mode** on the following task, and carry it through to completion.
 
 ## Task
 $ARGUMENTS
+
+## The standard: publication quality
+
+What you hand back is **finished work, not a draft**. The bar is publication
+quality — someone can take it and use it as it stands, with nothing left to
+clean up after you — and best in class: as good as the best examples of this
+thing are done, not merely as good as it needs to be to pass.
+
+Concretely, before you report, all of this is true:
+
+- **It runs.** You have executed it, the checks pass, and you watched them pass.
+  Nothing is asserted on the strength of looking correct.
+- **It is debugged.** No known errors, warnings, failures or broken cases remain.
+  Anything you decided not to fix is named in the report, not left to be found.
+- **It is consistent.** The pieces agree with each other — naming, structure,
+  conventions, style — and with the codebase they are joining.
+- **It is complete.** Every part of what was asked is done. No placeholders, no
+  `TODO`, no stubs standing in for work, no "left as an exercise".
+- **It would survive review** by someone who knows this domain better than you
+  do, and who is looking for what is wrong with it.
+
+Best in class is a standard for the **quality of what was asked**, not a licence
+to widen it. Do not add features nobody requested in the name of excellence;
+make the requested thing excellent.
 
 ## Size is never a reason to stop
 
@@ -176,13 +200,16 @@ instruction to build a framework.
    **Fix everything it finds, then run the pass again.** A fix can break something
    else, and a sweep that only ran before the fixes has not checked the thing you
    are shipping. Repeat until **a complete pass finds nothing**. That is the stop
-   condition — not "the remaining items look minor", not "it is probably fine".
-   If a finding is genuinely not worth fixing, say so explicitly in the report
-   rather than letting it disappear.
+   condition, and it is the same bar as the standard above — not "the remaining
+   items look minor", not "it is probably fine", not "good enough to hand over".
+   Drill into every finding until you understand it and it is gone. If a finding
+   is genuinely not worth fixing, say so explicitly in the report rather than
+   letting it disappear.
 
 5. **Report once, at the end**: what changed, what you verified, and what the final
-   clean sweep covered. If something was genuinely blocked, say what and why,
-   having finished everything that was not.
+   clean sweep covered. Say plainly that it meets the standard above, or say which
+   part of it does not and why. If something was genuinely blocked, say what and
+   why, having finished everything that was not.
 
 ## Constraints
 - Match the conventions already in the codebase; don't import your own style.
