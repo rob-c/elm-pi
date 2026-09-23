@@ -62,6 +62,7 @@ patch-pi.py         removes /share and /bug from the release; run on every insta
 templates/          the source of truth for everything under agent/
 docs/               the GitHub Pages site
 shim/               Llama tool-call shim (Python, loopback only)
+proxy/              egress proxy: allowlists ELM, logs and refuses the rest
 agent/              generated: PI_CODING_AGENT_DIR (config, sessions, memory)
 agent/bin/          generated: fd rg jq yq shellcheck ast-grep, pinned + checksummed
 .node/ node_modules/  generated: Node 24 + pi, ~650 MB

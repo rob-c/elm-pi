@@ -17,7 +17,7 @@ install* offers. It cannot stop anyone installing their own agent, and it is not
 trying to. If commercial models are genuinely needed for a piece of work, the
 answer is a funded subscription — the escape hatch below is deliberately easy.
 
-## Five layers
+## Six layers
 
 Each is independent; each is verified by `./bootstrap.sh` on every install.
 
@@ -139,6 +139,50 @@ run to HTML and publish it with `gh gist create`. It is off unless
 `agent/extensions/subagent/config.json` sets `"share": true`, and that file now
 says `"share": false` explicitly rather than relying on the default.
 
+### 6. Egress proxy (`proxy/egress.py`)
+
+The layers above shape what pi *offers*. This one checks where it *goes*.
+
+The launcher starts a small allowlisting proxy on loopback, points pi's
+`HTTPS_PROXY` at it, and refuses to start if it cannot. The allowlist has one
+entry — the ELM host, taken from `ELM_BASE_URL` so it cannot drift from the
+gateway the shim uses. Everything else gets `403` and a line in
+`agent/egress.log`, with the hostname and a timestamp, so a call that should
+not be happening can be stopped at source rather than merely blocked.
+
+No certificate, no interception, no decryption: HTTPS through a proxy opens
+with a plaintext `CONNECT host:443`, which is all an allowlist needs. The
+payload stays encrypted end to end.
+
+- **Fail-closed.** No proxy, no pi. That includes a machine without `python3`,
+  which used to be optional here and is not any more.
+- **`pi update` is the one exception**, and deliberately: updates need
+  `registry.npmjs.org`, `github.com` and `nodejs.org`. The proxy is started
+  *after* the update intercept, so an update never sees it, and nothing else
+  does not.
+- **A campus proxy already in the environment is chained to**, not routed
+  around.
+- Sub-agents, the Llama shim and every command the agent runs inherit the
+  setting, so `curl` in the `bash` tool is filtered too.
+
+Escape hatches, as everywhere else here:
+
+    ELM_PI_NO_PROXY=1 pi ...          run unfiltered, for debugging
+    ELM_PI_PROXY_ALLOW=host,host pi   add hosts for one run
+
+**This is the control that does not need updating when pi changes.**
+`patch-pi.py` closed `/share` and `/bug` and will break the day upstream
+refactors them. The proxy catches the *next* upload feature without anyone
+noticing it was added.
+
+**It is still not enforcement.** Proxy variables are honoured by well-behaved
+clients — `curl`, `npm`, `pip`, `requests`, `git` over HTTPS — and ignored by
+`git` over SSH, raw sockets, and anything that unsets them. The `bash` tool can
+do all three. On Linux a network namespace with no other route out
+(`unshare -rn`, `bwrap`, `slirp4netns`) turns this into real enforcement;
+macOS has no equivalent without root or a Network Extension, so on a managed
+Mac the answer remains `pf` and an administrator.
+
 ## Verified behaviour
 
 | Attempt | Result |
@@ -153,6 +197,10 @@ says `"share": false` explicitly rather than relying on the default.
 | `/share`, `/bug` | absent from autocomplete; both refuse, and their upload paths throw |
 | asking the model to list its tools | 17 tools, none of them web: `read, bash, write, todo, subagent, bg_wait, memory_*, skill_manage, session_search, replace, insert, anchor_grep, undo_last_change, subagent_supervisor` |
 | the same with `PI_ELM_WEB=1` | 21 tools — `web_search`, `source_check`, `fetch_content`, `get_search_content` return |
+| ELM request through the proxy | allowed; a real `pi -p` round trip works |
+| agent running `curl https://example.com` in `bash` | refused, `exit=56`, logged as `REJECTED example.com:443 not on the allowlist` |
+| `pi update` | runs unproxied, by construction — the proxy starts after the update intercept |
+| `proxy/egress.py` missing | pi refuses to start (exit 1) rather than running unfiltered |
 
 ## What this does not do
 

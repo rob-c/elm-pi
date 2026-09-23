@@ -320,6 +320,80 @@ fi
 # ---------------------------------------------------------------------------
 
 
+# --- egress proxy -----------------------------------------------------------
+# Everything from here on goes through an allowlisting CONNECT proxy on
+# loopback, and the only host on the list is the ELM gateway. HTTPS through a
+# proxy starts with a plaintext CONNECT line, so the host is checked without
+# any certificate, interception or decryption - see proxy/egress.py.
+#
+# Deliberately placed after the update intercept: `pi update` needs npm, GitHub
+# and nodejs.org, and it is the one operation that runs unproxied. Everything
+# else - every session, every sub-agent, the shim, and every command the agent
+# runs that honours proxy variables - is filtered, and every refusal is logged
+# to agent/egress.log so the call can be stopped at source later.
+#
+# Fail-closed: if the proxy cannot start, pi does not start. That includes a
+# machine with no python3, which until now was optional here.
+#
+#   ELM_PI_NO_PROXY=1 pi ...        run unfiltered, for debugging
+#   ELM_PI_PROXY_ALLOW=host,host    add hosts for a run
+#
+# What it is not: enforcement. Proxy variables are honoured by well-behaved
+# clients and ignored by git-over-SSH, raw sockets, and anything that unsets
+# them. It stops accidents and records attempts. See LOCKDOWN.md.
+if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
+  refuse_unproxied() {
+    echo "pi: $1" >&2
+    echo "    This install refuses to run unproxied. See LOCKDOWN.md." >&2
+    echo "    To run without the filter for one command: ELM_PI_NO_PROXY=1 pi ..." >&2
+    exit 1
+  }
+  PYBIN="$(command -v python3 2>/dev/null || true)"
+  [ -n "$PYBIN" ] || refuse_unproxied "python3 is needed for the egress proxy and was not found."
+  [ -f "$HERE/proxy/egress.py" ] || refuse_unproxied "proxy/egress.py is missing from this install."
+
+  # One source of truth for the gateway: the same value the shim uses.
+  ELM_HOST="$(printf '%s' "${ELM_BASE_URL:-https://elm.edina.ac.uk/api/v1}" \
+              | sed -e 's|^[a-zA-Z]*://||' -e 's|[:/].*$||')"
+  [ -n "$ELM_HOST" ] || refuse_unproxied "could not work out the ELM host from ELM_BASE_URL."
+  PROXY_ALLOW="$ELM_HOST${ELM_PI_PROXY_ALLOW:+,$ELM_PI_PROXY_ALLOW}"
+
+  # A proxy already in the environment is a campus proxy, not an obstacle:
+  # chain to it rather than routing around it.
+  PROXY_UPSTREAM="${HTTPS_PROXY:-${https_proxy:-}}"
+
+  # $$ survives the exec below - exec replaces the image, not the pid - so the
+  # watchdog started here ends up following pi itself.
+  PORT_FILE="${TMPDIR:-/tmp}/elm-pi-egress-$$.port"
+  rm -f "$PORT_FILE"
+  "$PYBIN" "$HERE/proxy/egress.py" \
+      --allow "$PROXY_ALLOW" \
+      --port-file "$PORT_FILE" \
+      --log "$HERE/agent/egress.log" \
+      --parent-pid "$$" \
+      ${PROXY_UPSTREAM:+--upstream "$PROXY_UPSTREAM"} >/dev/null 2>&1 &
+
+  # measured: python3 starts and the proxy is listening in ~125ms, so poll
+  # tightly and cap at five seconds rather than paying a coarse interval
+  waited=0
+  while [ ! -s "$PORT_FILE" ] && [ "$waited" -lt 250 ]; do
+    sleep 0.02
+    waited=$((waited + 1))
+  done
+  [ -s "$PORT_FILE" ] || refuse_unproxied "the egress proxy did not come up."
+  PROXY_PORT="$(cat "$PORT_FILE")"
+  rm -f "$PORT_FILE"
+
+  export HTTPS_PROXY="http://127.0.0.1:$PROXY_PORT"
+  export HTTP_PROXY="$HTTPS_PROXY"
+  export https_proxy="$HTTPS_PROXY"
+  export http_proxy="$HTTPS_PROXY"
+  # the Llama shim is on loopback, and so is the proxy itself
+  export NO_PROXY="127.0.0.1,localhost"
+  export no_proxy="$NO_PROXY"
+fi
+# ---------------------------------------------------------------------------
+
 # --- preflight: note a saturated machine, but do not stand in the way -------
 # Each sub-agent is a full node process. On a 12-thread laptop a 32-worker run
 # drove load average to 104 and made every new pi invocation hang.

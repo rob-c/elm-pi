@@ -447,7 +447,7 @@ if [ "$WITH_SHIM" = "1" ]; then
   if command -v python3 >/dev/null 2>&1; then
     echo "    $(python3 --version) at $(command -v python3) - shim will start on demand (127.0.0.1:8811)"
   else
-    warn "python3 not found: Llama sub-agents will be unavailable, Qwen is unaffected"
+    warn "python3 not found: Llama sub-agents are unavailable - and see the warning below"
   fi
 else
   rm -f agent/extensions/elm-shim.ts
@@ -480,6 +480,13 @@ if grep -q '^ELM_API_KEY=.\+' .env 2>/dev/null; then
 fi
 
 # --- 7. verify the lockdown -------------------------------------------------
+# python3 stopped being optional when the egress proxy went in: the launcher
+# refuses to start without it rather than running unfiltered.
+if ! command -v python3 >/dev/null 2>&1; then
+  warn "python3 is NOT installed. pi will refuse to start: the egress proxy needs it."
+  warn "Install python3, or run with ELM_PI_NO_PROXY=1 to accept unfiltered network access."
+fi
+
 say "verifying the ELM-only policy"
 LIST="$(PI_FORCE=1 PI_OFFLINE=1 ANTHROPIC_API_KEY=probe-should-be-ignored \
         OPENAI_API_KEY=probe-should-be-ignored ./pi --list-models </dev/null 2>/dev/null || true)"
