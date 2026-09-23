@@ -119,7 +119,8 @@ a speed optimisation either: see the measurements below.
 
 ## Choosing a model for sub-agents
 
-**Default to Qwen for everything, including sub-agents.** Measured directly
+**Default to Qwen for everything, including sub-agents** - see the two named
+sub-agents below for the one carve-out. Measured directly
 against the gateway, Qwen 3.5 397B is both faster and more capable than Llama 3.3
 70B here - the MoE model with 17B active parameters beats the 70B dense one:
 
@@ -145,6 +146,93 @@ and referenced files that do not exist when asked to plan across several files.
 Give it one concrete, bounded job and a clear statement of what to report back,
 and verify what it reports. The moment a sub-agent needs to decide *what* to do
 rather than *do* one thing, use Qwen.
+
+## Two named sub-agents: `qwen` and `llama`
+
+Two agent definitions ship with this install, in `agent/agents/`. They exist so
+that delegation names a *role*, not a model id:
+
+| | `qwen` | `llama` |
+|---|---|---|
+| Model | Qwen 3.5 397B, direct | Llama 3.3 70B, through the tool-call shim |
+| For | work that needs judgement | work that has already been decided |
+| Given | a task | a numbered procedure |
+
+**`qwen` is the default.** Anything where the sub-agent has to work out *what* to
+do belongs here: exploring code nobody has read yet, distilling several files
+into an answer, deciding how a change should be shaped, reviewing.
+
+**`llama` is for rote execution of a fully specified change.** Applying a
+formatting convention, generating boilerplate to a stated shape, a mechanical
+edit confined to one named file, running a command and reporting the output.
+
+Three rules, all of them from measurements above, not preference:
+
+1. **Give `llama` steps, never a goal.** "Read each file and add docstrings"
+   returned FINISHED having changed nothing. The same work as numbered steps —
+   read, replace, read, replace — was correct in 17s.
+2. **One file per call, named explicitly.** It drifts across multiple files and
+   has invented paths that do not exist.
+3. **Verify everything it returns.** In past fan-outs one to two of three
+   completed unaided. Verification is the orchestrator's job, and a `qwen`
+   sub-agent is a reasonable place to put it.
+
+Both agents can edit. Editing is anchor-based, and the `tools` allowlist in an
+agent definition *names* a tool without loading the extension that provides it,
+so both definitions load `pi-hashline-edit-pro` through
+`subagentOnlyExtensions`. Verified: a `llama` sub-agent reads a file, changes a
+line by anchor and reads it back. Without that line the child silently loses
+`read` and every anchor tool, and falls back to `bash` and whole-file `write` —
+which is how a "rote" agent quietly becomes a destructive one.
+
+### Mixing both in one orchestration
+
+For anything beyond a single child, make **one** `subagent` call with
+`async: true` and a `workflowScript`, and launch the children inside it. The
+script is ordinary JavaScript: `runs.all([...])` for parallel fan-out,
+`runs.run` for a keyed child, `runs.lanes` for staged work. Children come back
+as plain JSON with `ok`, `output` and `structuredOutput`.
+
+Different children can run on different models, because the model travels with
+the agent name:
+
+```js
+const [survey, edits] = await runs.all([
+  { key: "survey", agent: "qwen",  task: "Read src/api/*.ts and return, per file, the exported names and one line on what each does." },
+  { key: "fmt",    agent: "llama", task: "Step 1: read src/util/date.ts. Step 2: replace the body of formatDate with the version below. Step 3: read it back and report the new body.\n\n<exact code>" },
+]);
+return { survey: survey.output, edits: edits.output };
+```
+
+Verified on this install: one workflow call, a `qwen` child and a `llama` child
+in parallel, each on its own model, both results aggregated by the script.
+
+The routing rule is the same one as above, applied per child rather than per
+task: **whoever has to decide gets Qwen; whoever is following a procedure gets
+Llama.** A survey, a synthesis or a review is a Qwen child. A per-file
+mechanical edit with the exact replacement text already written out is a Llama
+child, and there can be many of them in the same `runs.all`.
+
+Two settings back this up, in `agent/settings.json` under `subagents`:
+
+- `agentOverrides` pins `worker`, `scout`, `reviewer`, `oracle` and
+  `researcher` to Qwen rather than letting them drift with the session model,
+  and gives the first three `fallbackModels: llama`. That fallback fires only
+  for retryable provider failures - rate limit, overload, unavailable - and
+  only before the child has done any tool work. It is the honest use of the
+  small model here: capacity, not speed.
+- `modelScope` is `enforce: true, strict: true` with `allow: elm/*,
+  elm-shim/*, inherit`. The ELM-only policy strips commercial catalogues in the
+  parent; this closes the same door for children, so a per-run `model:`
+  override or a fallback chain cannot route one off the university's GPUs.
+
+**This split is not a speed optimisation.** Llama is the slower model here, and
+a fan-out split across both is slower end to end than sending all of it to Qwen.
+Route volume to `llama` when Qwen is rate-limited, or if a cheaper allocation
+charge justifies the wall-clock cost — and note that the charge is the part
+nobody has verified, because `guidanceCost` is only visible in the ELM web UI.
+If the goal is a faster delegation rather than a cheaper one, the measured lever
+is `pi --fast`, which cuts sub-agent startup from ~3.3s to ~0.9s.
 
 ## Project memory
 

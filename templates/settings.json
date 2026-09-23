@@ -25,5 +25,42 @@
       "maxRetryDelayMs": 60000
     }
   },
-  "sessionDir": ".pi/sessions"
+  "sessionDir": ".pi/sessions",
+  "subagents": {
+    "agentOverrides": {
+      "worker": {
+        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8",
+        "fallbackModels": [
+          "elm-shim/meta-llama/Llama-3.3-70B-Instruct"
+        ]
+      },
+      "scout": {
+        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8",
+        "fallbackModels": [
+          "elm-shim/meta-llama/Llama-3.3-70B-Instruct"
+        ]
+      },
+      "reviewer": {
+        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8",
+        "fallbackModels": [
+          "elm-shim/meta-llama/Llama-3.3-70B-Instruct"
+        ]
+      },
+      "oracle": {
+        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
+      },
+      "researcher": {
+        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
+      }
+    },
+    "modelScope": {
+      "enforce": true,
+      "strict": true,
+      "allow": [
+        "elm/*",
+        "elm-shim/*",
+        "inherit"
+      ]
+    }
+  }
 }
