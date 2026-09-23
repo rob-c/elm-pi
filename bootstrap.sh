@@ -329,21 +329,45 @@ if [ "$WITH_PACKAGES" = "1" ]; then
   # most expensive one permanently.
   DROP=""
   [ "$WITH_MEMORY" = "1" ] || DROP="pi-hermes-memory"
+  # Two lists, and they are not the same list. templates/packages.json is what
+  # npm installs, and carries libraries that are not pi packages at all
+  # (better-sqlite3, which pi-hermes-memory needs to build against).
+  # templates/settings.json is what pi loads. Both are filtered by --no-memory.
+  #
+  # agent/settings.json's "packages" is derived from the template every run
+  # rather than filtered in place. Filtering in place could only ever remove:
+  # an install that had once been run with --no-packages kept an empty list for
+  # ever after, so a later run installed all four packages into agent/npm and
+  # then loaded none of them. Everything else in that file is yours and is left
+  # exactly as you left it.
   DROP="$DROP" python3 - <<'PYX'
 import json, os
 drop = {d for d in os.environ.get("DROP", "").split() if d}
+
 pkg = json.load(open("templates/packages.json"))
 pkg["dependencies"] = {k: v for k, v in pkg["dependencies"].items() if k not in drop}
 json.dump(pkg, open("agent/npm/package.json", "w"), indent=2)
+
+chosen = [p for p in json.load(open("templates/settings.json")).get("packages", [])
+          if p.removeprefix("npm:") not in drop]
 s = json.load(open("agent/settings.json"))
-s["packages"] = [p for p in s.get("packages", []) if p.removeprefix("npm:") not in drop]
+was = s.get("packages", [])
+s["packages"] = chosen
 json.dump(s, open("agent/settings.json", "w"), indent=2); open("agent/settings.json", "a").write("\n")
+
+print("    loading: " + (", ".join(p.removeprefix("npm:") for p in chosen) or "none"))
 if drop:
     print("    dropped: " + ", ".join(sorted(drop)))
+if sorted(was) != sorted(chosen):
+    print("    (agent/settings.json listed %d package(s); corrected to match)" % len(was))
 PYX
+  CHOSEN="$(python3 -c 'import json; print(" ".join(p.removeprefix("npm:") for p in json.load(open("agent/settings.json")).get("packages", [])))')"
 
-
-
+  # Reinstall when asked, or when anything chosen is not actually on disk.
+  MISSING=0
+  for pkg in $CHOSEN; do
+    [ -d "agent/npm/node_modules/$pkg" ] || MISSING=1
+  done
   # When --update or --force is passed, remove node_modules first to ensure npm
   # actually installs the latest versions. npm install with "latest" won't update
   # existing packages otherwise.
@@ -351,15 +375,18 @@ PYX
     rm -rf agent/npm/node_modules
     ( cd agent/npm && npm install --no-audit --no-fund --loglevel=error )
     echo "    installed into agent/npm/node_modules"
-  elif [ ! -d "agent/npm/node_modules/pi-subagents" ]; then
+  elif [ "$MISSING" = "1" ]; then
     ( cd agent/npm && npm install --no-audit --no-fund --loglevel=error )
     echo "    installed into agent/npm/node_modules"
   else
     echo "    packages already installed (use --force to reinstall)"
   fi
-
-
-
+  # A package pi is told to load but cannot find is a silent no-op at startup:
+  # the launcher runs pi offline, so it does not try to fetch it either.
+  for pkg in $CHOSEN; do
+    [ -d "agent/npm/node_modules/$pkg" ] || \
+      warn "$pkg is listed in agent/settings.json but missing from agent/npm/node_modules"
+  done
 
 else
   python3 - <<'PY'
@@ -368,6 +395,31 @@ s=json.load(open("agent/settings.json")); s["packages"]=[]
 json.dump(s,open("agent/settings.json","w"),indent=2); open("agent/settings.json","a").write("\n")
 print("    packages disabled in agent/settings.json")
 PY
+fi
+
+# --- 3c. warm the module cache ----------------------------------------------
+# The four packages ship raw TypeScript. pi transpiles them with jiti, which
+# caches the result in $TMPDIR/jiti and reuses it on every later launch, so the
+# cost is paid once: measured here, ~21s of CPU cold against ~3.3s warm.
+#
+# "Once" is the problem. The first launch after an install pays it, and so does
+# the first launch after a tmp cleaner sweeps the cache, after a package update
+# changes the sources, or on the next login node with its own /tmp. Paying it
+# here means the install finishes slow and the agent starts fast, which is the
+# right way round.
+#
+# pi.orig rather than pi: the launcher needs the ELM key and this runs before
+# the key may exist. Same settings, same packages, same cache.
+if [ "$WITH_PACKAGES" = "1" ] && [ -d agent/npm/node_modules ]; then
+  say "warming the module cache"
+  echo "    transpiling the packages once so the first launch does not have to"
+  JITI_CACHE_DIR="${TMPDIR:-/tmp}"; JITI_CACHE_DIR="${JITI_CACHE_DIR%/}/jiti"
+  if PI_CODING_AGENT_DIR="$HERE/agent" PI_OFFLINE=1 PI_FORCE=1 \
+     ./pi.orig --list-models >/dev/null 2>&1; then
+    echo "    done - cached in $JITI_CACHE_DIR"
+  else
+    warn "warm-up failed; the first launch will transpile instead (slow, not fatal)"
+  fi
 fi
 
 # --- 4. Llama tool-call shim ------------------------------------------------

@@ -40,6 +40,25 @@ fi
 
 # keep config, sessions and credentials inside this directory, not ~/.pi
 export PI_CODING_AGENT_DIR="$HERE/agent"
+
+# --- where jiti keeps its transpile cache -----------------------------------
+# The npm packages ship raw TypeScript and are transpiled at first use: ~21s of
+# CPU, cached in $TMPDIR/jiti and reused by every later launch. bootstrap.sh
+# fills that cache at install time, but $TMPDIR is not forever - tmp cleaners
+# sweep it, and a second login node has its own - and a cold cache means a 20
+# second launch.
+#
+#   ELM_PI_OWN_TMP=1    keep the cache (and pi's other temp files) inside the
+#                       install, where it survives and follows a shared home
+#                       directory between machines
+#
+# Off by default deliberately: it moves TMPDIR for everything pi runs, the
+# agent's own bash tool included, so a model that untars something large would
+# spend home-directory quota rather than scratch space.
+if [ "${ELM_PI_OWN_TMP:-0}" = "1" ]; then
+  export TMPDIR="$HERE/agent/tmp"
+  mkdir -p "$TMPDIR"
+fi
 # the elm-shim extension starts this proxy so Llama can call tools
 export ELM_SHIM_PATH="${ELM_SHIM_PATH:-$HERE/shim/shim.py}"
 
@@ -249,7 +268,15 @@ if [ "${1:-}" = "update" ]; then
             echo "pi: $HERE/pi.orig is missing - cannot update the extension packages." >&2
             exit 1
         }
-        exec "$HERE/pi.orig" update --extensions
+        RC=0
+        "$HERE/pi.orig" update --extensions || RC=$?
+        # Updated packages are new source to jiti, so its transpile cache is
+        # cold again and the next launch would rebuild it - ~21s of CPU before
+        # the prompt appears. Pay it here, where waiting is what you asked for.
+        echo "" >&2
+        echo "pi: warming the module cache..." >&2
+        PI_OFFLINE=1 "$HERE/pi.orig" --list-models >/dev/null 2>&1 || true
+        exit "$RC"
     fi
 fi
 # ---------------------------------------------------------------------------

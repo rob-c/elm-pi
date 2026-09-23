@@ -97,8 +97,20 @@ Two things people get wrong:
 | `--non-interactive` | take the key from `$ELM_API_KEY`, never prompt |
 | `--update` | refresh pi, packages and extensions; keep configs |
 | `--no-packages` | pi only: no sub-agents, memory, web access or anchor editing |
+| `--no-memory` | drop `pi-hermes-memory`: a third off every launch |
+| `--no-tools` | do not bundle fd, rg, jq, yq, shellcheck and ast-grep |
 | `--no-shim` | no Llama tool-call shim (Qwen unaffected) |
 | `--no-auth-lock` | leave `agent/auth.json` writable, so `/login` works |
+
+Whatever these flags decide, `agent/settings.json`'s `packages` list is written
+to match on every run. It is derived from `templates/settings.json` minus the
+drops, not edited in place — editing in place could only ever remove, so an
+install that had once been run with `--no-packages` kept an empty list for ever
+after, installed all four packages on the next run and then loaded none of
+them. Everything else in that file is yours and is left alone. A package that
+is listed but missing from `agent/npm/node_modules` is now called out during
+the install, because at runtime it is silent: pi starts offline, so it does not
+fetch it either.
 
 ---
 
@@ -314,7 +326,9 @@ does four things over the network while it comes up:
 | refreshes the remote model catalogue | after the prompt appears | one request, useless here — the ELM catalogue is `agent/models.json` |
 
 Only the first one blocks, and it only blocks once, because pi keeps the binaries
-it downloads. The fix is to have them there already:
+it downloads. There is a second first-launch cost behind it — the TypeScript
+transpile, below — but this is the one that holds the prompt back. The fix is to
+have the binaries there already:
 
 - **`bootstrap.sh` installs `fd` and `rg` into `agent/bin`** (pinned versions,
   sha256-checked against `templates/tools.sha256`), whether or not the machine
@@ -397,10 +411,48 @@ So: `pi-hermes-memory` ~1.8s, `pi-subagents` + `pi-hashline-edit-pro` ~1.6s,
    small files is the profile on-open scanning punishes hardest. (Plausible, not
    measured — toggling Defender needs admin rights.)
 
-**Two things that do not help**, both measured rather than assumed:
+### The transpile cache: 21s cold, 3.3s warm
 
-- `NODE_COMPILE_CACHE`: 6.5s → 6.4s CPU. V8's bytecode cache does not cover the
-  TypeScript transform that dominates here.
+The packages are transpiled by jiti, which caches the result in `$TMPDIR/jiti`
+and reuses it on every later launch. Measured here with the four packages
+loaded, CPU time, by pointing `TMPDIR` at an empty directory:
+
+| | CPU |
+|---|---|
+| cold cache — transpiling ~400 modules | **21.4s** |
+| warm cache | **3.3s** |
+
+That is the difference between "the first launch took twenty seconds" and "pi
+starts in about three". The cache is real and it works; what it is not is
+permanent. It is cold after an install, after a tmp cleaner sweeps it, after a
+package update changes the sources, and on the next login node, each with its
+own `/tmp`.
+
+So the cost is now paid where waiting is expected rather than where it is not:
+
+- `bootstrap.sh` fills the cache at the end of the install (`pi.orig
+  --list-models`, which needs no ELM key), and says so while it does it.
+- `pi update` fills it again after updating the packages, since new sources
+  mean a cold cache.
+- `ELM_PI_OWN_TMP=1` moves `TMPDIR` inside the install, so the cache survives
+  tmp cleaners and follows a shared home directory between machines. Off by
+  default: it moves `TMPDIR` for everything pi runs, the agent's own `bash`
+  tool included, so a model that unpacks something large spends home-directory
+  quota rather than scratch space. Worth setting on a multi-node estate with an
+  aggressive `/tmp`, not worth it on a laptop.
+
+Per-package cost, re-measured warm (`pi --list-models`, CPU, same machine):
+pi and the local extensions 0.84s, `pi-hermes-memory` +1.24s, `pi-subagents`
++0.65s, `pi-hashline-edit-pro` +0.23s, `pi-web-access` +0.16s. `--no-memory`
+remains the single biggest saving available, and `--fast` skips all four.
+
+**Three things that do not help**, all measured rather than assumed:
+
+- `NODE_COMPILE_CACHE`: 6.5s → 6.4s CPU, and 3.46s → 3.45s on the re-measure.
+  V8's bytecode cache covers modules Node itself loads; jiti evaluates the
+  packages' modules itself, so they are never offered to it.
+- V8 heap tuning (`--max-semi-space-size=32` and `=64`): 3.46s → 3.47s and
+  3.39s. Noise.
 - `PI_OFFLINE=1`: no difference to `pi -p` (4.2-4.8s wall either way). Print mode
   runs none of the startup checks in the first place, and the model catalogue is
   refreshed when you open the `/model` picker, not on this path. It is set by
