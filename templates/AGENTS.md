@@ -262,43 +262,48 @@ nobody has verified, because `guidanceCost` is only visible in the ELM web UI.
 If the goal is a faster delegation rather than a cheaper one, the measured lever
 is `pi --fast`, which cuts sub-agent startup from ~3.3s to ~0.9s.
 
-## Writing sub-agents get their own worktree
+## Concurrent writers, and the worktree option
 
-Isolation is **on by default** (`worktree: true` in
-`agent/extensions/subagent/config.json`) — but only for **workflow children**,
-which is the part that decides how you launch. A child inside a
-`workflowScript` (`runs.run` / `runs.all`) branches from clean HEAD into its
-own git worktree, works there, and hands back a **patch and a handoff
-manifest**. A direct single `subagent({agent, task})` call is not a workflow
-child: it runs in the shared cwd and edits your tree, config default or not.
+Two children writing the same file, or a child and you writing it at once, is
+the failure this section exists to prevent. It has happened here: a fan-out of
+eight writers building a site, where the parent listed the directory before the
+children finished, concluded they were stuck, and rewrote all eight pages
+itself. The children then finished and wrote theirs. Same files, two authors,
+last writer wins.
 
-So **a fan-out that writes goes through one `workflowScript` call**, never
-several direct `subagent` calls. That is where isolation applies, and two
-children — or a child and you — then cannot land on the same file. Verified the
-hard way: a direct call with `worktree: true` in config recorded
-`worktreePath: null` and wrote straight into the working tree.
+**The two cheap protections come first**, and they cost nothing:
 
-That is not theoretical. A fan-out of eight writers building a site produced
-this: the parent listed the directory before the children finished, concluded
-they were stuck, and rewrote all eight pages itself. The children then finished
-and wrote theirs. Same files, two authors, last writer wins. Worktrees make
-that collision impossible, and `bg_wait({all: true})` makes the premature check
-impossible.
+1. **Collect before you check.** `bg_wait({all: true})` after a fan-out. The run
+   above went wrong because the parent checked for results that could not exist
+   yet. An empty directory means the children have not finished, not that they
+   failed.
+2. **One writer per file.** Split a fan-out by file, not by topic, so two
+   children are never aimed at the same path. Where that is not possible, do the
+   writing yourself and use children to gather.
 
-**It requires a git repository with a clean checkout.** Outside one, allocation
-throws `worktree isolation requires a git repository`. So when the working
-directory is not a repo, or the tree is dirty:
+**Worktree isolation is available and off by default.** Turned on, each child
+branches from clean HEAD into its own git worktree and hands back a patch and a
+handoff manifest instead of touching your tree. It is genuinely stronger than
+the two rules above — and it is opt-in because it **requires a git repository
+with a clean checkout**, and throws `worktree isolation requires a git
+repository` without one. Most working directories are not repos, and failing
+every launch there is worse than the race it prevents.
 
-- `git init` and commit first if the work is worth keeping — which it usually
-  is, and it gives you a diff of what the agent did
-- or keep to **one writer** and pass `worktree: false`, rather than fanning out
-  concurrent writes with nothing separating them
+Turn it on per call, for a fan-out that writes in a repo you have committed:
 
-A per-call `worktree` value always beats the default, so `worktree: false` is
-the escape hatch for a child that must edit your actual tree.
+```js
+await runs.all([
+  { key: "api", agent: "qwen",  task: "...", worktree: true },
+  { key: "ui",  agent: "llama", task: "...", worktree: true },
+]);
+```
 
-After a fan-out, the patches are the result. Apply them deliberately; do not
-assume a child's report means its work is in your working copy.
+Two things about it worth knowing before you rely on it. Isolation applies to
+**workflow children** — a child inside a `workflowScript` — and a direct
+`subagent({agent, task})` call runs in the shared cwd whatever the config says;
+verified by a direct launch recording `worktreePath: null` and writing straight
+into the working tree. And when children do run isolated, **the patches are the
+result**: a child's report no longer means its work is in your working copy.
 
 ## Answering a sub-agent's supervisor request
 

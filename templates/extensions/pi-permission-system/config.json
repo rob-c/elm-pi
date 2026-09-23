@@ -1,7 +1,14 @@
 {
   "permission": {
     "*": "allow",
-    "external_directory": "ask",
+    "subagent": "allow",
+    "bg_wait": "allow",
+    "subagent_supervisor": "allow",
+    "contact_supervisor": "allow",
+    "external_directory": {
+      "*": "ask",
+      "~/.cache/elm-pi/worktrees/**": "allow"
+    },
     "path": {
       "*": "allow",
       "*.env": "deny",
@@ -18,5 +25,7 @@
       "sudo *": "ask"
     }
   },
-  "piInfrastructureReadPaths": ["@AGENT_DIR@/**"]
+  "piInfrastructureReadPaths": [
+    "@AGENT_DIR@/**"
+  ]
 }

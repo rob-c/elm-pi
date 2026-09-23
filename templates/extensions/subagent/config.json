@@ -2,6 +2,7 @@
   "globalConcurrencyLimit": 8,
   "maxSubagentSpawnsPerRun": 64,
   "share": false,
-  "worktree": true,
-  "worktreeProvider": "native"
+  "worktree": false,
+  "worktreeProvider": "native",
+  "worktreeBaseDir": "~/.cache/elm-pi/worktrees"
 }
