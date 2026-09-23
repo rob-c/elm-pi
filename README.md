@@ -68,11 +68,14 @@ agent/bin/          generated: fd rg jq yq shellcheck ast-grep, pinned + checksu
 .node/ node_modules/  generated: Node 24 + pi, ~650 MB
 ```
 
-`agent/` is generated from `templates/`. Change a template, run
-`./bootstrap.sh --update`, and the change reaches every host. Edit `agent/`
-directly for one-off local tuning — a plain `./bootstrap.sh` will not overwrite it.
+`agent/` is generated from `templates/`, and the split is **code versus config**.
 
-**One exception**, so a re-install can change its mind. Some values are
+Code and policy — `AGENTS.md`, the agent definitions, the local extensions, the
+`/ulw` prompt — are **refreshed on every run**, so a re-install always runs the
+current rules. Config you tune — `settings.json`, `models.json`,
+`web-search.json`, the extension configs — is kept.
+
+Within the kept config, **one exception**, so a re-install can change its mind. Some values are
 decisions this repo makes for a measured or documented reason — thinking off,
 compaction owned by `pi-auto-compact`, PDFs extracted locally rather than
 uploaded, `/share` off for sub-agents, exactly one Llama, the permission
@@ -83,6 +86,12 @@ value over the top. Nothing is overwritten silently.
 Everything else is yours and survives: theme, model, concurrency limits, search
 routing, and any key the list does not name. Change a decision permanently in
 `templates/`, not in `agent/`.
+
+**A re-install never redoes work that is already done.** It does not reinstall
+pi, re-download the bundled binaries, or reinstall the extension packages when
+they are present — that is minutes spent reproducing a state that already
+exists. `pi update` reinstalls them deliberately, and an install that is truly
+broken is a `rm -rf` away from a clean one.
 
 ## Daily use
 

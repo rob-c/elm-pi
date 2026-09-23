@@ -148,13 +148,17 @@ install_if_absent() {   # never clobber a config someone has tuned
     cp -f "$1" "$2"; echo "    wrote $2"
   fi
 }
-# Extensions are code, not config: --update refreshes them, a plain run installs
-# them once. elm-only.ts is the ELM-only policy and is always refreshed.
-cp -f templates/extensions/elm-only.ts agent/extensions/elm-only.ts
-echo "    wrote agent/extensions/elm-only.ts (ELM-only policy)"
-for f in protected-paths.ts todo.ts elm-shim.ts; do
-  install_if_absent "templates/extensions/$f" "agent/extensions/$f"
+# Code is refreshed, config is kept. Everything below is code or policy this
+# repo owns - the ELM-only guard, the write protections, the delegation rules,
+# the agent definitions - so a re-install picks up whatever the repo now says
+# without needing --update. Config you tune (settings.json, models.json,
+# web-search.json, the extension configs) is install_if_absent instead, with
+# only the keys this repo decides reapplied over the top further down.
+for f in elm-only.ts protected-paths.ts todo.ts elm-shim.ts; do
+  [ -f "templates/extensions/$f" ] || continue
+  cp -f "templates/extensions/$f" "agent/extensions/$f"
 done
+echo "    refreshed agent/extensions/*.ts (ELM-only policy, write protections, todo, shim)"
 install_if_absent templates/extensions/subagent/config.json agent/extensions/subagent/config.json
 # The permission gate's policy. @AGENT_DIR@ marks this install as pi's own
 # infrastructure, so reading its node_modules does not trip the outside-cwd
@@ -174,14 +178,9 @@ fi
 # tools need pi-hashline-edit-pro loaded in the child by absolute path.
 for f in templates/agents/*.md; do
   [ -e "$f" ] || continue
-  dest="agent/agents/$(basename "$f")"
-  if [ -f "$dest" ] && [ "$UPDATE" != "1" ]; then
-    echo "    keeping existing $dest"
-  else
-    sed "s|@AGENT_DIR@|$HERE/agent|g" "$f" > "$dest"
-    echo "    wrote $dest"
-  fi
+  sed "s|@AGENT_DIR@|$HERE/agent|g" "$f" > "agent/agents/$(basename "$f")"
 done
+echo "    refreshed agent/agents/*.md (model pinning, tools, delegation briefs)"
 # pi-auto-compact routes compaction through pi-task-models' "fast" profile.
 # Qwen primary, Llama fallback: compaction is lossy - a bad summary loses
 # session context permanently - so the capable model does it and the small one
@@ -189,8 +188,9 @@ done
 install_if_absent templates/config/pi-task-models/config.json agent/config/pi-task-models/config.json
 install_if_absent templates/settings.json              agent/settings.json
 install_if_absent templates/models.json                agent/models.json
-install_if_absent templates/AGENTS.md                  agent/AGENTS.md
-install_if_absent templates/prompts/ulw.md             agent/prompts/ulw.md
+cp -f templates/AGENTS.md      agent/AGENTS.md          # delegation policy
+cp -f templates/prompts/ulw.md agent/prompts/ulw.md     # /ulw ultrawork mode
+echo "    refreshed agent/AGENTS.md and agent/prompts/ulw.md"
 install_if_absent templates/web-search.json            agent/web-search.json
 install_if_absent templates/hermes-memory-config.json  agent/hermes-memory-config.json
 [ -f agent/auth.json ] || printf '{}\n' > agent/auth.json

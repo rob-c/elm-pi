@@ -145,30 +145,27 @@ chmod +x "$PREFIX/pi" "$PREFIX/pi.orig" "$PREFIX/bootstrap.sh" "$PREFIX/configur
 # bootstrap.sh does the real work: Node, pi, packages, agent/, the key, the
 # model id, and the ELM-only checks. It is idempotent and never overwrites a
 # config you have edited.
-say "running bootstrap (Node, pi, extensions — a few minutes)"
-BOOT_ARGS="$PASS_ARGS"
-# If this is an existing install, treat it as an update (refresh pi and packages)
-EXISTING_INSTALL=0
 if [ -d "$PREFIX/node_modules" ] || [ -d "$PREFIX/agent/npm/node_modules" ]; then
-  EXISTING_INSTALL=1
-  echo "    existing installation detected — updating pi and packages"
+  say "running bootstrap (existing install — keeping pi, binaries and packages)"
+  echo "    already installed parts are left alone; configs and policy are refreshed"
+  echo "    to reinstall them: pi update, or ./bootstrap.sh --force"
+else
+  say "running bootstrap (Node, pi, extensions — a few minutes)"
 fi
+BOOT_ARGS="$PASS_ARGS"
 [ "$UPDATE" = "1" ] && BOOT_ARGS="--update$BOOT_ARGS"
-# Re-installing over an existing install means --update, not --force.
+# A re-install adds no flags of its own. It deliberately does not reinstall pi,
+# re-download the bundled binaries, or reinstall the extension packages when
+# they are already present: that is minutes of work to reproduce a state that
+# already exists, on every run, for nothing.
 #
-# --update is what refreshes the generated files: AGENTS.md, the agent
-# definitions, the local extensions, the prompts. install_if_absent keeps those
-# untouched otherwise, so without this a re-install pulled new code from GitHub
-# and then ran the old policy - the delegation rules, tool lists and model
-# routing would stay at whatever the first install wrote.
+# The repo's decisions still land, because bootstrap.sh applies them without
+# needing a flag - generated code (AGENTS.md, agent definitions, local
+# extensions, prompts) is refreshed every run, and the settings this repo owns
+# are compared, reported and reapplied every run.
 #
-# --force is deliberately not used: it re-downloads all six bundled tools even
-# when they already match the pinned versions. --update reinstalls npm exactly
-# the same way without that.
-case " $BOOT_ARGS " in
-  *" --update "*) ;;
-  *) [ "$EXISTING_INSTALL" = "1" ] && BOOT_ARGS="$BOOT_ARGS --update" ;;
-esac
+# Reinstalling the packages is what `--update` is for, and `pi update` passes
+# it. An install that is actually broken is a `rm -rf` away from a clean one.
 if [ -t 0 ]; then
   # Invoked as bash -c "$(curl ...)", so stdin is still the terminal and
   # bootstrap can prompt for the ELM key.
