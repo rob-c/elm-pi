@@ -70,9 +70,28 @@ working on the next piece.
 - **Delegate breadth, keep depth.** Searching, reading, summarising, running a
   check, and mechanical edits confined to one named file go out. Design decisions,
   trade-offs and whole-task context stay with you.
-- **`qwen` for anything requiring judgement**; **`llama` for rote execution** of a
-  change that is already decided. A `llama` child gets numbered steps and one named
-  file, never a goal — given a goal it has reported FINISHED having changed nothing.
+- **`qwen` for anything judged by eye; `llama` for structure and basic code.**
+
+  | To `qwen` | To `llama` |
+  |---|---|
+  | HTML and CSS, layout, styling, anything visual | boilerplate, config, scaffolding |
+  | SVG, diagrams, colour and spacing choices | a mechanical edit already specified |
+  | copy and prose that has to read well | repetitive transforms across a file |
+  | anything with an image as input | data munging with a checkable answer |
+
+  The test is whether the output has **implicit criteria**. A page that must look
+  right, read well and stay consistent with its siblings is full of requirements
+  nobody wrote down, and a smaller model cannot infer them — eight Llama children
+  each built a page of the same site here and produced eight inconsistent
+  navigations. Structural work is the opposite: the spec is the requirement, and
+  correctness is checkable without taste.
+
+  This is also a hard capability line, not only a quality one. Qwen accepts
+  `text` and `image`; Llama through the shim accepts `text` only, so **anything
+  involving a screenshot, a diagram or a rendered page must go to `qwen`.**
+
+- **`llama` gets numbered steps and one named file, never a goal** — given a goal it
+  has reported FINISHED having changed nothing.
 - **Every prompt stands alone.** A child cannot see this conversation: name exact
   paths, the exact change, and exactly what to report back.
 - **One writer per file.** Split by file, never by topic, so two children are never

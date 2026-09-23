@@ -180,6 +180,14 @@ into an answer, deciding how a change should be shaped, reviewing.
 formatting convention, generating boilerplate to a stated shape, a mechanical
 edit confined to one named file, running a command and reporting the output.
 
+**Anything judged by eye goes to `qwen`**: HTML and CSS, layout, styling, SVG
+and diagrams, prose that has to read well. Output with implicit criteria — it
+must look right, and match its siblings — is full of requirements nobody wrote
+down. Eight Llama children each built a page of the same site here and produced
+eight inconsistent navigations. It is a capability line too: Qwen accepts text
+and images, Llama through the shim accepts text only, so anything with a
+screenshot, diagram or rendered page as input must be `qwen`.
+
 Three rules, all of them from measurements above, not preference:
 
 1. **Give `llama` steps, never a goal.** "Read each file and add docstrings"
