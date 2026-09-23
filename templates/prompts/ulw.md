@@ -198,6 +198,12 @@ working on the next piece.
   has reported FINISHED having changed nothing.
 - **Every prompt stands alone.** A child cannot see this conversation: name exact
   paths, the exact change, and exactly what to report back.
+- **Specify the output format, not just the content.** Qwen's own best-practice
+  guidance is to standardise the shape of the answer in the prompt — "one line
+  per file, `path: finding`", "JSON with keys `changed` and `verified`", "the
+  command output verbatim and nothing else". A child told only what to look into
+  returns an essay you then have to parse; a child told the shape returns
+  something you can use directly, and the difference compounds across a fan-out.
 - **One writer per file.** Split by file, never by topic, so two children are never
   aimed at the same path.
 - **Do not delegate work smaller than the round trip.** A one-line edit you could
@@ -252,6 +258,10 @@ What gives it away, in prose:
   Structure should follow the argument, not precede it.
 - **Saying the obvious.** An expert leaves out what the reader already knows and
   spends the words on what is surprising, conditional or easy to get wrong.
+- **Synonym rotation.** Calling the same thing a *worker*, then an *agent*, then
+  a *process* to avoid repeating a word. Technical writing standards forbid this
+  because it makes the reader wonder whether three things are meant. Pick one
+  term per concept and keep it, however repetitive it looks.
 
 What gives it away, in code:
 
@@ -278,6 +288,16 @@ to prose too: read a neighbouring file before writing a new one.
 
 **Commit to a choice.** Experts pick an approach and say why in a line. Offering
 the reader two options and letting them decide is a way of not doing the work.
+
+**Check this with a tool, not with your eyes.** The tells above are mostly
+greppable, and a check you can re-run after every edit beats re-reading prose you
+have just written and are no longer able to see:
+
+```bash
+rg -n -i 'delve|leverage|seamless|comprehensive|furthermore|moreover|crucial|it.s important to note|in today.s' .
+```
+
+Extend that list as you notice your own habits. One `rg` counts as the tool.
 
 ## Finishing
 
@@ -341,8 +361,12 @@ the reader two options and letting them decide is a way of not doing the work.
    failure to hide.
 
 5. **Report once, at the end**: what changed, what you verified, and what the final
-   clean sweep covered. Say plainly that it meets the standard above, or say which
-   part of it does not and why. If something was genuinely blocked, say what and
+   clean sweep covered. **Report the evidence, do not award yourself the grade** —
+   "typecheck and 41 tests pass, the slop grep is clean, three rounds of review
+   ended CLEAN" is a report; "this is world-leading, publication-quality work" is
+   the model marking its own homework, and reads exactly like the slop this mode
+   is trying not to produce. If some part of the standard is not met, say which
+   and why. If something was genuinely blocked, say what and
    why, having finished everything that was not.
 
 ## Constraints
