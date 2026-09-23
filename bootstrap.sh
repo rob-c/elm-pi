@@ -139,7 +139,8 @@ fi
 chmod +x pi pi.orig configure.sh 2>/dev/null || true
 
 say "agent configuration"
-mkdir -p agent/extensions/subagent agent/prompts agent/agents
+mkdir -p agent/extensions/subagent agent/extensions/pi-permission-system \
+         agent/config/pi-task-models agent/prompts agent/agents
 install_if_absent() {   # never clobber a config someone has tuned
   if [ -f "$2" ] && [ "$UPDATE" != "1" ]; then
     echo "    keeping existing $2"
@@ -155,6 +156,16 @@ for f in protected-paths.ts todo.ts elm-shim.ts; do
   install_if_absent "templates/extensions/$f" "agent/extensions/$f"
 done
 install_if_absent templates/extensions/subagent/config.json agent/extensions/subagent/config.json
+# The permission gate's policy. @AGENT_DIR@ marks this install as pi's own
+# infrastructure, so reading its node_modules does not trip the outside-cwd
+# prompt. Never clobbered once written: this is a policy file people tune.
+if [ -f agent/extensions/pi-permission-system/config.json ]; then
+  echo "    keeping existing agent/extensions/pi-permission-system/config.json"
+else
+  sed "s|@AGENT_DIR@|$HERE/agent|g" templates/extensions/pi-permission-system/config.json \
+    > agent/extensions/pi-permission-system/config.json
+  echo "    wrote agent/extensions/pi-permission-system/config.json"
+fi
 # Agent definitions are code, not config: pi-subagents discovers them in
 # agent/agents, and `subagent qwen "..."` fails with "Unknown agent" without
 # them. Refreshed on --update like the extensions.
@@ -171,6 +182,11 @@ for f in templates/agents/*.md; do
     echo "    wrote $dest"
   fi
 done
+# pi-auto-compact routes compaction through pi-task-models' "fast" profile.
+# Qwen primary, Llama fallback: compaction is lossy - a bad summary loses
+# session context permanently - so the capable model does it and the small one
+# only catches a rate limit.
+install_if_absent templates/config/pi-task-models/config.json agent/config/pi-task-models/config.json
 install_if_absent templates/settings.json              agent/settings.json
 install_if_absent templates/models.json                agent/models.json
 install_if_absent templates/AGENTS.md                  agent/AGENTS.md

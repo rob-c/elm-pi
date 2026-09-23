@@ -1,0 +1,22 @@
+{
+  "permission": {
+    "*": "allow",
+    "external_directory": "ask",
+    "path": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow",
+      "~/.ssh/*": "deny",
+      "~/.aws/*": "deny",
+      "~/.config/gh/*": "deny",
+      "*.pem": "deny",
+      "*id_rsa*": "deny"
+    },
+    "bash": {
+      "*": "allow",
+      "sudo *": "ask"
+    }
+  },
+  "piInfrastructureReadPaths": ["@AGENT_DIR@/**"]
+}

@@ -11,7 +11,11 @@
     "npm:pi-subagents",
     "npm:pi-hermes-memory",
     "npm:pi-web-access",
-    "npm:pi-hashline-edit-pro"
+    "npm:pi-hashline-edit-pro",
+    "npm:pi-powerline-footer",
+    "npm:@gotgenes/pi-permission-system",
+    "npm:@henryqw/pi-task-models",
+    "npm:@henryqw/pi-auto-compact"
   ],
   "extensions": [
     "${PI_CODING_AGENT_DIR}/extensions"
@@ -28,7 +32,19 @@
   "sessionDir": ".pi/sessions",
   "subagents": {
     "agentOverrides": {
-      "worker": {
+      "delegate": {
+        "model": "elm-shim/meta-llama/Llama-3.3-70B-Instruct",
+        "fallbackModels": [
+          "elm/Qwen/Qwen3.5-397B-A17B-FP8"
+        ]
+      },
+      "oracle": {
+        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
+      },
+      "researcher": {
+        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
+      },
+      "reviewer": {
         "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8",
         "fallbackModels": [
           "elm-shim/meta-llama/Llama-3.3-70B-Instruct"
@@ -40,17 +56,11 @@
           "elm-shim/meta-llama/Llama-3.3-70B-Instruct"
         ]
       },
-      "reviewer": {
+      "worker": {
         "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8",
         "fallbackModels": [
           "elm-shim/meta-llama/Llama-3.3-70B-Instruct"
         ]
-      },
-      "oracle": {
-        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
-      },
-      "researcher": {
-        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
       }
     },
     "modelScope": {
@@ -62,5 +72,8 @@
         "inherit"
       ]
     }
+  },
+  "compaction": {
+    "enabled": false
   }
 }

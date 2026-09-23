@@ -21,6 +21,20 @@ Launch them with `subagent` (which is `async: true` by default, so each call ret
 immediately) and collect with `bg_wait({all: true})`. `subagent` takes exactly one
 child per call, so fan out by making several calls in the same turn.
 
+**Do not pass `nonBlocking` to `bg_wait`.** Ordinary async sub-agent runs notify
+this session natively when they finish, so a wait subscription buys nothing. If
+you pass it anyway you get one of two refusals rather than a result:
+
+- `Non-blocking wait subscriptions require id ...` - it binds exactly one run,
+  so it needs `id`, and it cannot be combined with `all`.
+- `... require a long-lived interactive subagent runtime` - it cannot work at
+  all in print mode (`pi -p`).
+
+The two correct shapes are `bg_wait({all: true})` to collect a fan-out, and
+`bg_wait({id: "<runId>"})` to block on one run. `nonBlocking` is for detached or
+provider work that has no native completion notification, which is not what
+`subagent` produces.
+
 pi's configured fan-out budget is **64 children**, and 20 concurrent has been
 verified working here. Match the count to how the work actually divides - one
 sub-agent per file or per independent question - rather than to a fixed number.
@@ -209,7 +223,21 @@ in parallel, each on its own model, both results aggregated by the script.
 
 The routing rule is the same one as above, applied per child rather than per
 task: **whoever has to decide gets Qwen; whoever is following a procedure gets
-Llama.** A survey, a synthesis or a review is a Qwen child. A per-file
+Llama.** Size is the second half of that test - **send a child to `llama` by
+default when all three hold**, rather than treating it as the exception:
+
+1. the task is fully specified, with nothing left to decide
+2. it is confined to one named file, or to no files at all
+3. the expected answer is short - a lookup, one edit, a format pass, a command
+   and its output
+
+Anything failing one of those three goes to `qwen`: multi-file work, anything
+needing a judgement call, and anything whose answer is a page of prose. The
+`delegate` role is pinned to Llama in `settings.json` for the same reason, with
+Qwen as its fallback.
+
+Give a Llama child numbered steps even when the task is trivial. That is not
+ceremony: a one-line goal is what produced "FINISHED" with nothing changed. A survey, a synthesis or a review is a Qwen child. A per-file
 mechanical edit with the exact replacement text already written out is a Llama
 child, and there can be many of them in the same `runs.all`.
 

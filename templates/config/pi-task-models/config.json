@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "fast": {
+      "primary": { "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8", "thinkingLevel": "off" },
+      "fallback": { "model": "elm-shim/meta-llama/Llama-3.3-70B-Instruct", "thinkingLevel": "off" }
+    }
+  }
+}

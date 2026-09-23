@@ -392,6 +392,13 @@ CPU time (user+sys) because that is the number that does not move with machine l
 So: `pi-hermes-memory` ~1.8s, `pi-subagents` + `pi-hashline-edit-pro` ~1.6s,
 `pi-web-access` ~0.2s, pi and the local extensions ~1.4s.
 
+`pi-powerline-footer` is installed too and costs nothing measurable — 3.48s
+against 3.55s with it removed, which is inside the run-to-run variance. One
+thing to leave alone: setting `cost.currency` to anything but USD turns on a
+background FX-rate fetch from `cdn.jsdelivr.net`, which the egress proxy will
+refuse and log. It would also tell you nothing here, since the ELM models are
+priced at zero in `agent/models.json`.
+
 **Three levers, in order of payoff:**
 
 1. **`pi --fast`** for one-shot work. Loads only the local extensions — the
