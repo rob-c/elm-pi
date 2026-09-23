@@ -57,7 +57,6 @@ Measured on this install: **1,357 models → 3.**
 
 ```
 provider  model                              context  max-out  thinking  images
-elm       meta-llama/Llama-3.3-70B-Instruct  128K     16.4K    no        no
 elm       Qwen/Qwen3.5-397B-A17B-FP8         262.1K   32.8K    yes       yes
 elm-shim  meta-llama/Llama-3.3-70B-Instruct  128K     16.4K    no        no
 ```

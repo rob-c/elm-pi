@@ -233,7 +233,14 @@ passthrough, shimmed tool calls and `GET /v1/models` are all verified.
   `agent/models.json` and `agent/settings.json`, leaving your other settings alone
 - sends one completion and prints the reply
 
-Run it again any time: `./configure.sh` or `./configure.sh llama`.
+Run it again any time: `./configure.sh`.
+
+**Not `./configure.sh llama`.** This install deliberately exposes exactly one
+Llama, `elm-shim/meta-llama/Llama-3.3-70B-Instruct`, which reaches tool calling
+through the local shim. ELM's own endpoint for that model was started without a
+tool-call parser and returns 400 to any request carrying tools, so a second
+`elm/meta-llama/...` entry is only ever picked by mistake from `/model`. Running
+`configure.sh llama` inserts one; delete it from `agent/models.json` if you do.
 
 Model ids are exact: `Qwen/Qwen3.5-397B-A17B-FP8` — vendor prefix, capital Q,
 `-A17B-FP8` suffix. Not `qwen-3.5-397b`. The other university-hosted models are
@@ -259,7 +266,6 @@ ANTHROPIC_API_KEY=x OPENAI_API_KEY=x ./pi --list-models
 
 ```
 provider  model                              context  max-out  thinking  images
-elm       meta-llama/Llama-3.3-70B-Instruct  128K     16.4K    no        no
 elm       Qwen/Qwen3.5-397B-A17B-FP8         262.1K   32.8K    yes       yes
 elm-shim  meta-llama/Llama-3.3-70B-Instruct  128K     16.4K    no        no
 ```

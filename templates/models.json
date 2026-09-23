@@ -37,22 +37,6 @@
           "samplingParams": {
             "temperature": 0.6
           }
-        },
-        {
-          "id": "meta-llama/Llama-3.3-70B-Instruct",
-          "name": "Llama 3.3 70B (ELM, university-hosted)",
-          "reasoning": false,
-          "input": [
-            "text"
-          ],
-          "contextWindow": 128000,
-          "maxTokens": 16384,
-          "cost": {
-            "input": 0,
-            "output": 0,
-            "cacheRead": 0,
-            "cacheWrite": 0
-          }
         }
       ]
     }
