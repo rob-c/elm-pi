@@ -262,6 +262,44 @@ nobody has verified, because `guidanceCost` is only visible in the ELM web UI.
 If the goal is a faster delegation rather than a cheaper one, the measured lever
 is `pi --fast`, which cuts sub-agent startup from ~3.3s to ~0.9s.
 
+## Writing sub-agents get their own worktree
+
+Isolation is **on by default** (`worktree: true` in
+`agent/extensions/subagent/config.json`) — but only for **workflow children**,
+which is the part that decides how you launch. A child inside a
+`workflowScript` (`runs.run` / `runs.all`) branches from clean HEAD into its
+own git worktree, works there, and hands back a **patch and a handoff
+manifest**. A direct single `subagent({agent, task})` call is not a workflow
+child: it runs in the shared cwd and edits your tree, config default or not.
+
+So **a fan-out that writes goes through one `workflowScript` call**, never
+several direct `subagent` calls. That is where isolation applies, and two
+children — or a child and you — then cannot land on the same file. Verified the
+hard way: a direct call with `worktree: true` in config recorded
+`worktreePath: null` and wrote straight into the working tree.
+
+That is not theoretical. A fan-out of eight writers building a site produced
+this: the parent listed the directory before the children finished, concluded
+they were stuck, and rewrote all eight pages itself. The children then finished
+and wrote theirs. Same files, two authors, last writer wins. Worktrees make
+that collision impossible, and `bg_wait({all: true})` makes the premature check
+impossible.
+
+**It requires a git repository with a clean checkout.** Outside one, allocation
+throws `worktree isolation requires a git repository`. So when the working
+directory is not a repo, or the tree is dirty:
+
+- `git init` and commit first if the work is worth keeping — which it usually
+  is, and it gives you a diff of what the agent did
+- or keep to **one writer** and pass `worktree: false`, rather than fanning out
+  concurrent writes with nothing separating them
+
+A per-call `worktree` value always beats the default, so `worktree: false` is
+the escape hatch for a child that must edit your actual tree.
+
+After a fan-out, the patches are the result. Apply them deliberately; do not
+assume a child's report means its work is in your working copy.
+
 ## Answering a sub-agent's supervisor request
 
 A `qwen` sub-agent can ask one focused question through `contact_supervisor`.

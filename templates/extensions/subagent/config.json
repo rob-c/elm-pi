@@ -1,5 +1,7 @@
 {
   "globalConcurrencyLimit": 8,
   "maxSubagentSpawnsPerRun": 64,
-  "share": false
+  "share": false,
+  "worktree": true,
+  "worktreeProvider": "native"
 }
