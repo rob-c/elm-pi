@@ -234,6 +234,28 @@ nobody has verified, because `guidanceCost` is only visible in the ELM web UI.
 If the goal is a faster delegation rather than a cheaper one, the measured lever
 is `pi --fast`, which cuts sub-agent startup from ~3.3s to ~0.9s.
 
+## Answering a sub-agent's supervisor request
+
+A `qwen` sub-agent can ask one focused question through `contact_supervisor`.
+It arrives as a **Supervisor interview request** card carrying a `Request ID`.
+
+Reply with **the id on that card**:
+
+```
+subagent_supervisor({ action: "reply", replyTo: "<Request ID from the card>", message: "..." })
+```
+
+`No pending supervisor request found for replyTo '<id>'` means the id was
+wrong, usually one reused from an earlier request, a run id, or a child target
+id. Nothing is lost when that happens: the request is still pending and the
+card is re-displayed. Call `subagent_supervisor({ action: "pending" })` to list
+the live requests and their real ids rather than guessing.
+
+Answer it or stop the run. A workflow whose child is waiting on an interview
+stays **paused** until that child exits, so an unanswered question stalls the
+whole orchestration. `llama` sub-agents cannot open one at all - they report
+what was missing and hand back.
+
 ## Project memory
 
 Durable facts about a project live in that project's own `AGENTS.md`, in its root.
