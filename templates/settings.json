@@ -33,10 +33,7 @@
   "subagents": {
     "agentOverrides": {
       "delegate": {
-        "model": "elm-shim/meta-llama/Llama-3.3-70B-Instruct",
-        "fallbackModels": [
-          "elm/Qwen/Qwen3.5-397B-A17B-FP8"
-        ]
+        "model": "elm-shim/meta-llama/Llama-3.3-70B-Instruct"
       },
       "oracle": {
         "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
@@ -45,22 +42,13 @@
         "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
       },
       "reviewer": {
-        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8",
-        "fallbackModels": [
-          "elm-shim/meta-llama/Llama-3.3-70B-Instruct"
-        ]
+        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
       },
       "scout": {
-        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8",
-        "fallbackModels": [
-          "elm-shim/meta-llama/Llama-3.3-70B-Instruct"
-        ]
+        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
       },
       "worker": {
-        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8",
-        "fallbackModels": [
-          "elm-shim/meta-llama/Llama-3.3-70B-Instruct"
-        ]
+        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
       }
     },
     "modelScope": {

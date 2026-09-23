@@ -310,11 +310,12 @@ child, and there can be many of them in the same `runs.all`.
 Two settings back this up, in `agent/settings.json` under `subagents`:
 
 - `agentOverrides` pins `worker`, `scout`, `reviewer`, `oracle` and
-  `researcher` to Qwen rather than letting them drift with the session model,
-  and gives the first three `fallbackModels: llama`. That fallback fires only
-  for retryable provider failures - rate limit, overload, unavailable - and
-  only before the child has done any tool work. It is the honest use of the
-  small model here: capacity, not speed.
+  `researcher` to Qwen, and `delegate` to Llama, rather than letting them drift
+  with the session model. There is no fallback chain: `pi-subagents` removed
+  `fallbackModels` in 0.71.0 along with all same-launch model switching, and
+  configuring it now fails the extension at load. If Qwen is rate-limited,
+  retrying on Llama is a new launch you make deliberately — `subagent` with
+  agent `llama`, or `pi --llama` — not something that happens underneath you.
 - `modelScope` is `enforce: true, strict: true` with `allow: elm/*,
   elm-shim/*, inherit`. The ELM-only policy strips commercial catalogues in the
   parent; this closes the same door for children, so a per-run `model:`
