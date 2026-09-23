@@ -123,6 +123,34 @@ return. `runs.host` exists for commands but is available only to the
 package-owned named resources (`review`, `run-ci`) — an inline `workflowScript`
 is unknown-provenance input and cannot call it.
 
+**Validate a workflow before you launch it.** It runs no children and costs
+nothing, and it catches this class of error before it costs you a run:
+
+```js
+subagent({ action: "validate", workflowScript: "..." })
+```
+
+The commonest failure, verbatim from a real run — `ReferenceError: require is
+not defined  at workflow-script.js:3:12`:
+
+```js
+// WRONG. There is no require, no fs, no process, no import in this sandbox.
+const fs = require("fs");
+const config = fs.readFileSync("src/config.ts", "utf8");
+```
+
+```js
+// RIGHT. The child reads it; the script receives what the child returns.
+const [read] = await runs.all([
+  { key: "read", agent: "qwen", task: "Read src/config.ts and report its exported names, one per line." },
+]);
+const names = read.output;
+```
+
+The urge to `require` is the urge to do the work in the script. Every time you
+feel it, the answer is a child: children have `read`, `write`, `bash` and the
+anchor tools, and the script has none of them by design.
+
 **Your job between races is to think, not to wait.** Fold the returned result into
 the plan, decide what the next child should do, and keep the queue stocked. If you
 find yourself reading files serially while no children are running, you have
