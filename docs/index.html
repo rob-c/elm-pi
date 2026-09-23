@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>elm-pi</title>
+<title>ELM-Pi: Agentic AI using the UoE ELM service.</title>
 <meta name="description" content="A coding agent on the University of Edinburgh's own GPUs. One command to install on macOS or Linux.">
-<meta property="og:title" content="elm-pi">
+<meta property="og:title" content="ELM-Pi: Agentic AI using the UoE ELM service.">
 <meta property="og:description" content="A coding agent on the University of Edinburgh's own GPUs. One command, macOS or Linux.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#960;</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -105,6 +105,20 @@
     text-align: center;
   }
   .wordmark em { font-style: normal; color: var(--sodium); }
+  /* The tagline names the thing; the promise below it makes the argument. Kept
+     quieter than both, and green rather than amber - sodium stays reserved. */
+  /* sits with the wordmark, not with the promise below it */
+  .wordmark + .tagline { margin-top: -6px; }
+  .tagline {
+    font-size: clamp(14.5px, 1.5vw, 17px);
+    font-weight: 500;
+    letter-spacing: .035em;
+    line-height: 1.45;
+    margin: 0 auto 14px;
+    max-width: 30em;
+    text-align: center;
+    color: #9fd6ba;
+  }
   .promise {
     font-size: clamp(19px, 2.3vw, 25px);
     line-height: 1.42;
@@ -172,6 +186,7 @@
     .rise-2 { animation-delay: .07s; }
     .rise-3 { animation-delay: .16s; }
     .rise-4 { animation-delay: .26s; }
+    .rise-5 { animation-delay: .36s; }
     @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
   }
 
@@ -253,10 +268,11 @@
 
   <div class="wrap">
     <h1 class="wordmark rise">elm-<em>&pi;</em></h1>
-    <p class="promise rise rise-2">A coding agent whose model runs on <b>the University&rsquo;s own GPUs</b>, two miles away, not on a credit card.</p>
+    <p class="tagline rise rise-2">ELM-Pi: Agentic AI using the UoE ELM service.</p>
+    <p class="promise rise rise-3">A coding agent whose model runs on <b>the University&rsquo;s own GPUs</b>, two miles away, not on a credit card.</p>
   </div>
 
-  <div class="wrap-wide install rise rise-3">
+  <div class="wrap-wide install rise rise-4">
     <div class="plate">
       <button class="copy" id="copy" type="button">Copy</button>
 <pre id="cmd">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
@@ -264,7 +280,7 @@
     <p class="requires">macOS or Linux. No <code>sudo</code>, nothing installed system-wide, one directory you can delete. <b>You will need an ELM API key first</b> &mdash; how to get one is below.</p>
   </div>
 
-  <p class="facts rise rise-4">
+  <p class="facts rise rise-5">
     Qwen&nbsp;3.5, <b>397B</b> parameters and a <b>262K</b> context, answering from Edinburgh,
     with <b>64</b> sub-agents on tap when one is not enough.
   </p>
