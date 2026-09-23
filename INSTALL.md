@@ -330,6 +330,15 @@ it downloads. There is a second first-launch cost behind it — the TypeScript
 transpile, below — but this is the one that holds the prompt back. The fix is to
 have the binaries there already:
 
+Downloads are cached per user, keyed `tool/version/asset`, under
+`~/.cache/elm-pi/tools` (`ELM_PI_TOOL_CACHE` moves it). A fresh install on a
+machine that has done this before extracts what is already on disk rather than
+fetching ~105 MB again, while still getting its own binaries in `agent/bin` —
+the cache saves the download, not the ownership. Cache hits are checksummed on
+every reuse exactly like a fresh download, so a corrupted or tampered entry
+fails the install rather than being installed; `--force` bypasses the cache and
+re-fetches.
+
 - **`bootstrap.sh` installs `fd` and `rg` into `agent/bin`** (pinned versions,
   sha256-checked against `templates/tools.sha256`), whether or not the machine
   already has them. The install owns its tools — `rm -rf` this directory and they

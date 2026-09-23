@@ -232,6 +232,8 @@ fi
 # Nothing lands outside this directory - rm -rf takes the lot.
 #
 #   --no-tools          install none of them; the system's own are used instead
+#   ELM_PI_TOOL_CACHE=/path where verified archives are kept between installs
+#                           (default ~/.cache/elm-pi/tools)
 #   ELM_PI_TOOLS=fd,rg,jq   install a subset - shellcheck and ast-grep are 35MB
 #                           and 51MB respectively, the other four total ~23MB
 #   FD_VERSION=10.5.0   pin any of them      (checksums: templates/tools.sha256)
@@ -270,11 +272,20 @@ if [ "$WITH_TOOLS" = "1" ]; then
   SHELLCHECK_VERSION="${SHELLCHECK_VERSION:-0.11.0}"
   ASTGREP_VERSION="${ASTGREP_VERSION:-0.45.3}"
 
+  # Archives are cached per user, keyed tool/version/asset, so a second install
+  # - a new prefix, another machine account, a rebuilt install - extracts what
+  # is already on disk instead of fetching 105MB again. Each install still gets
+  # its own binaries in agent/bin: the cache saves the download, not the
+  # ownership. Cache hits are checksummed on every reuse, exactly like a fresh
+  # download, so a corrupted or tampered entry fails the same way.
+  TOOL_CACHE="${ELM_PI_TOOL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/elm-pi/tools}"
+
   TOOLS_TMP="$(mktemp -d)"; trap 'rm -rf "${TMP:-}" "${TOOLS_TMP:-}"' EXIT
 
   install_tool() {   # $1 binary  $2 version  $3 asset  $4 url  $5 sha256 url ("" if none)
     local bin="$1" version="$2" asset="$3" url="$4" shaurl="$5"
     local dest="agent/bin/$bin" want got found
+    local cached="$TOOL_CACHE/$bin/$version/$asset" from_cache=0
     want_tool "$bin" || { echo "    $bin skipped (not in ELM_PI_TOOLS)"; return 0; }
     # Already the pinned version? Then there is nothing to update. These are
     # pinned here, not tracked upstream, so --update means "match the pin", the
@@ -286,10 +297,17 @@ if [ "$WITH_TOOLS" = "1" ]; then
       echo "    $bin $version already in agent/bin"
       return 0
     fi
-    echo "    downloading $asset"
-    if ! curl -fsSL -o "$TOOLS_TMP/$asset" "$url"; then
-      warn "could not download $asset - $bin not installed"
-      return 0
+    if [ "$FORCE" != "1" ] && [ -s "$cached" ]; then
+      # --force deliberately bypasses the cache: it means "fetch it again".
+      echo "    $asset from the tool cache"
+      cp -f "$cached" "$TOOLS_TMP/$asset"
+      from_cache=1
+    else
+      echo "    downloading $asset"
+      if ! curl -fsSL -o "$TOOLS_TMP/$asset" "$url"; then
+        warn "could not download $asset - $bin not installed"
+        return 0
+      fi
     fi
     # Pinned versions are checksummed here, the way the Node tarball is. A
     # version someone pinned by hand falls back to the project's own published
@@ -305,6 +323,12 @@ if [ "$WITH_TOOLS" = "1" ]; then
     else
       warn "no published checksum for $asset - installing unverified ($got)"
     fi
+    # Verified: keep it for the next install. A cache we cannot write is not
+    # worth failing over.
+    if [ "$from_cache" = "0" ] && mkdir -p "$(dirname "$cached")" 2>/dev/null; then
+      cp -f "$TOOLS_TMP/$asset" "$cached" 2>/dev/null || true
+    fi
+
     rm -rf "$TOOLS_TMP/x" && mkdir -p "$TOOLS_TMP/x"
     case "$asset" in
       # `tar -xf` auto-detects gzip and xz on both bsdtar and GNU tar; GNU tar
@@ -350,7 +374,7 @@ if [ "$WITH_TOOLS" = "1" ]; then
   # Only ast-grep is installed; shadowing `sg` on PATH would be rude.
   install_tool ast-grep "$ASTGREP_VERSION" "app-$GNU_TRIPLE.zip" \
     "$GH/ast-grep/ast-grep/releases/download/$ASTGREP_VERSION/app-$GNU_TRIPLE.zip" ""
-  echo "    agent/bin is $(du -sh agent/bin 2>/dev/null | awk '{print $1}')"
+  echo "    agent/bin is $(du -sh agent/bin 2>/dev/null | awk '{print $1}'), cache $(du -sh "$TOOL_CACHE" 2>/dev/null | awk '{print $1}' || echo 0B) in $TOOL_CACHE"
 else
   say "command-line tools"
   echo "    skipped (--no-tools): the system's own fd/rg/jq/... are used instead"
