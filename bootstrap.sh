@@ -486,8 +486,20 @@ models_path = os.path.join(HERE, "agent", "models.json")
 if os.path.exists(models_path):
     models = load(models_path)
     elm = models.get("providers", {}).get("elm", {})
+    models_dirty = False
+    # Qwen's own precise-coding sampling profile, verified accepted by the
+    # gateway. configure.sh preserves samplingParams, so it is only ever wrong
+    # if someone edited it; reapply it and say so.
+    tmpl_models = load(os.path.join(HERE, "templates", "models.json"))
+    want_sampling = tmpl_models["providers"]["elm"]["models"][0].get("samplingParams")
+    for m in elm.get("models", []):
+        if "qwen" in m.get("id", "").lower() and want_sampling and m.get("samplingParams") != want_sampling:
+            print(f"    agent/models.json: samplingParams {json.dumps(m.get('samplingParams'))} -> {json.dumps(want_sampling)}")
+            m["samplingParams"] = want_sampling
+            models_dirty = True
+
     strays = [m for m in elm.get("models", []) if "llama" in m.get("id", "").lower()]
-    if strays:
+    if strays or models_dirty:
         elm["models"] = [m for m in elm.get("models", []) if m not in strays]
         with open(models_path, "w") as fh:
             json.dump(models, fh, indent=2)
