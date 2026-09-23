@@ -74,6 +74,9 @@ export default async function (pi: ExtensionAPI) {
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 128000,
         maxTokens: 16384,
+        // Meta publishes no sampling advice in the model card; these are the
+        // values in Llama-3.3-70B-Instruct's own generation_config.json.
+        samplingParams: { temperature: 0.6, top_p: 0.9 },
       },
     ],
   });
