@@ -247,9 +247,12 @@ instruction to build a framework.
    - `Sweep verdict: CLEAN` or `Sweep verdict: ISSUES`
 
    Then synthesise rather than obeying: fix every P0 and P1, record P2s, and
-   discard anything unevidenced with a one-line reason. **If a finding implies a
-   scope, product or architecture decision that was not asked for, stop and ask
-   rather than deciding it yourself.**
+   discard anything unevidenced with a one-line reason. If a finding implies a
+   scope, product or architecture decision nobody asked for, **do not stop to ask
+   and do not quietly decide it either** — take the conservative option, the one
+   that does not widen scope or change the product, and put the decision and the
+   alternative you rejected in the report. Surfacing it is the requirement;
+   halting for it is not, least of all in the last step of a long run.
 
    **Fix, then sweep again** — a fix breaks other things, and a sweep that ran
    before the fixes has not checked what you are shipping. Re-sweep only when the
