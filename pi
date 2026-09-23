@@ -62,6 +62,17 @@ fi
 # the elm-shim extension starts this proxy so Llama can call tools
 export ELM_SHIM_PATH="${ELM_SHIM_PATH:-$HERE/shim/shim.py}"
 
+# --- radius: pi's own hosted gateway ----------------------------------------
+# /bug uploads report.json, diagnostics.json and session.jsonl - the entire
+# transcript - to radius.pi.dev, and /share tries the same host before falling
+# back to a GitHub gist. patch-pi.py removes both commands from the release at
+# install time; this is the belt to that pair of braces, and unlike the patch
+# it survives someone running `npm install` by hand. Pointing the gateway at a
+# closed local port makes those uploads fail to connect instead of succeeding.
+# Nothing here uses radius for anything else: the ELM-only policy leaves its
+# model catalogue empty.
+export PI_RADIUS_GATEWAY="${PI_RADIUS_GATEWAY:-http://127.0.0.1:1}"
+
 # --- sub-agent children find this launcher, not a bare "pi" ------------------
 # pi-subagents spawns children by resolving the pi CLI from process.argv[1] and
 # from package resolution, and when both fail it falls back to `command: "pi"` -
@@ -121,6 +132,33 @@ if [ "$LLAMA" = "1" ]; then
 fi
 # ---------------------------------------------------------------------------
 
+# --- web tools off by default -----------------------------------------------
+# pi-web-access registers four tools: web_search, source_check, fetch_content
+# and get_search_content. Between them they send the model's queries out - and
+# the model composes those from the code in front of it, so a function name or
+# an error string goes with them - fetch arbitrary pages, and then treat what
+# comes back as input. That last part is the one leak path that needs nobody to
+# do anything wrong: a fetched page can tell the agent to put data in a URL.
+#
+# Off by default, per run rather than per install: the package stays installed,
+# so turning it back on costs nothing.
+#
+#   PI_ELM_WEB=1 pi ...          web search and fetching for this run
+#   ./bootstrap.sh --no-packages  or drop pi-web-access to remove it entirely
+#
+# The names are pi-web-access defaults and can be renamed in
+# agent/web-search.json. Rename them there and this list needs the same edit -
+# pi silently ignores an exclusion for a tool that does not exist.
+if [ "${PI_ELM_WEB:-0}" != "1" ]; then
+  case " $* " in
+    # the caller has already said something about tools; do not argue with it
+    *" --tools "*|*" -t "*|*" --exclude-tools "*|*" -xt "*) : ;;
+    # one flag, one value: the value is a comma-separated list, not a list
+    *) PRE+=(--exclude-tools "web_search,source_check,fetch_content,get_search_content") ;;
+  esac
+fi
+# ---------------------------------------------------------------------------
+
 # --- ELM-only policy ---------------------------------------------------------
 # Staff allocations are funded at industry token rates, which does not buy a
 # meaningful amount of commercial-model usage. This install offers the
@@ -142,7 +180,7 @@ DENIED_PROVIDERS="amazon-bedrock ant-ling anthropic azure-openai-responses baset
 cerebras cloudflare-ai-gateway cloudflare-workers-ai deepseek fireworks github-copilot \
 google google-vertex groq huggingface kimi-coding minimax minimax-cn mistral moonshotai \
 moonshotai-cn nvidia openai openai-codex opencode opencode-go openrouter qwen-token-plan \
-qwen-token-plan-cn qwen-token-plan-individual together vercel-ai-gateway xai xiaomi \
+qwen-token-plan-cn qwen-token-plan-individual radius together vercel-ai-gateway xai xiaomi \
 xiaomi-token-plan-ams xiaomi-token-plan-cn xiaomi-token-plan-sgp zai zai-coding-cn"
 
 if [ "$UNLOCK" != "1" ]; then

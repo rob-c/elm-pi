@@ -58,6 +58,7 @@ bootstrap.sh        one-command install / update, idempotent
 pi                  the wrapper: bundled Node, .env, ELM-only guards, preflight
 pi.orig             the unwrapped CLI the wrapper hands over to
 configure.sh        resolves the model id from the gateway, merges it into config
+patch-pi.py         removes /share and /bug from the release; run on every install
 templates/          the source of truth for everything under agent/
 docs/               the GitHub Pages site
 shim/               Llama tool-call shim (Python, loopback only)

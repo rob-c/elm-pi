@@ -9,6 +9,7 @@
 #   ./bootstrap.sh --force          force npm reinstall even if packages exist
 #   ./bootstrap.sh --no-auth-lock   leave agent/auth.json writable (allows /login)
 #   ./bootstrap.sh --no-tools       skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
+#   ./bootstrap.sh --no-patch       leave pi's /share and /bug commands in place
 #
 # Idempotent: re-running never overwrites .env, sessions, memory or any config
 # you have edited. Nothing is installed system-wide; delete this directory and
@@ -31,7 +32,7 @@ PI_VERSION="${PI_VERSION:-latest}"
 
 
 WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; WITH_MEMORY=1; FORCE=0
-WITH_TOOLS=1
+WITH_TOOLS=1; WITH_PATCH=1
 for arg in "$@"; do
   case "$arg" in
     --no-shim) WITH_SHIM=0 ;;
@@ -42,7 +43,8 @@ for arg in "$@"; do
     --force) FORCE=1 ;;
     --no-auth-lock) AUTH_LOCK=0 ;;
     --no-tools) WITH_TOOLS=0 ;;
-    -h|--help) sed -n '3,15p' "$0"; exit 0 ;;
+    --no-patch) WITH_PATCH=0 ;;
+    -h|--help) sed -n '3,16p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -115,6 +117,20 @@ fi
 
 
 echo "    $(node node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js --version 2>/dev/null || echo installed)"
+# /share publishes the session as a GitHub gist and /bug POSTs the whole
+# transcript to radius.pi.dev. pi has no way to disable a built-in command, so
+# they are patched out of the release here, on every install and every update.
+#
+# Fatal by design. If a pi release moves the code the patch anchors to, this
+# stops the install rather than leaving an unpatched pi behind a message nobody
+# reads - and `pi update` then stops before touching the extension packages.
+# Re-derive the anchors in patch-pi.py, or re-run with --no-patch if you have
+# decided you want those commands.
+if [ "$WITH_PATCH" = "1" ]; then
+  ./patch-pi.py || die "could not disable /share and /bug - see patch-pi.py"
+else
+  warn "--no-patch: /share and /bug are live; both upload the whole session off-site"
+fi
 # npm warns that esbuild / protobufjs / @google/genai have unapproved install
 # scripts. pi runs from a prebuilt bundle and does not need them.
 # --- 3. agent config --------------------------------------------------------
@@ -475,6 +491,9 @@ if [ -x agent/bin/pi ] && [ "$(cd "$(dirname "$(readlink agent/bin/pi)")" && pwd
   echo "    sub-agent launcher: agent/bin/pi resolves to the launcher"
 else
   warn "agent/bin/pi is missing or points elsewhere - sub-agents may fail to start"
+fi
+if [ "$WITH_PATCH" = "1" ]; then
+  ./patch-pi.py --check || warn "/share and /bug are NOT disabled in this install"
 fi
 GUARD="$(PI_FORCE=1 ./pi --model anthropic/claude-opus-5 -p x </dev/null 2>&1 || true)"
 case "$GUARD" in

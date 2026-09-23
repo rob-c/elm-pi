@@ -17,7 +17,7 @@ install* offers. It cannot stop anyone installing their own agent, and it is not
 trying to. If commercial models are genuinely needed for a piece of work, the
 answer is a funded subscription — the escape hatch below is deliberately easy.
 
-## Three layers
+## Five layers
 
 Each is independent; each is verified by `./bootstrap.sh` on every install.
 
@@ -75,6 +75,70 @@ obtains. Verified: normal startup and ELM use are unaffected. Not verified: how
 gracefully the `/login` flow reports the failed write. Install with
 `./bootstrap.sh --no-auth-lock`, or `chmod 600 agent/auth.json`, to lift it.
 
+### 4. `/share` and `/bug` removed from the release (`patch-pi.py`)
+
+These two are a different problem from the rest of this document — not spend,
+but data leaving Edinburgh — and they are the only part of this install where
+patching a third-party release is the proportionate answer.
+
+| Command | Destination | Payload |
+|---|---|---|
+| `/share` | pi's Radius gateway, else a **GitHub gist** via the `gh` CLI | the session, exported |
+| `/bug` | `https://radius.pi.dev/v1/bug-reports` | `report.json`, `diagnostics.json` and **`session.jsonl` — the entire transcript** |
+
+A pi session holds every file the agent read, every command output and anything
+pasted in. One keystroke publishes it. `/bug` is especially easy to reach for:
+when pi crashes it prints *"Run /bug to report it; the crash details are
+attached automatically."*
+
+**pi offers no way to turn a built-in command off.** There is no
+`disabledCommands` setting, and an extension cannot shadow one — the command
+merge filters extension commands against the built-in names, so the built-in
+always wins. So `patch-pi.py` edits the installed bundle: two dispatcher
+branches refuse with a message, two entries leave the autocomplete list, and
+the three upload functions (`uploadBugReport`, `tryShareViaRadius`,
+`shareViaGist`) throw, which also covers any other route that reaches them.
+
+`bootstrap.sh` applies it on every install and every update, and **fails the
+install if an anchor no longer matches** rather than leaving an unpatched pi
+behind a warning. A pi release that moves this code will therefore stop
+`pi update` before it touches the extension packages, which is the intended
+behaviour: you find out from a failed update, not from a published transcript.
+Re-derive the anchors in `patch-pi.py` when that happens, or install with
+`./bootstrap.sh --no-patch` if you want the commands back.
+
+The launcher also sets `PI_RADIUS_GATEWAY=http://127.0.0.1:1`. That is a
+supported pi environment variable rather than a patch, so it survives someone
+running `npm install` by hand, and it makes both radius upload routes fail to
+connect. It costs nothing here because the ELM-only policy leaves radius with
+an empty model catalogue.
+
+### 5. Web tools off by default (`pi`)
+
+`pi-web-access` registers four tools — `web_search`, `source_check`,
+`fetch_content` and `get_search_content`. Between them they send the model's
+queries out, and the model composes those from the code in front of it, so a
+function name or an error string travels with them. They also fetch arbitrary
+pages and then treat what comes back as input, which is the one leak path that
+requires nobody to do anything wrong: a fetched page can instruct the agent to
+put data in a URL.
+
+The launcher therefore passes `--exclude-tools` for all four. The package stays
+installed, so this is a per-run decision rather than a per-install one:
+
+    PI_ELM_WEB=1 pi ...     web search and fetching, for that run
+
+If the caller passes `--tools` or `--exclude-tools` themselves, the launcher
+leaves the decision alone. The four names are `pi-web-access` defaults and can
+be renamed in `agent/web-search.json`; rename them there and the launcher's
+list needs the same edit, because pi silently ignores an exclusion for a tool
+that does not exist.
+
+Sub-agents have a second, independent route out: `pi-subagents` can export a
+run to HTML and publish it with `gh gist create`. It is off unless
+`agent/extensions/subagent/config.json` sets `"share": true`, and that file now
+says `"share": false` explicitly rather than relying on the default.
+
 ## Verified behaviour
 
 | Attempt | Result |
@@ -86,11 +150,16 @@ gracefully the `/login` flow reports the failed write. Install with
 | Same, with `PI_ELM_UNLOCK=1` and a key in the environment | `Model not found` — layer 3 holds |
 | `PI_ELM_UNLOCK=1 PI_ELM_ALLOWED_PROVIDERS="elm,elm-shim,anthropic"` | Anthropic returns — the intended escape hatch |
 | `pi --list-models` | ELM only |
+| `/share`, `/bug` | absent from autocomplete; both refuse, and their upload paths throw |
+| asking the model to list its tools | 17 tools, none of them web: `read, bash, write, todo, subagent, bg_wait, memory_*, skill_manage, session_search, replace, insert, anchor_grep, undo_last_change, subagent_supervisor` |
+| the same with `PI_ELM_WEB=1` | 21 tools — `web_search`, `source_check`, `fetch_content`, `get_search_content` return |
 
 ## What this does not do
 
 - It does not stop `npm i -g` of another agent, a browser tab, or an API call from
   a script. Nothing local can.
+- Removing `/share` and `/bug` removes an accident, not an intent. The `bash`
+  tool can `curl` a session file anywhere, and so can the person using it.
 - It does not touch the ELM key's own spend — ELM still meters it.
 - Only **egress control** (firewall or proxy policy on `api.anthropic.com`,
   `api.openai.com`, ...) actually prevents commercial API use on a managed host.
