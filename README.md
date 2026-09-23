@@ -72,12 +72,17 @@ agent/bin/          generated: fd rg jq yq shellcheck ast-grep, pinned + checksu
 `./bootstrap.sh --update`, and the change reaches every host. Edit `agent/`
 directly for one-off local tuning — a plain `./bootstrap.sh` will not overwrite it.
 
-**One exception**, so a re-install can change its mind: a short list of keys
-belongs to the installer and is re-derived on every run — `extensions`,
-`compaction` and `subagents` in `settings.json`, the worktree and `share` keys
-in the sub-agent config, and the permission policy. Everything else in those
-files, and every other file under `agent/`, is left as you left it. Change
-those defaults in `templates/`, not in `agent/`.
+**One exception**, so a re-install can change its mind. Some values are
+decisions this repo makes for a measured or documented reason — thinking off,
+compaction owned by `pi-auto-compact`, PDFs extracted locally rather than
+uploaded, `/share` off for sub-agents, exactly one Llama, the permission
+policy, the ELM-only model scope. Every run compares those against
+`templates/`, **prints anything you have changed**, and applies the repo's
+value over the top. Nothing is overwritten silently.
+
+Everything else is yours and survives: theme, model, concurrency limits, search
+routing, and any key the list does not name. Change a decision permanently in
+`templates/`, not in `agent/`.
 
 ## Daily use
 

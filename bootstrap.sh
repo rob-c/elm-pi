@@ -397,30 +397,58 @@ else
 fi
 
 # --- installer-owned settings ------------------------------------------------
-# agent/ is yours to tune, with one exception: a few keys are decisions this
-# installer makes, and a re-install has to be able to change its mind about
-# them. Worktree isolation is the worked example - it went on, then came back
-# off once it proved to need a git repository - and install_if_absent would
-# have kept the stale `true` on every existing install for ever.
+# agent/ is yours to tune, with one exception: some values are decisions this
+# repo makes, usually for a measured or documented reason, and a re-install has
+# to be able to change its mind about them. Worktree isolation is the worked
+# example - it went on, then came back off once it proved to need a git
+# repository - and install_if_absent would have kept the stale `true` on every
+# existing install for ever.
 #
-# These keys are re-derived from templates/ on every run. Every other key in
-# those files is left exactly as you left it, so a tuned theme, model, retry
-# policy or concurrency limit survives. Change the defaults in templates/, not
-# in agent/.
+# So every run compares the live file against templates/, prints anything you
+# have changed, and then applies the repo's decision over the top. Nothing is
+# overwritten silently. Every other key in those files - theme, model,
+# concurrency, search routing, your own additions - is left exactly as it is.
+# To change a decision permanently, change templates/, not agent/.
 say "installer-owned settings"
 HERE="$HERE" python3 - <<'PYX'
 import json, os, collections
 
 HERE = os.environ["HERE"]
+
+# file -> keys this repo decides. The reason for each is in the file it
+# belongs to; the short version is in the comment beside it.
 OWNED = {
-    "settings.json": ("extensions", "compaction", "subagents"),
-    "extensions/subagent/config.json": ("share", "worktree", "worktreeProvider", "worktreeBaseDir"),
-    "extensions/pi-permission-system/config.json": ("permission", "piInfrastructureReadPaths"),
+    "settings.json": (
+        "extensions",            # where local extensions are discovered
+        "compaction",            # off: pi-auto-compact owns compaction
+        "subagents",             # model tiering, fallbacks, ELM-only modelScope
+        "sessionDir",            # per-project .pi/sessions, not one central pile
+        "defaultThinkingLevel",  # off: measured ~400x slower here for no gain
+        "retry",                 # gateway retry policy
+    ),
+    "extensions/subagent/config.json": (
+        "share",                 # false: `gh gist create` publishes a run
+        "worktree",              # false: isolation needs git, so it is opt-in
+        "worktreeProvider",
+        "worktreeBaseDir",
+        "maxSubagentSpawnsPerRun",
+    ),
+    "extensions/pi-permission-system/config.json": (
+        "permission",            # the gate: outside-cwd, secrets, bash
+        "piInfrastructureReadPaths",
+    ),
+    "web-search.json": (
+        "pdf",                   # provider unpdf: keeps PDFs off Datalab/Gemini
+    ),
 }
 
 def load(path):
     with open(path) as fh:
         return json.load(fh, object_pairs_hook=collections.OrderedDict)
+
+def brief(value):
+    text = json.dumps(value)
+    return text if len(text) <= 60 else text[:57] + "..."
 
 for rel, keys in OWNED.items():
     tmpl_path = os.path.join(HERE, "templates", rel)
@@ -434,15 +462,37 @@ for rel, keys in OWNED.items():
             continue
         want = json.loads(json.dumps(tmpl[key]).replace("@AGENT_DIR@", os.path.join(HERE, "agent")))
         if live.get(key) != want:
+            changed.append((key, live.get(key), want))
             live[key] = want
-            changed.append(key)
     if changed:
         with open(live_path, "w") as fh:
             json.dump(live, fh, indent=2)
             fh.write("\n")
-        print(f"    reset in agent/{rel}: {', '.join(changed)}")
+        print(f"    agent/{rel}")
+        for key, was, now in changed:
+            print(f"      {key}: yours {brief(was)} -> repo {brief(now)}")
     else:
-        print(f"    agent/{rel} already matches")
+        print(f"    agent/{rel} matches")
+
+# models.json is not a key merge: configure.sh resolves the Qwen id from the
+# gateway, so the ids are live data. The decision here is that exactly one
+# Llama exists, the shim one - `configure.sh llama` re-adds a direct ELM entry
+# that cannot call tools at all.
+models_path = os.path.join(HERE, "agent", "models.json")
+if os.path.exists(models_path):
+    models = load(models_path)
+    elm = models.get("providers", {}).get("elm", {})
+    strays = [m for m in elm.get("models", []) if "llama" in m.get("id", "").lower()]
+    if strays:
+        elm["models"] = [m for m in elm.get("models", []) if m not in strays]
+        with open(models_path, "w") as fh:
+            json.dump(models, fh, indent=2)
+            fh.write("\n")
+        for m in strays:
+            print(f"    agent/models.json: removed elm/{m.get('id')} - it cannot call tools;")
+            print("      the shim entry elm-shim/meta-llama/... is the supported one")
+    else:
+        print("    agent/models.json matches")
 PYX
 
 if [ "$WITH_PACKAGES" = "1" ]; then
