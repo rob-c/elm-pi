@@ -5,7 +5,7 @@ argument-hint: "<what to build or fix>"
 Work in **ultrawork mode** on the following task, and carry it through to completion.
 
 ## Task
-$ARGUMENTS
+${@:-Continue the work already under way in this session, to the standard below.}
 
 ## The standard: world-leading, publication quality
 
@@ -22,7 +22,9 @@ unfinished.
 Concretely, before you report, every one of these is true:
 
 - **It is checked.** You have executed it, the checks pass, and you watched them
-  pass. Nothing is asserted on the strength of looking correct.
+  pass. Nothing is asserted on the strength of looking correct. Check it **cold**
+  — from a clean start, the way someone receiving it would — not only in the
+  state your session happens to be in.
 - **It is debugged.** Zero known errors, warnings, failures or broken cases. Not
   "minor ones remain" — zero. Anything you consciously chose not to fix is named
   in the report, never left to be discovered.
@@ -38,6 +40,26 @@ Concretely, before you report, every one of these is true:
 Best in class means the quality of what was asked, not more of it: make the
 requested thing excellent rather than adding things nobody requested.
 
+## Ask everything up front, then stop asking
+
+**Before you start**, if anything would change the shape of the work, ask it —
+**all of it, in one message.** What problem this actually solves, what is in and
+out of scope, what success looks like, which conventions or constraints apply,
+and any ambiguity that would change the outcome rather than just the wording.
+
+**One round, batched.** Do not drip-feed questions one at a time; that is how a
+session spends half an hour interviewing instead of working. Ask everything you
+need, then begin.
+
+If the questions go unanswered, or there is no one to ask, **do not stall**:
+take the most reasonable reading, say in one line what you assumed, and start.
+
+**Once the work has started, do not stop to ask.** Something ambiguous surfacing
+mid-run is not a reason to halt — choose the sensible interpretation, note it,
+keep going, and put every assumption you made in the final report. A run that
+downs tools thirty minutes in to ask a question has failed at this mode, even if
+the question was a good one.
+
 ## Size is never a reason to stop
 
 The task may be large. That is expected, and it is what this mode exists for.
@@ -50,10 +72,11 @@ The task may be large. That is expected, and it is what this mode exists for.
   instruction. Begin, and keep going.
 - **Do not stop to report progress** and wait. Report once, at the end.
 
-The only legitimate reasons to stop early are: the task is finished; you are blocked
-by something only a human can supply (a credential, an access decision, a genuine
-ambiguity about intent that changes the outcome); or continuing would destroy data.
-Being long, repetitive or tedious is not on that list.
+The only legitimate reasons to stop early are: the task is finished; you are
+blocked by something only a human can supply and cannot proceed without (a
+credential, an access decision); or continuing would destroy data. Being long,
+repetitive or tedious is not on that list, and neither is ambiguity — that was
+the up-front round's job, and mid-run it is resolved by assuming and noting.
 
 ## Keep the pipeline full
 
@@ -198,6 +221,11 @@ instruction to build a framework.
    conversation — a reviewer that inherits your assumptions confirms them.
    Reviewers do not edit; fixing is a separate child. **Prefer three strong
    reviewers over many vague ones.**
+
+   Sweep for **two different questions**, because they fail differently: *is this
+   good?* — correctness, consistency, maintainability — and *does the built thing
+   do what was promised?* Run the second one against the request as written, not
+   against your memory of it.
 
    Pick the angles from the actual work rather than a fixed list. Common ones:
    correctness and regressions; does it actually run, with what output;
