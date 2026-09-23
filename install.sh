@@ -154,7 +154,21 @@ if [ -d "$PREFIX/node_modules" ] || [ -d "$PREFIX/agent/npm/node_modules" ]; the
   echo "    existing installation detected — updating pi and packages"
 fi
 [ "$UPDATE" = "1" ] && BOOT_ARGS="--update$BOOT_ARGS"
-[ "$EXISTING_INSTALL" = "1" ] && BOOT_ARGS="$BOOT_ARGS --force"
+# Re-installing over an existing install means --update, not --force.
+#
+# --update is what refreshes the generated files: AGENTS.md, the agent
+# definitions, the local extensions, the prompts. install_if_absent keeps those
+# untouched otherwise, so without this a re-install pulled new code from GitHub
+# and then ran the old policy - the delegation rules, tool lists and model
+# routing would stay at whatever the first install wrote.
+#
+# --force is deliberately not used: it re-downloads all six bundled tools even
+# when they already match the pinned versions. --update reinstalls npm exactly
+# the same way without that.
+case " $BOOT_ARGS " in
+  *" --update "*) ;;
+  *) [ "$EXISTING_INSTALL" = "1" ] && BOOT_ARGS="$BOOT_ARGS --update" ;;
+esac
 if [ -t 0 ]; then
   # Invoked as bash -c "$(curl ...)", so stdin is still the terminal and
   # bootstrap can prompt for the ELM key.
