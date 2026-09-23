@@ -188,30 +188,48 @@ instruction to build a framework.
    that it did. Re-read what changed and run the cheapest convincing check.
 3. **Iterate.** If verification fails, fix it and verify again — in parallel where
    the failures are independent.
-4. **Sweep the whole output, then sweep it again.** Per-item verification does not
-   catch what is wrong *between* the items, and that is where fan-out fails:
-   eight pages here were each individually fine and carried eight different
-   navigations. So once the pipeline has drained, run a pass over the result as a
-   whole, looking for:
+4. **Sweep the whole output adversarially, until it comes back clean.**
+   Per-item verification does not catch what is wrong *between* items, which is
+   where fan-out fails: eight pages here were each individually fine and carried
+   eight different navigations.
 
-   - inconsistencies between pieces — naming, structure, links, conventions,
-     anything that should match across files and does not
-   - things referenced but never created, or created and never referenced
-   - work a child reported as done that is not actually on disk
-   - errors, warnings and failures from actually running the thing
-   - leftovers: scaffolding, debug output, half-finished edits, dead files
+   **Launch sweep children with fresh context, not forked.** They must inspect
+   the files, the diff and the running thing directly, and must not rely on this
+   conversation — a reviewer that inherits your assumptions confirms them.
+   Reviewers do not edit; fixing is a separate child. **Prefer three strong
+   reviewers over many vague ones.**
 
-   Fan this pass out too — one child per dimension, or per area — and prefer a
-   tool that checks all of it over a child that reads some of it.
+   Pick the angles from the actual work rather than a fixed list. Common ones:
+   correctness and regressions; does it actually run, with what output;
+   consistency across the pieces; completeness against the original request;
+   leftovers and dead work. Add the angle the work calls for — visual quality,
+   accessibility and copy for anything with a UI; auth boundaries and data
+   exposure for anything security-sensitive; clarity and accuracy for docs.
 
-   **Fix everything it finds, then run the pass again.** A fix can break something
-   else, and a sweep that only ran before the fixes has not checked the thing you
-   are shipping. Repeat until **a complete pass finds nothing**. That is the stop
-   condition, and it is the same bar as the standard above — not "the remaining
-   items look minor", not "it is probably fine", not "good enough to hand over".
-   Drill into every finding until you understand it and it is gone. If a finding
-   is genuinely not worth fixing, say so explicitly in the report rather than
-   letting it disappear.
+   **Require evidence, not opinion.** A finding must carry proof: a path and
+   line, a command with its output, a repro, or a contradiction with something
+   stated. Speculative findings are what make this loop never end, so they are
+   not findings.
+
+   Ask each child to label what it finds and to end with a verdict line:
+
+   - **P0** — broken, wrong, or missing. Blocks. Must be fixed.
+   - **P1** — a real defect worth fixing now.
+   - **P2** — note only; record it, do not act on it in this pass.
+   - `Sweep verdict: CLEAN` or `Sweep verdict: ISSUES`
+
+   Then synthesise rather than obeying: fix every P0 and P1, record P2s, and
+   discard anything unevidenced with a one-line reason. **If a finding implies a
+   scope, product or architecture decision that was not asked for, stop and ask
+   rather than deciding it yourself.**
+
+   **Fix, then sweep again** — a fix breaks other things, and a sweep that ran
+   before the fixes has not checked what you are shipping. Re-sweep only when the
+   fixes were material; do not loop for optional polish. Stop when a full round
+   comes back `CLEAN` with no P0 or P1 outstanding. Cap it at **three rounds**:
+   if round three is still not clean, stop and report exactly what remains and
+   why, rather than grinding. Reaching the cap is a result to report, not a
+   failure to hide.
 
 5. **Report once, at the end**: what changed, what you verified, and what the final
    clean sweep covered. Say plainly that it meets the standard above, or say which
