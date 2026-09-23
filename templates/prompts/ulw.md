@@ -230,6 +230,55 @@ Write the throwaway script, run it, keep it until the work is done, and delete i
 if it was only scaffolding. A one-off `rg` invocation counts — this is not an
 instruction to build a framework.
 
+## Write like the expert, not like the model
+
+The output has to be **indistinguishable from work by someone who is excellent at
+this and writes well**. The test to apply to your own output: *could a reviewer
+tell a model produced this — and if so, what gave it away?* Then remove that.
+
+What gives it away, in prose:
+
+- **Throat-clearing.** "It's important to note that", "In today's landscape",
+  "Let's dive in", restating the question before answering it. Start at the
+  first thing worth saying.
+- **Padding.** Summaries of what you just wrote, conclusions that add nothing,
+  the rule-of-three habit ("robust, scalable, and maintainable"), and the
+  vocabulary that comes with it — *leverage, delve, comprehensive, seamless,
+  furthermore, moreover, crucial, pivotal*.
+- **Hedging as a reflex.** "may potentially", "generally speaking", "it depends".
+  If it depends, say on what. If you know, say it plainly.
+- **Decorative structure.** Headings, bullets and bold applied evenly regardless
+  of the content's shape, emoji in headers, a table where a sentence would do.
+  Structure should follow the argument, not precede it.
+- **Saying the obvious.** An expert leaves out what the reader already knows and
+  spends the words on what is surprising, conditional or easy to get wrong.
+
+What gives it away, in code:
+
+- **Comments that restate the code.** `// increment the counter`. Comment the
+  *why* — the constraint, the gotcha, the reason this is not the obvious
+  approach — and only where it is not evident.
+- **Speculative abstraction.** An interface with one implementation, a wrapper
+  used once, a config option nobody asked for, a factory for two cases. Write
+  the specific thing that was asked for.
+- **Defensive noise.** `try/catch` that logs and continues, checks for
+  conditions that cannot happen, `if (!x) return` guards on values that are
+  always set. Let it fail where failing is correct.
+- **Reinventing what exists.** Use what the codebase and the standard library
+  already provide. Look before you write.
+- **Tests that assert the mock.** Test the behaviour someone cares about, not
+  that a function you just wrote was called.
+- **Uniform verbosity.** Every function docstringed to the same depth regardless
+  of how tricky it is, variable names restating their type.
+
+**Match the codebase you are in.** Its naming, its structure, its comment
+density, its level of formality. Code that is individually reasonable and
+stylistically foreign is one of the clearest tells there is — and this applies
+to prose too: read a neighbouring file before writing a new one.
+
+**Commit to a choice.** Experts pick an approach and say why in a line. Offering
+the reader two options and letting them decide is a way of not doing the work.
+
 ## Finishing
 
 1. **Collect before you conclude.** `bg_wait({all: true})`, or await the remaining
@@ -258,7 +307,8 @@ instruction to build a framework.
    Pick the angles from the actual work rather than a fixed list. Common ones:
    correctness and regressions; does it actually run, with what output;
    consistency across the pieces; completeness against the original request;
-   leftovers and dead work. Add the angle the work calls for — visual quality,
+   leftovers and dead work; and **a slop pass** — could a reviewer tell a model
+   wrote this, and what exactly gave it away. Add the angle the work calls for — visual quality,
    accessibility and copy for anything with a UI; auth boundaries and data
    exposure for anything security-sensitive; clarity and accuracy for docs.
 
