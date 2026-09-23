@@ -121,6 +121,33 @@ working on the next piece.
 - **Do not delegate work smaller than the round trip.** A one-line edit you could
   make directly is ten times faster done directly.
 
+## When in doubt, build a tool
+
+If you are unsure whether something is right, **write something that answers it**
+rather than reading and judging. A check you can run is repeatable, scales to the
+whole output at once, and produces evidence instead of an opinion — and you will
+run it again after every fix, which is exactly when eyeballing gets tired and
+starts missing things.
+
+Reach for this whenever a question is about **all** of something: do all eight
+pages carry the same navigation, does every link resolve to a file that exists,
+is every config key used, do all the tests actually run. A script answers that
+for eighty files as cheaply as for eight; re-reading does not.
+
+This install bundles tools for it, in `agent/bin` and already on `PATH`:
+
+| | |
+|---|---|
+| `rg` | content search, fast enough to run over everything every time |
+| `fd` | find files by pattern |
+| `jq`, `yq` | query and validate JSON and YAML |
+| `shellcheck` | lint shell before it runs |
+| `ast-grep` | search and rewrite by syntax tree, when a regex cannot say it |
+
+Write the throwaway script, run it, keep it until the work is done, and delete it
+if it was only scaffolding. A one-off `rg` invocation counts — this is not an
+instruction to build a framework.
+
 ## Finishing
 
 1. **Collect before you conclude.** `bg_wait({all: true})`, or await the remaining
@@ -130,8 +157,32 @@ working on the next piece.
    that it did. Re-read what changed and run the cheapest convincing check.
 3. **Iterate.** If verification fails, fix it and verify again — in parallel where
    the failures are independent.
-4. **Report once, at the end**: what changed, and what you verified. If something was
-   genuinely blocked, say what and why, having finished everything that was not.
+4. **Sweep the whole output, then sweep it again.** Per-item verification does not
+   catch what is wrong *between* the items, and that is where fan-out fails:
+   eight pages here were each individually fine and carried eight different
+   navigations. So once the pipeline has drained, run a pass over the result as a
+   whole, looking for:
+
+   - inconsistencies between pieces — naming, structure, links, conventions,
+     anything that should match across files and does not
+   - things referenced but never created, or created and never referenced
+   - work a child reported as done that is not actually on disk
+   - errors, warnings and failures from actually running the thing
+   - leftovers: scaffolding, debug output, half-finished edits, dead files
+
+   Fan this pass out too — one child per dimension, or per area — and prefer a
+   tool that checks all of it over a child that reads some of it.
+
+   **Fix everything it finds, then run the pass again.** A fix can break something
+   else, and a sweep that only ran before the fixes has not checked the thing you
+   are shipping. Repeat until **a complete pass finds nothing**. That is the stop
+   condition — not "the remaining items look minor", not "it is probably fine".
+   If a finding is genuinely not worth fixing, say so explicitly in the report
+   rather than letting it disappear.
+
+5. **Report once, at the end**: what changed, what you verified, and what the final
+   clean sweep covered. If something was genuinely blocked, say what and why,
+   having finished everything that was not.
 
 ## Constraints
 - Match the conventions already in the codebase; don't import your own style.
