@@ -245,6 +245,20 @@ return { survey: survey.output, edits: edits.output };
 Verified on this install: one workflow call, a `qwen` child and a `llama` child
 in parallel, each on its own model, both results aggregated by the script.
 
+**The workflow script is an orchestrator, not a program.** Its sandbox has
+`runs.run`, `runs.all`, `runs.lanes`, `runs.steer`, `runs.status`, `runs.ref`,
+`emit`, `console` and plain JavaScript — and **no filesystem, no shell, no Pi
+tools and no host globals**. `require` is not defined there, nor is `process`,
+`fs` or `import`. `ReferenceError: require is not defined` means the script
+tried to do the work itself.
+
+Do no work in the script. Reading a file, running a command, editing anything:
+that is a child's job, because children have `read`, `write`, `bash` and the
+anchor tools. The script launches them, races them, and aggregates what they
+return. `runs.host` exists for commands but is available only to the
+package-owned named resources (`review`, `run-ci`) — an inline `workflowScript`
+is unknown-provenance input and cannot call it.
+
 The routing rule is the same one as above, applied per child rather than per
 task: **whoever has to decide gets Qwen; whoever is following a procedure gets
 Llama.** Size is the second half of that test - **send a child to `llama` by

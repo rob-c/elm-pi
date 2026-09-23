@@ -55,6 +55,20 @@ pending.push({ key: "c", promise: runs.run("c", { agent: "llama", task: "..." })
 `runs.steer(key, "...")` redirects a child that is still running, which is cheaper
 than letting it finish wrong and relaunching.
 
+**The workflow script is an orchestrator, not a program.** Its sandbox has
+`runs.run`, `runs.all`, `runs.lanes`, `runs.steer`, `runs.status`, `runs.ref`,
+`emit`, `console` and plain JavaScript — and **no filesystem, no shell, no Pi
+tools and no host globals**. `require` is not defined there, nor is `process`,
+`fs` or `import`. `ReferenceError: require is not defined` means the script
+tried to do the work itself.
+
+Do no work in the script. Reading a file, running a command, editing anything:
+that is a child's job, because children have `read`, `write`, `bash` and the
+anchor tools. The script launches them, races them, and aggregates what they
+return. `runs.host` exists for commands but is available only to the
+package-owned named resources (`review`, `run-ci`) — an inline `workflowScript`
+is unknown-provenance input and cannot call it.
+
 **Your job between races is to think, not to wait.** Fold the returned result into
 the plan, decide what the next child should do, and keep the queue stocked. If you
 find yourself reading files serially while no children are running, you have
