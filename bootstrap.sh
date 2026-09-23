@@ -6,7 +6,7 @@
 #   ./bootstrap.sh --no-packages    pi only, no sub-agent/memory/web packages
 #   ./bootstrap.sh --no-memory      drop pi-hermes-memory: ~1.8s off every launch
 #   ./bootstrap.sh --update         refresh pi and packages, keep configs
-#   ./bootstrap.sh --force          force npm reinstall even if packages exist
+#   ./bootstrap.sh --force          re-download the tools and reinstall npm packages
 #   ./bootstrap.sh --no-auth-lock   leave agent/auth.json writable (allows /login)
 #   ./bootstrap.sh --no-tools       skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
 #   ./bootstrap.sh --no-patch       leave pi's /share and /bug commands in place
@@ -139,7 +139,7 @@ fi
 chmod +x pi pi.orig configure.sh 2>/dev/null || true
 
 say "agent configuration"
-mkdir -p agent/extensions/subagent agent/prompts
+mkdir -p agent/extensions/subagent agent/prompts agent/agents
 install_if_absent() {   # never clobber a config someone has tuned
   if [ -f "$2" ] && [ "$UPDATE" != "1" ]; then
     echo "    keeping existing $2"
@@ -155,6 +155,13 @@ for f in protected-paths.ts todo.ts elm-shim.ts; do
   install_if_absent "templates/extensions/$f" "agent/extensions/$f"
 done
 install_if_absent templates/extensions/subagent/config.json agent/extensions/subagent/config.json
+# Agent definitions are code, not config: pi-subagents discovers them in
+# agent/agents, and `subagent qwen "..."` fails with "Unknown agent" without
+# them. Refreshed on --update like the extensions.
+for f in templates/agents/*.md; do
+  [ -e "$f" ] || continue
+  install_if_absent "$f" "agent/agents/$(basename "$f")"
+done
 install_if_absent templates/settings.json              agent/settings.json
 install_if_absent templates/models.json                agent/models.json
 install_if_absent templates/AGENTS.md                  agent/AGENTS.md
@@ -260,7 +267,12 @@ if [ "$WITH_TOOLS" = "1" ]; then
     local bin="$1" version="$2" asset="$3" url="$4" shaurl="$5"
     local dest="agent/bin/$bin" want got found
     want_tool "$bin" || { echo "    $bin skipped (not in ELM_PI_TOOLS)"; return 0; }
-    if [ "$UPDATE" != "1" ] && [ "$FORCE" != "1" ] && [ -x "$dest" ] \
+    # Already the pinned version? Then there is nothing to update. These are
+    # pinned here, not tracked upstream, so --update means "match the pin", the
+    # same as the Node step above - it does not mean "fetch 105MB again". Only
+    # a changed pin, a missing binary, or one that will not run gets a
+    # download; --force gets one regardless.
+    if [ "$FORCE" != "1" ] && [ -x "$dest" ] \
        && "$dest" --version 2>/dev/null | grep -q -- "$version"; then
       echo "    $bin $version already in agent/bin"
       return 0
@@ -273,7 +285,7 @@ if [ "$WITH_TOOLS" = "1" ]; then
     # Pinned versions are checksummed here, the way the Node tarball is. A
     # version someone pinned by hand falls back to the project's own published
     # checksum, and installs with a warning when there is none to be had.
-    want="$(awk -v a="$asset" '$2 == a {print $1}' templates/tools.sha256 2>/dev/null | head -1)"
+    want="$(awk -v a="$bin/$version/$asset" '$2 == a {print $1}' templates/tools.sha256 2>/dev/null | head -1)"
     if [ -z "$want" ] && [ -n "$shaurl" ]; then
       want="$(curl -fsSL "$shaurl" 2>/dev/null \
               | awk -v a="$asset" '$2 == a {print $1; exit} NF == 1 {print $1; exit}')"

@@ -3,40 +3,45 @@
 # form this can read at install time, so the pinned versions are recorded here
 # and checked exactly the way the Node tarball is.
 #
+# Keyed `tool/version/asset`, not by asset name alone: jq and yq publish their
+# binaries under names with no version in them (jq-macos-amd64, yq_darwin_amd64),
+# so an asset-only key would hand a pinned 1.8.2 checksum to a 1.7.1 download
+# and abort on a mismatch that is really a stale lookup.
+#
 # To pin a new version: change the *_VERSION default in bootstrap.sh, download
-# that tool's four assets and add their `shasum -a 256` output below. A version
-# that is not listed here still installs - verified against the project's own
-# published checksum where there is one, unverified and with a warning where
-# there is not.
+# that tool's four assets and add their `shasum -a 256` output below under the
+# new key. A version that is not listed here still installs - verified against
+# the project's own published checksum where there is one, unverified and with
+# a warning where there is not.
 #
 # fd 10.4 and later are built against a macOS SDK newer than the Intel Macs in
 # the estate, so x86_64-apple-darwin stays on 10.3.0 - the same pin pi uses.
 # ast-grep publishes no musl build, so its Linux assets are the glibc ones.
-50d30f13fe3d5914b14c4fff5abcbd4d0cdab4b855970a6956f4f006c17117a3  fd-v10.3.0-x86_64-apple-darwin.tar.gz
-b67e1836c468e42e411984b56e52fa7abec08c2bd22c867398e7cc134aac5e12  fd-v10.5.0-aarch64-apple-darwin.tar.gz
-761c72dc8e120d85b22292063be8a796e2eeb20eb3e4f38b8fa2343ccf3514a7  fd-v10.5.0-x86_64-unknown-linux-musl.tar.gz
-d76c4317f7d5dba69f8a2a15856c90c777e7f0dd4e85f0de8c76de6992c374d4  fd-v10.5.0-aarch64-unknown-linux-musl.tar.gz
-af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1  ripgrep-15.2.0-x86_64-apple-darwin.tar.gz
-3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4  ripgrep-15.2.0-aarch64-apple-darwin.tar.gz
-33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c  ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz
-800b1e7206afe799dfb5a6901f23147cfaabe0e52210538100f61e86e1740915  ripgrep-15.2.0-aarch64-unknown-linux-musl.tar.gz
+50d30f13fe3d5914b14c4fff5abcbd4d0cdab4b855970a6956f4f006c17117a3  fd/10.3.0/fd-v10.3.0-x86_64-apple-darwin.tar.gz
+b67e1836c468e42e411984b56e52fa7abec08c2bd22c867398e7cc134aac5e12  fd/10.5.0/fd-v10.5.0-aarch64-apple-darwin.tar.gz
+761c72dc8e120d85b22292063be8a796e2eeb20eb3e4f38b8fa2343ccf3514a7  fd/10.5.0/fd-v10.5.0-x86_64-unknown-linux-musl.tar.gz
+d76c4317f7d5dba69f8a2a15856c90c777e7f0dd4e85f0de8c76de6992c374d4  fd/10.5.0/fd-v10.5.0-aarch64-unknown-linux-musl.tar.gz
+af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1  rg/15.2.0/ripgrep-15.2.0-x86_64-apple-darwin.tar.gz
+3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4  rg/15.2.0/ripgrep-15.2.0-aarch64-apple-darwin.tar.gz
+33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c  rg/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz
+800b1e7206afe799dfb5a6901f23147cfaabe0e52210538100f61e86e1740915  rg/15.2.0/ripgrep-15.2.0-aarch64-unknown-linux-musl.tar.gz
 
-e94b266e3c26690550006abe63152b782280f4e14374accdf04cbde844f00bc0  jq-macos-amd64
-2d75340ba57a4b4b4c8708a21c2dc8e958a48aaa8bba13b27f77f6e4c0eca07e  jq-macos-arm64
-b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f  jq-linux-amd64
-8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309  jq-linux-arm64
+e94b266e3c26690550006abe63152b782280f4e14374accdf04cbde844f00bc0  jq/1.8.2/jq-macos-amd64
+2d75340ba57a4b4b4c8708a21c2dc8e958a48aaa8bba13b27f77f6e4c0eca07e  jq/1.8.2/jq-macos-arm64
+b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f  jq/1.8.2/jq-linux-amd64
+8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309  jq/1.8.2/jq-linux-arm64
 
-caa513cb04f3804b34d4752f0e0d7904fecb9e7cf1d34081289f83259319a7f6  yq_darwin_amd64
-cceb0b8d71ea5294334121f8429f33f92b920e7217d904a2f9f35443968ac424  yq_darwin_arm64
-c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385  yq_linux_amd64
-88a1016bc1d657375a35864e4f44b6f333df8ff97b559f51bba0adcb2169df09  yq_linux_arm64
+caa513cb04f3804b34d4752f0e0d7904fecb9e7cf1d34081289f83259319a7f6  yq/4.53.6/yq_darwin_amd64
+cceb0b8d71ea5294334121f8429f33f92b920e7217d904a2f9f35443968ac424  yq/4.53.6/yq_darwin_arm64
+c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385  yq/4.53.6/yq_linux_amd64
+88a1016bc1d657375a35864e4f44b6f333df8ff97b559f51bba0adcb2169df09  yq/4.53.6/yq_linux_arm64
 
-3c89db4edcab7cf1c27bff178882e0f6f27f7afdf54e859fa041fca10febe4c6  shellcheck-v0.11.0.darwin.x86_64.tar.xz
-56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79  shellcheck-v0.11.0.darwin.aarch64.tar.xz
-8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  shellcheck-v0.11.0.linux.x86_64.tar.xz
-12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588  shellcheck-v0.11.0.linux.aarch64.tar.xz
+3c89db4edcab7cf1c27bff178882e0f6f27f7afdf54e859fa041fca10febe4c6  shellcheck/0.11.0/shellcheck-v0.11.0.darwin.x86_64.tar.xz
+56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79  shellcheck/0.11.0/shellcheck-v0.11.0.darwin.aarch64.tar.xz
+8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  shellcheck/0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588  shellcheck/0.11.0/shellcheck-v0.11.0.linux.aarch64.tar.xz
 
-b2ffd26f42810340326a9e8a084bdc3647a8795c1a3f21fc06bd7bef3c7c5b2c  app-x86_64-apple-darwin.zip
-6d2279dea5bea2ad79c66ea93f5fe54ba926e398a8a26de76c56db68fe59eac6  app-aarch64-apple-darwin.zip
-f8ac830881339d1edee6b2652f54798c0f4da5a827f2db38a08ee31117783ce8  app-x86_64-unknown-linux-gnu.zip
-b39cfbc58da4b869a88b8a4bc57bd5deb0d24541e704cf7c257da7b53ec81c8f  app-aarch64-unknown-linux-gnu.zip
+b2ffd26f42810340326a9e8a084bdc3647a8795c1a3f21fc06bd7bef3c7c5b2c  ast-grep/0.45.3/app-x86_64-apple-darwin.zip
+6d2279dea5bea2ad79c66ea93f5fe54ba926e398a8a26de76c56db68fe59eac6  ast-grep/0.45.3/app-aarch64-apple-darwin.zip
+f8ac830881339d1edee6b2652f54798c0f4da5a827f2db38a08ee31117783ce8  ast-grep/0.45.3/app-x86_64-unknown-linux-gnu.zip
+b39cfbc58da4b869a88b8a4bc57bd5deb0d24541e704cf7c257da7b53ec81c8f  ast-grep/0.45.3/app-aarch64-unknown-linux-gnu.zip
