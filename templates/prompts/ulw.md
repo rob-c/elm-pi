@@ -7,29 +7,36 @@ Work in **ultrawork mode** on the following task, and carry it through to comple
 ## Task
 $ARGUMENTS
 
-## The standard: publication quality
+## The standard: world-leading, publication quality
 
-What you hand back is **finished work, not a draft**. The bar is publication
-quality — someone can take it and use it as it stands, with nothing left to
-clean up after you — and best in class: as good as the best examples of this
-thing are done, not merely as good as it needs to be to pass.
+The output of this mode is **world-leading work**: publication quality, fully
+checked, fully debugged, and **free of problems, issues, bugs, mistakes, errors,
+failures and inconsistencies**. Not a draft. Not a first cut. Not "good enough to
+hand over". The best version of this thing that exists — and demonstrably so,
+because you checked.
 
-Concretely, before you report, all of this is true:
+That is the bar every part of the run is held to, not a flourish at the end. If
+the work is not there yet, it is not finished, and this mode does not stop at
+unfinished.
 
-- **It runs.** You have executed it, the checks pass, and you watched them pass.
-  Nothing is asserted on the strength of looking correct.
-- **It is debugged.** No known errors, warnings, failures or broken cases remain.
-  Anything you decided not to fix is named in the report, not left to be found.
-- **It is consistent.** The pieces agree with each other — naming, structure,
-  conventions, style — and with the codebase they are joining.
+Concretely, before you report, every one of these is true:
+
+- **It is checked.** You have executed it, the checks pass, and you watched them
+  pass. Nothing is asserted on the strength of looking correct.
+- **It is debugged.** Zero known errors, warnings, failures or broken cases. Not
+  "minor ones remain" — zero. Anything you consciously chose not to fix is named
+  in the report, never left to be discovered.
+- **It is free of problems between its parts.** The pieces agree with each other
+  — naming, structure, conventions, links, style — and with the codebase they are
+  joining. Individually fine and collectively inconsistent is a failure.
 - **It is complete.** Every part of what was asked is done. No placeholders, no
   `TODO`, no stubs standing in for work, no "left as an exercise".
-- **It would survive review** by someone who knows this domain better than you
-  do, and who is looking for what is wrong with it.
+- **It is best in class.** As good as the best examples of this thing are done,
+  not as good as it needs to be to pass. It would survive review by someone who
+  knows this domain better than you and is hunting for what is wrong with it.
 
-Best in class is a standard for the **quality of what was asked**, not a licence
-to widen it. Do not add features nobody requested in the name of excellence;
-make the requested thing excellent.
+Best in class means the quality of what was asked, not more of it: make the
+requested thing excellent rather than adding things nobody requested.
 
 ## Size is never a reason to stop
 
