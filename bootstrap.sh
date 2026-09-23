@@ -396,6 +396,55 @@ else
   echo "    skipped (--no-tools): the system's own fd/rg/jq/... are used instead"
 fi
 
+# --- installer-owned settings ------------------------------------------------
+# agent/ is yours to tune, with one exception: a few keys are decisions this
+# installer makes, and a re-install has to be able to change its mind about
+# them. Worktree isolation is the worked example - it went on, then came back
+# off once it proved to need a git repository - and install_if_absent would
+# have kept the stale `true` on every existing install for ever.
+#
+# These keys are re-derived from templates/ on every run. Every other key in
+# those files is left exactly as you left it, so a tuned theme, model, retry
+# policy or concurrency limit survives. Change the defaults in templates/, not
+# in agent/.
+say "installer-owned settings"
+HERE="$HERE" python3 - <<'PYX'
+import json, os, collections
+
+HERE = os.environ["HERE"]
+OWNED = {
+    "settings.json": ("extensions", "compaction", "subagents"),
+    "extensions/subagent/config.json": ("share", "worktree", "worktreeProvider", "worktreeBaseDir"),
+    "extensions/pi-permission-system/config.json": ("permission", "piInfrastructureReadPaths"),
+}
+
+def load(path):
+    with open(path) as fh:
+        return json.load(fh, object_pairs_hook=collections.OrderedDict)
+
+for rel, keys in OWNED.items():
+    tmpl_path = os.path.join(HERE, "templates", rel)
+    live_path = os.path.join(HERE, "agent", rel)
+    if not (os.path.exists(tmpl_path) and os.path.exists(live_path)):
+        continue
+    tmpl, live = load(tmpl_path), load(live_path)
+    changed = []
+    for key in keys:
+        if key not in tmpl:
+            continue
+        want = json.loads(json.dumps(tmpl[key]).replace("@AGENT_DIR@", os.path.join(HERE, "agent")))
+        if live.get(key) != want:
+            live[key] = want
+            changed.append(key)
+    if changed:
+        with open(live_path, "w") as fh:
+            json.dump(live, fh, indent=2)
+            fh.write("\n")
+        print(f"    reset in agent/{rel}: {', '.join(changed)}")
+    else:
+        print(f"    agent/{rel} already matches")
+PYX
+
 if [ "$WITH_PACKAGES" = "1" ]; then
   say "pi packages (sub-agents, memory, web access, anchor editing)"
   mkdir -p agent/npm

@@ -7,7 +7,11 @@
     "contact_supervisor": "allow",
     "external_directory": {
       "*": "ask",
-      "~/.cache/elm-pi/worktrees/**": "allow"
+      "~/.cache/elm-pi/worktrees/**": "allow",
+      "/var/folders/*/*/T/pi-subagents-uid-*/**": "allow",
+      "/private/var/folders/*/*/T/pi-subagents-uid-*/**": "allow",
+      "/tmp/pi-subagents-uid-*/**": "allow",
+      "/private/tmp/pi-subagents-uid-*/**": "allow"
     },
     "path": {
       "*": "allow",
@@ -26,6 +30,11 @@
     }
   },
   "piInfrastructureReadPaths": [
-    "@AGENT_DIR@/**"
+    "@AGENT_DIR@/**",
+    "/var/folders/*/*/T/pi-subagents-uid-*/**",
+    "/private/var/folders/*/*/T/pi-subagents-uid-*/**",
+    "/tmp/pi-subagents-uid-*/**",
+    "/private/tmp/pi-subagents-uid-*/**",
+    "~/.cache/elm-pi/**"
   ]
 }
