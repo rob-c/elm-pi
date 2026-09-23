@@ -78,6 +78,14 @@ working on the next piece.
   | SVG, diagrams, colour and spacing choices | a mechanical edit already specified |
   | copy and prose that has to read well | repetitive transforms across a file |
   | anything with an image as input | data munging with a checkable answer |
+  | **research**: finding, comparing, tracing, synthesising | running a command and reporting its output |
+
+  **Research is `qwen` work, and it is most of what children are for here** —
+  finding how something works, reading several files and synthesising one
+  answer, comparing options, checking a claim against the source. What makes it
+  research is that nobody has said which evidence matters; the child decides
+  what is relevant and what to discard. Sending that to `llama` produces
+  confident answers assembled from files it did not read.
 
   The test is whether the output has **implicit criteria**. A page that must look
   right, read well and stay consistent with its siblings is full of requirements

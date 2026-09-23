@@ -176,6 +176,22 @@ that delegation names a *role*, not a model id:
 do belongs here: exploring code nobody has read yet, distilling several files
 into an answer, deciding how a change should be shaped, reviewing.
 
+**All research goes to `qwen`**, and that is most of what a sub-agent is for
+here. Finding how something works across a codebase, reading several files and
+synthesising one answer, comparing options, tracing why a thing behaves as it
+does, checking a claim against the source. What makes it research is that
+**nobody has said in advance which evidence matters** — the agent has to decide
+what is relevant, what to discard and what the answer actually is. That is the
+same implicit-criteria test as visual work, and Llama fails it the same way: it
+has invented commands and referenced files that do not exist when asked to work
+across several. The builtin `scout`, `researcher`, `oracle` and `reviewer`
+agents are pinned to Qwen in `settings.json` for this reason.
+
+Note for web research specifically: `web_search`, `fetch_content`,
+`source_check` and `get_search_content` are excluded by default, so a
+`researcher` child has no web tools unless the run is started with
+`PI_ELM_WEB=1`. Without that it can research the codebase and nothing else.
+
 **`llama` is for rote execution of a fully specified change.** Applying a
 formatting convention, generating boilerplate to a stated shape, a mechanical
 edit confined to one named file, running a command and reporting the output.
