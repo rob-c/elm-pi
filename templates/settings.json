@@ -16,7 +16,8 @@
     "npm:@gotgenes/pi-permission-system",
     "npm:@henryqw/pi-task-models",
     "npm:@henryqw/pi-auto-compact",
-    "npm:@tmustier/pi-ralph-wiggum"
+    "npm:@tmustier/pi-ralph-wiggum",
+    "npm:@pify/btw"
   ],
   "extensions": [
     "${PI_CODING_AGENT_DIR}/extensions"

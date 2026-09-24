@@ -417,6 +417,19 @@ test cannot be rerun externally must be marked blocked rather than complete.
 That matters here, where a Llama child will report success having changed
 nothing.
 
+`@pify/btw` adds a side thread: `/btw <question>` asks a **read-only**,
+codebase-aware agent while the main session keeps its place, and the exchange
+stays out of the main context unless `--save` is passed. `/btw:new` starts a
+fresh thread, `/btw:tangent` asks without the main session's context when you
+want an uncoloured read, and `/btw:model` and `/btw:thinking` set what answers
+it. Measured at 5.23s of startup against 5.29s without — free, inside the noise.
+
+It earns its place here for two reasons. Read-only means it is safe to use
+mid-run, including during an unattended loop, with no chance of a second writer
+touching the tree. And context is the scarce resource on this deployment —
+`pi-auto-compact` exists because of it — so a channel that answers a question
+without spending any is worth more here than the convenience.
+
 `pi-powerline-footer` is installed too and costs nothing measurable — 3.48s
 against 3.55s with it removed, which is inside the run-to-run variance. One
 thing to leave alone: setting `cost.currency` to anything but USD turns on a
