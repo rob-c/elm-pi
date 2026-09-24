@@ -152,24 +152,41 @@ class Proxy:
             server = socket.create_connection((host, int(port)), CONNECT_TIMEOUT)
             client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
 
-        self.splice(client, server)
+        self.splice(client, server, f"{host}:{port}")
 
-    def splice(self, a, b):
+    def splice(self, a, b, target="?"):
         a.settimeout(None)
         b.settimeout(None)
+        # An idle tunnel is not a dead tunnel. pi keeps pooled HTTPS connections
+        # to the gateway open between requests, and a fan-out of sub-agents can
+        # leave one quiet for as long as the children take. An earlier version
+        # of this loop treated a select() timeout as end-of-connection and tore
+        # the socket down underneath the pool, which surfaced in pi as
+        # "Connection error" on the next request that reused it. Idleness now
+        # just goes round again; only a close or an error ends the tunnel.
+        for sock in (a, b):
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            except OSError:
+                pass  # keepalive is a nicety, not a requirement
         try:
             while True:
-                readable, _, errored = select.select([a, b], [], [a, b], 300)
-                if errored or not readable:
+                readable, _, errored = select.select([a, b], [], [a, b], 60)
+                if errored:
+                    self.log("DROPPED", target, "socket error while tunnelling")
                     break
+                if not readable:
+                    continue
                 for src in readable:
                     dst = b if src is a else a
                     data = src.recv(BUF)
                     if not data:
                         return
                     dst.sendall(data)
-        except OSError:
-            pass
+        except OSError as err:
+            # A reset mid-stream used to vanish here. It is the one thing worth
+            # knowing when pi reports a connection error and the log is empty.
+            self.log("DROPPED", target, str(err))
         finally:
             for sock in (a, b):
                 try:
