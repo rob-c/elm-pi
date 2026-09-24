@@ -160,6 +160,41 @@ const [lifecycle, habitat] = await runs.all([
 return { lifecycle: lifecycle.output, habitat: habitat.output };
 ```
 
+**Backticks in task text close the script string early.** The `workflowScript`
+you send is itself a string, so a task holding a Markdown fence, a shell block
+or any backtick ends it in the wrong place. This is the third way a workflow
+dies before it does any work, and it dies earliest of the three — at parse
+time, with `SyntaxError: Unexpected token (152:1)` pointing at a line in your
+script, before a single child launches:
+
+```js
+// WRONG. SyntaxError: the backtick before npm ends the template literal, and
+// the script from there on is parsed as something you did not write.
+return runs.run("test", { agent: "llama", task: `Run the `npm test` suite` });
+```
+
+A Markdown fence in the task text does the same thing, three characters at a
+time. Build the text instead:
+
+````js
+// RIGHT. Quote each line and join them. No backtick survives into the script.
+const task = [
+  "Run this:",
+  "```bash",
+  "npm test",
+  "```",
+].join("\n");
+return runs.run("test", { agent: "llama", task });
+````
+
+Use the array form for **any** task text you did not write inline in one short
+line — fences are the usual cause, but a stray backtick in prose does it too.
+
+A script that fails to parse never launched anything, so there is no run to
+wait on: `bg_wait` answering `No active run matched "<id>". Nothing to wait
+for.` after a failed launch is that, not a lost child. Fix the script and
+launch again.
+
 **A script that throws after its children finished has not lost the work.** The
 failure notification lists every child and its run id. The children ran, their
 output is retained, and the only thing that broke is the few lines that
@@ -175,12 +210,19 @@ that the children succeeded and the script did not. Relaunching identical
 children to recover an aggregation bug is the expensive mistake here, not the
 bug.
 
-**Validate a workflow before you launch it.** It runs no children and costs
-nothing, and it catches this class of error before it costs you a run:
+**Validate every workflow before you launch it. Every one, no exceptions.** It
+runs no children, costs nothing and takes one call:
 
 ```js
 subagent({ action: "validate", workflowScript: "..." })
 ```
+
+This is not advice to weigh up. All three failures above are real runs from this
+install, and two of them happened *after* the rule against them was written
+here, because a script that looks right gets launched without a check. Validate
+catches the parse class outright — the backtick above cannot survive it — and it
+is the only thing standing between a script that reads plausibly and a fan-out
+that burns children before failing on its last line.
 
 The commonest failure, verbatim from a real run — `ReferenceError: require is
 not defined  at workflow-script.js:3:12`:
