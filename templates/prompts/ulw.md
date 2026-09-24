@@ -336,6 +336,24 @@ rg -n -i 'delve|leverage|seamless|comprehensive|furthermore|moreover|crucial|it.
 
 Extend that list as you notice your own habits. One `rg` counts as the tool.
 
+**When a child returns `completed without making edits for an implementation
+task`**, that is pi-subagents' completion guard, not a timeout and not
+slowness. It means the child finished having changed nothing — the documented
+Llama failure. Two things follow, and the harness says both in its own `Next:`
+line:
+
+- **The prompt was the cause.** It was a goal where it needed a procedure, or it
+  named no file. Relaunch with numbered steps and an exact path. Do not take the
+  work back on the first failure: one reprompt is cheaper than collapsing the
+  pipeline, and taking over teaches you nothing about why it failed.
+- **Do not narrate a cause you did not check.** "They were slow so I took over"
+  when the signal said the child made no edits is a misreading that will repeat,
+  because nothing was learned. Read the output artifact or the child's session
+  before deciding what happened.
+
+An implementation task that cannot be reduced to numbered steps over one named
+file is a `qwen` task, not a `llama` one.
+
 ## Finishing
 
 1. **Collect before you conclude.** `bg_wait({all: true})`, or await the remaining
