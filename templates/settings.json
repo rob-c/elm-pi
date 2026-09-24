@@ -53,9 +53,6 @@
         "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
       }
     },
-    "modelExclusions": {
-      "defaultTtlMs": 300000
-    },
     "modelScope": {
       "enforce": true,
       "strict": true,
