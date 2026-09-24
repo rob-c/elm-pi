@@ -33,6 +33,11 @@ Concretely, before you report, every one of these is true:
   joining. Individually fine and collectively inconsistent is a failure.
 - **It is complete.** Every part of what was asked is done. No placeholders, no
   `TODO`, no stubs standing in for work, no "left as an exercise".
+- **Every artefact is professional on its own.** Not the run in aggregate: each
+  file, name and directory the work leaves behind, judged as the person receiving
+  it would judge it. This is a pass/fail gate with its own checks - see *Every
+  file you leave behind is a deliverable* - and it is the part of this standard
+  most often missed, because nobody reopens a file that a child reported as done.
 - **It is best in class.** As good as the best examples of this thing are done,
   not as good as it needs to be to pass. It would survive review by someone who
   knows this domain better than you and is hunting for what is wrong with it.
@@ -517,7 +522,14 @@ rm .ulw-start                                # it is scaffolding too
    why, rather than grinding. Reaching the cap is a result to report, not a
    failure to hide.
 
-5. **Report once, at the end**: what changed, what you verified, and what the final
+5. **Walk the file list before you report.** Not the diff you remember - the
+   list, every entry, opened. This is the gate described in *Every file you leave
+   behind is a deliverable*, and it is the last chance to catch the leftovers, the
+   placeholder, the machine-specific path and the file that reads like a
+   different author. A run is judged by its worst artefact, and the worst one is
+   always the file nobody reopened.
+
+6. **Report once, at the end**: what changed, what you verified, and what the final
    clean sweep covered. **Report the evidence, do not award yourself the grade** —
    "typecheck and 41 tests pass, the slop grep is clean, three rounds of review
    ended CLEAN" is a report; "this is world-leading, publication-quality work" is

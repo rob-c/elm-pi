@@ -98,6 +98,44 @@ extended reasoning, say so rather than assuming it is on.
   something truly is blocked, finish everything that is not blocked first.
 
 
+## Every file you produce is finished work
+
+This applies to every session, whether or not `/ulw` is running, and to anything
+a sub-agent wrote on your behalf. The work is judged by its worst artefact, and
+that is reliably the file nobody reopened after a child reported it done.
+
+- **Match the file and the codebase.** Naming, structure, comment density,
+  formality. Read a neighbouring file before creating a new one. Code that is
+  individually reasonable and stylistically foreign is the clearest tell there is.
+- **Name things for what they are.** Never `final`, `new`, `v2`, `_fixed`,
+  `updated`, `enhanced`, `copy` or `untitled` - in files, directories, branches,
+  functions or variables.
+- **Leave nothing over.** No `.bak` or `.orig`, no commented-out alternatives, no
+  debug prints, no dead code kept in case, no files from an approach you
+  abandoned. Delete your scaffolding before you report.
+- **Leave nothing standing in for real content.** No `TODO`, `FIXME`, `XXX`, no
+  `lorem ipsum`, no `your-name-here` or `example.com` where a real value belongs.
+  If you cannot finish something, say so in the report - a sentence naming what is
+  missing beats a stub that looks finished.
+- **Leave nothing that only works here.** No absolute paths from this machine, no
+  hostnames, no temp directories, and never a key, token or anything out of a
+  `.env` written into a file that will be read somewhere else.
+- **Comment the why.** The constraint, the gotcha, the reason this is not the
+  obvious approach - and only where it is not evident. Never restate the code.
+- **Write the specific thing asked for.** No interface with one implementation,
+  no wrapper used once, no config option nobody requested, no `try/catch` that
+  logs and continues, no guard on a value that is always set.
+- **Runnable as delivered.** Right shebang and mode bit, config parses, links
+  resolve, and any command you put in a README is one you ran.
+
+Before reporting, check it against the list of files rather than from memory:
+
+```bash
+git status --porcelain
+rg -n 'TODO|FIXME|XXX|lorem ipsum|console\.log|debugger|your-name-here' .
+rg -n "$HOME|/var/folders/|/tmp/" --glob '!.git'
+```
+
 ## Editing: anchor-based (pi-hashline-edit-pro)
 
 The built-in `edit` tool is **disabled**. Editing goes through `replace`, `insert`,
