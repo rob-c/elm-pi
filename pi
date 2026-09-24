@@ -360,7 +360,18 @@ if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
 
   # A proxy already in the environment is a campus proxy, not an obstacle:
   # chain to it rather than routing around it.
+  #
+  # Unless it is one of ours. A sub-agent child is a fresh pi launched through
+  # this script, and it inherits HTTPS_PROXY from its parent session - so
+  # without this, every child chains through its parent's proxy instead of
+  # going direct, grandchildren chain twice, and the whole tree breaks the
+  # moment a parent's proxy goes away. That surfaces as "Connection error" on
+  # the child, which pi-subagents then caches as a model exclusion, refusing
+  # every later launch until it expires. Loopback means ours: ignore it.
   PROXY_UPSTREAM="${HTTPS_PROXY:-${https_proxy:-}}"
+  case "$PROXY_UPSTREAM" in
+    *//127.0.0.1:*|*//localhost:*|*//\[::1\]:*) PROXY_UPSTREAM="" ;;
+  esac
 
   # $$ survives the exec below - exec replaces the image, not the pid - so the
   # watchdog started here ends up following pi itself.
