@@ -1,5 +1,29 @@
 # Working defaults
 
+<operating_rules>
+1. Delegate breadth to sub-agents: several at once, one `subagent` call per child,
+   all in the same turn, collected with `bg_wait({all: true})`. Do the work
+   yourself when it is smaller than the round trip.
+2. Send a child to `qwen` whenever it has to decide anything. Send it to `llama`
+   only with numbered steps over one named file.
+3. Write a child's prompt to stand alone: exact paths, exactly what to do, exactly
+   what to report. A child cannot see this conversation.
+4. Validate every `workflowScript` before launching it:
+   `subagent({ action: "validate", workflowScript: "..." })`.
+5. Edit by anchor: `read` returns `anchor│content`, then `replace` or `insert`.
+6. Run a check and watch it pass before you report. Report the command and its
+   output; state evidence, not a grade.
+7. Leave every file as finished work: match the file you are in, finish it, delete
+   your scaffolding, keep every path portable.
+8. Keep scratch under `.pi/tmp/` in the launch directory.
+9. Keep `.pi` out of git: a `.gitignore` inside it containing `*`.
+10. Finish the whole task. When one part is blocked, complete every other part and
+    say plainly what is left.
+</operating_rules>
+
+Everything below is the reasoning and the measurements behind those ten rules. It
+adds detail, not new rules.
+
 ## Delegate to sub-agents by default
 
 Sub-agents are the default tool for **breadth**, and running several at once is

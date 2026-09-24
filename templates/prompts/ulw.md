@@ -129,126 +129,20 @@ cheaper than letting one finish wrong, but it only works on a live child:
 If you find yourself steering often, the prompts are underspecified. A child
 that needed correcting mid-flight should have been told the thing up front.
 
-**The workflow script is an orchestrator, not a program.** Its sandbox has
-`runs.run`, `runs.all`, `runs.lanes`, `runs.steer`, `runs.status`, `runs.ref`,
-`emit`, `console` and plain JavaScript — and **no filesystem, no shell, no Pi
-tools and no host globals**. `require` is not defined there, nor is `process`,
-`fs` or `import`. `ReferenceError: require is not defined` means the script
-tried to do the work itself.
-
-Do no work in the script. Reading a file, running a command, editing anything:
-that is a child's job, because children have `read`, `write`, `bash` and the
-anchor tools. The script launches them, races them, and aggregates what they
-return. `runs.host` exists for commands but is available only to the
-package-owned named resources (`review`, `run-ci`) — an inline `workflowScript`
-is unknown-provenance input and cannot call it.
-
-**`runs.all` returns an ordered array, not a key map.** A `key` labels the child
-in traces and for `runs.steer`; it does **not** create a variable, and the result
-is not indexed by it. This is the second most common way a workflow dies:
-
-```js
-// WRONG. ReferenceError: lifecycle is not defined
-const results = await runs.all([
-  { key: "lifecycle", agent: "qwen", task: "..." },
-  { key: "habitat",   agent: "qwen", task: "..." },
-]);
-return { lifecycle: results.lifecycle, habitat: results.habitat };
-```
-
-```js
-// RIGHT. Destructure in the order you launched them, or use indexes/.map().
-const [lifecycle, habitat] = await runs.all([
-  { key: "lifecycle", agent: "qwen", task: "..." },
-  { key: "habitat",   agent: "qwen", task: "..." },
-]);
-return { lifecycle: lifecycle.output, habitat: habitat.output };
-```
-
-**Backticks in task text close the script string early.** The `workflowScript`
-you send is itself a string, so a task holding a Markdown fence, a shell block
-or any backtick ends it in the wrong place. This is the third way a workflow
-dies before it does any work, and it dies earliest of the three — at parse
-time, with `SyntaxError: Unexpected token (152:1)` pointing at a line in your
-script, before a single child launches:
-
-```js
-// WRONG. SyntaxError: the backtick before npm ends the template literal, and
-// the script from there on is parsed as something you did not write.
-return runs.run("test", { agent: "llama", task: `Run the `npm test` suite` });
-```
-
-A Markdown fence in the task text does the same thing, three characters at a
-time. Build the text instead:
-
-````js
-// RIGHT. Quote each line and join them. No backtick survives into the script.
-const task = [
-  "Run this:",
-  "```bash",
-  "npm test",
-  "```",
-].join("\n");
-return runs.run("test", { agent: "llama", task });
-````
-
-Use the array form for **any** task text you did not write inline in one short
-line — fences are the usual cause, but a stray backtick in prose does it too.
-
-A script that fails to parse never launched anything, so there is no run to
-wait on: `bg_wait` answering `No active run matched "<id>". Nothing to wait
-for.` after a failed launch is that, not a lost child. Fix the script and
-launch again.
-
-**A script that throws after its children finished has not lost the work.** The
-failure notification lists every child and its run id. The children ran, their
-output is retained, and the only thing that broke is the few lines that
-aggregated it. Do not relaunch them:
-
-```
-subagent({ action: "children.list" })              // run ids, and resumable or not
-subagent({ action: "status", id: "<run-id>", view: "transcript", lines: 200 })
-```
-
-Read the outputs back, finish the aggregation yourself, and say in the report
-that the children succeeded and the script did not. Relaunching identical
-children to recover an aggregation bug is the expensive mistake here, not the
-bug.
-
-**Validate every workflow before you launch it. Every one, no exceptions.** It
-runs no children, costs nothing and takes one call:
+**Workflow-script mechanics are in AGENTS.md, which is already loaded.** Read
+*Mixing both in one orchestration* there before you write a script. The four ways
+a script dies before it does any work - `require` in the sandbox, `runs.all`
+treated as a key map, a backtick in task text, and launching without validating -
+are each written out there with the real error text and a wrong/right pair. Do not
+write a `workflowScript` from memory of them, and validate every one:
 
 ```js
 subagent({ action: "validate", workflowScript: "..." })
 ```
 
-This is not advice to weigh up. All three failures above are real runs from this
-install, and two of them happened *after* the rule against them was written
-here, because a script that looks right gets launched without a check. Validate
-catches the parse class outright — the backtick above cannot survive it — and it
-is the only thing standing between a script that reads plausibly and a fan-out
-that burns children before failing on its last line.
-
-The commonest failure, verbatim from a real run — `ReferenceError: require is
-not defined  at workflow-script.js:3:12`:
-
-```js
-// WRONG. There is no require, no fs, no process, no import in this sandbox.
-const fs = require("fs");
-const config = fs.readFileSync("src/config.ts", "utf8");
-```
-
-```js
-// RIGHT. The child reads it; the script receives what the child returns.
-const [read] = await runs.all([
-  { key: "read", agent: "qwen", task: "Read src/config.ts and report its exported names, one per line." },
-]);
-const names = read.output;
-```
-
-The urge to `require` is the urge to do the work in the script. Every time you
-feel it, the answer is a child: children have `read`, `write`, `bash` and the
-anchor tools, and the script has none of them by design.
+A script that throws *after* its children finished has not lost the work: recover
+the outputs with `children.list` and `status`, as AGENTS.md describes, rather than
+relaunching identical children.
 
 **Your job between races is to think, not to wait.** Fold the returned result into
 the plan, decide what the next child should do, and keep the queue stocked. If you
@@ -398,23 +292,11 @@ rg -n -i 'delve|leverage|seamless|comprehensive|furthermore|moreover|crucial|it.
 
 Extend that list as you notice your own habits. One `rg` counts as the tool.
 
-**When a child returns `completed without making edits for an implementation
-task`**, that is pi-subagents' completion guard, not a timeout and not
-slowness. It means the child finished having changed nothing — the documented
-Llama failure. Two things follow, and the harness says both in its own `Next:`
-line:
-
-- **The prompt was the cause.** It was a goal where it needed a procedure, or it
-  named no file. Relaunch with numbered steps and an exact path. Do not take the
-  work back on the first failure: one reprompt is cheaper than collapsing the
-  pipeline, and taking over teaches you nothing about why it failed.
-- **Do not narrate a cause you did not check.** "They were slow so I took over"
-  when the signal said the child made no edits is a misreading that will repeat,
-  because nothing was learned. Read the output artifact or the child's session
-  before deciding what happened.
-
-An implementation task that cannot be reduced to numbered steps over one named
-file is a `qwen` task, not a `llama` one.
+**A child returning `completed without making edits for an implementation task`**
+is the completion guard, not slowness. The prompt was the cause - a goal where it
+needed a procedure, or no named file. AGENTS.md has what to do; the short version
+is reprompt once with numbered steps and an exact path, and never narrate a cause
+you did not check.
 
 ## Every file you leave behind is a deliverable
 
