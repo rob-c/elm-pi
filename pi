@@ -411,7 +411,10 @@ if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
   done
   [ -s "$PORT_FILE" ] || refuse_unproxied "the egress proxy did not come up."
   PROXY_PORT="$(cat "$PORT_FILE")"
-  rm -f "$PORT_FILE"
+  # The file stays for the life of the session, and the proxy removes it when it
+  # goes. It is how the tool-call shim finds a live proxy: the shim is reused
+  # across sessions and outlives the one that started it, so the address in its
+  # environment stops working while the shim itself is still up.
 
   export HTTPS_PROXY="http://127.0.0.1:$PROXY_PORT"
   export HTTP_PROXY="$HTTPS_PROXY"

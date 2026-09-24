@@ -8,9 +8,13 @@
  * Llama sub-agents via `subagent({ model: "elm-shim/..." })`.
  *
  * The proxy is shared: if one is already listening the extension reuses it, so a
- * fleet of sub-agent child processes does not start dozens of copies.
+ * fleet of sub-agent child processes does not start dozens of copies. That makes
+ * it outlive the session that started it, which is why shim.py resolves the
+ * egress proxy per request instead of trusting the address in its environment -
+ * that address belongs to one session and dies with it. A shim too old to do
+ * that is identified by the absence of the health endpoint and replaced.
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { connect } from "node:net";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -32,8 +36,57 @@ const listening = (port: number) =>
     setTimeout(() => { s.destroy(); resolve(false); }, 600);
   });
 
+const HEALTH = "/__elm_shim__/health";
+
+/** The shim's own answer, or null for "not our shim". */
+async function health(): Promise<Record<string, unknown> | null> {
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 900);
+    const res = await fetch(`http://${HOST}:${PORT}${HEALTH}`, { signal: ctl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const body = (await res.json()) as Record<string, unknown>;
+    return body?.shim === "elm-pi" ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stop a shim of ours that predates the health endpoint.
+ *
+ * Such a shim holds the egress proxy address of whichever session started it,
+ * and that proxy dies with its session - so it answers every request with
+ * "Connection refused" and pi-subagents benches the model. It cannot be asked
+ * to re-resolve, so it is replaced. Only processes running this install's own
+ * shim.py are touched; anything else on the port is left alone and reported.
+ */
+function replaceStaleShim(): boolean {
+  try {
+    const out = execFileSync("pgrep", ["-f", SHIM], { encoding: "utf8" });
+    const pids = out
+      .split("\n")
+      .map((line) => Number(line.trim()))
+      .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
+    if (pids.length === 0) return false;
+    for (const pid of pids) {
+      try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ }
+    }
+    return true;
+  } catch {
+    return false;                                  // no pgrep, or no match
+  }
+}
+
 async function ensureShim(): Promise<boolean> {
-  if (await listening(PORT)) return true;          // already running - reuse
+  // A shim of the current vintage resolves its own proxy per request, so one
+  // that is already listening is reusable whichever session started it.
+  if (await health()) return true;
+  if (await listening(PORT) && !replaceStaleShim()) return false;
+  for (let i = 0; i < 15 && (await listening(PORT)); i++) {
+    await new Promise((r) => setTimeout(r, 200));  // wait up to ~3s for the port
+  }
   if (!existsSync(SHIM)) return false;
   const child = spawn("python3", [SHIM], {
     detached: true,
@@ -43,7 +96,7 @@ async function ensureShim(): Promise<boolean> {
   child.unref();
   for (let i = 0; i < 25; i++) {                   // wait up to ~5s for the port
     await new Promise((r) => setTimeout(r, 200));
-    if (await listening(PORT)) return true;
+    if (await health()) return true;
   }
   return false;
 }

@@ -15,7 +15,7 @@ OpenAI-compatible tool calling by prompt engineering:
 Models that already support tools natively (Qwen, the OpenAI ones) are passed
 through untouched.
 """
-import http.server, json, os, re, socketserver, ssl, sys, threading, time, urllib.error, urllib.request, uuid
+import glob, http.server, json, os, re, socket, socketserver, ssl, sys, threading, time, urllib.error, urllib.request, uuid
 
 UPSTREAM = os.environ.get("ELM_BASE_URL", "https://elm.edina.ac.uk/api/v1")
 PORT     = int(os.environ.get("SHIM_PORT", "8811"))
@@ -25,6 +25,92 @@ SHIM_MODELS = tuple(filter(None, os.environ.get(
     "SHIM_MODELS",
     "meta-llama/Llama-3.3-70B-Instruct,utter-project/EuroLLM-22B-Instruct-2512").split(",")))
 CTX = ssl.create_default_context(cafile=CAFILE) if os.path.exists(CAFILE) else ssl.create_default_context()
+# Answered locally, never forwarded: elm-shim.ts uses it to tell this shim from
+# whatever else might be listening on the port.
+HEALTH_PATH = "/__elm_shim__/health"
+
+
+# --- the egress proxy, resolved per request ---------------------------------
+# This shim outlives the pi session that starts it: elm-shim.ts reuses one that
+# is already listening, so a fan-out of sub-agent children does not start dozens
+# of copies. The launcher's egress proxy does *not* outlive its session - it
+# binds an ephemeral port and dies with the shell. A shim that kept the proxy
+# address it was handed in its environment therefore went on dialling a port
+# that had gone, every Llama request failed with "Connection refused", and
+# pi-subagents recorded that as a model exclusion and stopped using Llama.
+#
+# So the proxy is resolved when it is needed rather than once at startup: the
+# address from the environment first, then the newest port file any live
+# elm-pi session has left behind. The answer is cached until it stops answering.
+PROXY_GLOB = os.path.join(os.environ.get("TMPDIR", "/tmp"), "elm-pi-egress-*.port")
+# Whether this shim is expected to go through a proxy at all. Decided once, from
+# the environment the launcher gave it: a shim started by hand outside elm-pi
+# has no proxy to find and should talk to ELM directly rather than fail.
+PROXY_MANAGED = bool(os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"))
+_proxy_lock = threading.Lock()
+_proxy_cached = None
+
+
+def _accepting(url):
+    """True if something is listening where this proxy URL points."""
+    try:
+        hostport = url.split("://", 1)[-1].rstrip("/").rsplit("@", 1)[-1]
+        host, _, port = hostport.rpartition(":")
+        with socket.create_connection((host or "127.0.0.1", int(port)), 0.4):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
+def _proxy_candidates():
+    for key in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
+        value = os.environ.get(key)
+        if value:
+            yield value
+    # Newest first: the most recently started session is the one most likely to
+    # still be running.
+    try:
+        files = sorted(glob.glob(PROXY_GLOB), key=os.path.getmtime, reverse=True)
+    except OSError:
+        files = []
+    for path in files:
+        try:
+            yield "http://127.0.0.1:%d" % int(open(path).read().strip())
+        except (OSError, ValueError):
+            continue
+
+
+def resolve_proxy(force=False):
+    """The proxy to use now, or None if there is no live one to use."""
+    global _proxy_cached
+    with _proxy_lock:
+        if not force and _proxy_cached and _accepting(_proxy_cached):
+            return _proxy_cached
+        seen = set()
+        for url in _proxy_candidates():
+            if url in seen:
+                continue
+            seen.add(url)
+            if _accepting(url):
+                _proxy_cached = url
+                return url
+        _proxy_cached = None
+        return None
+
+
+def _build_opener():
+    proxy = resolve_proxy() if PROXY_MANAGED else None
+    if PROXY_MANAGED and not proxy:
+        # Fail loudly rather than reaching ELM directly: this install routes
+        # everything through an allowlisting proxy on purpose.
+        raise RuntimeError(
+            "no live elm-pi egress proxy - the session that started this shim "
+            "has exited. Start pi again; the shim will pick up its proxy."
+        )
+    return urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=CTX),
+        urllib.request.ProxyHandler({"http": proxy, "https": proxy} if proxy else {}),
+    )
 
 
 def _url(path):
@@ -189,9 +275,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
         for k, v in headers.items():
             if k.lower() not in ("host", "content-length", "accept-encoding", "connection"):
                 req.add_header(k, v)
-        return urllib.request.urlopen(req, timeout=900, context=CTX)
+        try:
+            return _build_opener().open(req, timeout=900)
+        except urllib.error.URLError as err:
+            # A proxy that was answering when we resolved it can go away between
+            # one request and the next - the session owning it exits. Re-resolve
+            # once and try again before reporting a failure, because the caller
+            # turns a failure here into a 24-hour model exclusion.
+            if not PROXY_MANAGED or not isinstance(err.reason, OSError):
+                raise
+            resolve_proxy(force=True)
+            return _build_opener().open(req, timeout=900)
 
     def do_GET(self):
+        if self.path.split("?", 1)[0] == HEALTH_PATH:
+            proxy = resolve_proxy() if PROXY_MANAGED else None
+            self._send(200, json.dumps({
+                "shim": "elm-pi",
+                "pid": os.getpid(),
+                "port": PORT,
+                "upstream": UPSTREAM,
+                "proxyManaged": PROXY_MANAGED,
+                "proxy": proxy,
+                "proxyFromEnv": os.environ.get("HTTPS_PROXY", ""),
+                "models": list(SHIM_MODELS),
+            }).encode())
+            return
         try:
             with self._upstream(self.path, None, self.headers) as r:
                 self._send(r.status, r.read(), r.headers.get("Content-Type", "application/json"))

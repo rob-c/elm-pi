@@ -31,6 +31,7 @@ pid and then execs pi, and exec keeps the pid, so the watchdog follows pi itself
 """
 
 import argparse
+import glob
 import os
 import select
 import socket
@@ -53,6 +54,7 @@ class Proxy:
         self.log_path = log_path
         self.upstream = upstream
         self.log_lock = threading.Lock()
+        self.port_file = None
 
     def log(self, verdict, host, detail=""):
         line = f"{now()} {verdict:8} {host}{(' ' + detail) if detail else ''}\n"
@@ -197,6 +199,8 @@ class Proxy:
     # -- lifecycle -----------------------------------------------------------
 
     def serve(self, port_file, parent_pid):
+        self.port_file = port_file
+        prune_stale_port_files(port_file)
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind(("127.0.0.1", 0))
@@ -230,7 +234,29 @@ class Proxy:
             try:
                 os.kill(pid, 0)
             except OSError:
+                self.drop_port_file()
                 os._exit(0)
+
+    def drop_port_file(self):
+        # The file advertises a live proxy to the tool-call shim, so it must not
+        # outlive the proxy. A crash can still leave one behind, which is why
+        # the shim tests the port before believing it.
+        try:
+            os.unlink(self.port_file)
+        except (OSError, AttributeError):
+            pass
+
+
+def prune_stale_port_files(port_file, max_age_s=86400):
+    """Clear out port files a killed proxy never got to remove."""
+    pattern = os.path.join(os.path.dirname(port_file) or ".", "elm-pi-egress-*.port")
+    now = time.time()
+    for path in glob.glob(pattern):
+        try:
+            if now - os.path.getmtime(path) > max_age_s:
+                os.unlink(path)
+        except OSError:
+            pass
 
 
 def parse_upstream(value):
