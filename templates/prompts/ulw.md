@@ -106,8 +106,23 @@ pending.push({ key: "c", promise: runs.run("c", { agent: "llama", task: "..." })
 // ... keep racing and refilling; Promise.all(pending.map(c => c.promise)) at the end
 ```
 
-`runs.steer(key, "...")` redirects a child that is still running, which is cheaper
-than letting it finish wrong and relaunching.
+`runs.steer(key, "...")` redirects a child **that is still running**. It is
+cheaper than letting one finish wrong, but it only works on a live child:
+
+- Steer only a child you expect to be working for a while. A short child — a
+  Llama page write, a single lookup — will usually be finished before you have
+  decided to correct it, and `Steering failed ... child completed before
+  consuming steering` is that race, not a fault.
+- A receipt of `missed` or `failed` is a normal outcome, not an error to retry.
+  `missed` means the child went terminal before delivery. When you see it, read
+  the result the child actually returned and relaunch if it is wrong — do not
+  send the correction again.
+- `delivered` means the child consumed the message. It does **not** mean the
+  model acted on it; check the output either way.
+- Always `await` the steer. Fire-and-forget calls are rejected.
+
+If you find yourself steering often, the prompts are underspecified. A child
+that needed correcting mid-flight should have been told the thing up front.
 
 **The workflow script is an orchestrator, not a program.** Its sandbox has
 `runs.run`, `runs.all`, `runs.lanes`, `runs.steer`, `runs.status`, `runs.ref`,
