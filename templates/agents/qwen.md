@@ -3,8 +3,7 @@ name: qwen
 description: Implementation subagent pinned to ELM's Qwen 3.5 397B, the model this install runs on
 aliases: qwen3, q
 model: elm/Qwen/Qwen3.5-397B-A17B-FP8
-tools: read, grep, find, ls, bash, anchor_grep, replace, insert, undo_last_change, write, contact_supervisor
-subagentOnlyExtensions: @AGENT_DIR@/npm/node_modules/pi-hashline-edit-pro/index.ts
+excludeTools: web_search, fetch_content, get_search_content, source_check
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false

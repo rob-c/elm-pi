@@ -3,9 +3,7 @@ name: llama
 description: Rote-execution subagent on Llama 3.3 70B via the local tool-call shim; give it numbered steps for one file, never a goal
 aliases: llama3, l
 model: elm-shim/meta-llama/Llama-3.3-70B-Instruct
-tools: read, grep, find, ls, bash, anchor_grep, replace, insert, undo_last_change, write
-excludeTools: contact_supervisor
-subagentOnlyExtensions: @AGENT_DIR@/npm/node_modules/pi-hashline-edit-pro/index.ts
+excludeTools: contact_supervisor, web_search, fetch_content, get_search_content, source_check
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false

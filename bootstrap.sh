@@ -173,9 +173,10 @@ fi
 # Agent definitions are code, not config: pi-subagents discovers them in
 # agent/agents, and `subagent qwen "..."` fails with "Unknown agent" without
 # them. Refreshed on --update like the extensions.
-# @AGENT_DIR@ becomes the real path: a subagent's `tools` allowlist names a
-# tool but does not load the extension that registers it, so the anchor editing
-# tools need pi-hashline-edit-pro loaded in the child by absolute path.
+# @AGENT_DIR@ becomes the real path, for any agent field that needs one. The
+# agent definitions deliberately declare no `tools` allowlist: such a list is
+# filtered against the host's builtin registry, and pi-hashline-edit-pro
+# replaces the builtin `read`, so naming `read` there loses it. See AGENTS.md.
 for f in templates/agents/*.md; do
   [ -e "$f" ] || continue
   sed "s|@AGENT_DIR@|$HERE/agent|g" "$f" > "agent/agents/$(basename "$f")"

@@ -215,13 +215,19 @@ Three rules, all of them from measurements above, not preference:
    completed unaided. Verification is the orchestrator's job, and a `qwen`
    sub-agent is a reasonable place to put it.
 
-Both agents can edit. Editing is anchor-based, and the `tools` allowlist in an
-agent definition *names* a tool without loading the extension that provides it,
-so both definitions load `pi-hashline-edit-pro` through
-`subagentOnlyExtensions`. Verified: a `llama` sub-agent reads a file, changes a
-line by anchor and reads it back. Without that line the child silently loses
-`read` and every anchor tool, and falls back to `bash` and whole-file `write` —
-which is how a "rote" agent quietly becomes a destructive one.
+Both agents can edit, and neither declares a `tools` allowlist. That is
+deliberate and worth knowing, because the obvious-looking alternative is broken:
+a `tools` list is filtered against the host's **builtin** tool registry, and
+`pi-hashline-edit-pro` replaces the builtin `read` with its own. A child asking
+for `read` by name is therefore told the host has no such builtin and is
+launched without it — along with every anchor tool — leaving it `bash` and
+whole-file `write`, which is how a "rote" agent quietly becomes a destructive
+one. Measured on this install before the fix: 215 of 328 children had no `read`.
+
+With `tools` omitted the child takes pi's normal builtins and, as a background
+child, the ambient extensions — so `read` and the anchor tools are simply there.
+`excludeTools` still does the narrowing. Verified after the change: a `llama`
+sub-agent reads a file, changes a line by anchor and reads it back.
 
 ### Mixing both in one orchestration
 
