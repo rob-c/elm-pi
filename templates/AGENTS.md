@@ -369,6 +369,33 @@ return { lifecycle: lifecycle.output, habitat: habitat.output };
 ```
 </good-example>
 
+**With more than a few children, build the key map yourself.** Destructuring is
+fine for three; at ten it is where the keyed-access mistake comes from, because
+named access is what you actually want. Give yourself named access legally:
+
+<good-example>
+```js
+// RIGHT. Name the list, then index it back into a map of your own keys.
+const items = [
+  { key: "architect",  agent: "qwen",  task: "..." },
+  { key: "css_main",   agent: "qwen",  task: "..." },
+  { key: "js_main",    agent: "llama", task: "..." },
+];
+const settled = await runs.all(items);
+const by = {};
+items.forEach((item, i) => { by[item.key] = settled[i]; });
+return { architect: by.architect.output, css: by.css_main.output };
+```
+</good-example>
+
+`by` is your object, so `by.architect` is not the keyed access the validator
+rejects - that check only looks at the identifier `runs.all` was assigned to. The
+one cost: passing a variable rather than an array literal means static validation
+cannot count the launches, and says so - "static validation proved 0 launch(es),
+so runtime fan-out enforcement remains authoritative". The 64-child budget is
+still enforced at runtime. Verified on this install: two children launched this
+way, both returned, `by.first.output` and `by.second.output` both populated.
+
 **Backticks in task text close the script string early.** The `workflowScript`
 you send is itself a string, so a task holding a Markdown fence, a shell block
 or any backtick ends it in the wrong place. This is the third way a workflow
