@@ -398,6 +398,25 @@ CPU time (user+sys) because that is the number that does not move with machine l
 So: `pi-hermes-memory` ~1.8s, `pi-subagents` + `pi-hashline-edit-pro` ~1.6s,
 `pi-web-access` ~0.2s, pi and the local extensions ~1.4s.
 
+`@tmustier/pi-ralph-wiggum` adds `ralph_start` and `ralph_done`, and a `/ralph`
+command: a Ralph Wiggum loop that works a task across **fresh sessions** rather
+than one growing context. It costs 0.1s of startup, measured at 6.18s against
+6.08s with it removed.
+
+It is worth knowing when it beats `/ulw`, since they look similar. `/ulw` keeps
+one session and accumulates context, which is why `pi-auto-compact` is here.
+Ralph restarts each iteration, so context rot never happens and state lives in
+the repo and `.ralph/<name>.md` instead. Long verifiable grinds — make the suite
+pass, work through a backlog — suit Ralph; work where the thread of reasoning
+matters suits `/ulw`.
+
+Its completion gate is the part that makes it safe to leave alone: before
+emitting `COMPLETE` it must record a final verification command that a separate
+monitor can rerun in a fresh shell from the same worktree, and an item whose
+test cannot be rerun externally must be marked blocked rather than complete.
+That matters here, where a Llama child will report success having changed
+nothing.
+
 `pi-powerline-footer` is installed too and costs nothing measurable — 3.48s
 against 3.55s with it removed, which is inside the run-to-run variance. One
 thing to leave alone: setting `cost.currency` to anything but USD turns on a

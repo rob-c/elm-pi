@@ -5,6 +5,7 @@
     "@gotgenes/pi-permission-system": "^33.0.8",
     "@henryqw/pi-auto-compact": "^4.1.0",
     "@henryqw/pi-task-models": "^7.0.1",
+    "@tmustier/pi-ralph-wiggum": "^0.2.4",
     "better-sqlite3": "^11.0.0",
     "pi-hashline-edit-pro": "^4.2.6",
     "pi-hermes-memory": "^0.9.9",
