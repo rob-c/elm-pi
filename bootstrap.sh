@@ -100,17 +100,57 @@ export PATH="$HERE/.node/bin:$PATH"
 # --- 2. pi ------------------------------------------------------------------
 say "pi coding agent"
 cp -f templates/package.json package.json
-if [ "$UPDATE" = "1" ]; then rm -f package-lock.json; fi
+# PI_VERSION freezes pi at a version. The template always says "latest", so the
+# pin has to be written into the manifest npm actually reads - otherwise a pin
+# would never install, and the version check below would find a mismatch it
+# could not resolve and reinstall on every single update.
+if [ "$PI_VERSION" != "latest" ]; then
+  PI_VERSION="$PI_VERSION" python3 - <<'PYPIN'
+import json, os
+p = "package.json"
+d = json.load(open(p))
+d["dependencies"]["@earendil-works/pi-coding-agent"] = os.environ["PI_VERSION"]
+json.dump(d, open(p, "w"), indent=2)
+PYPIN
+fi
 
+PI_INSTALLED=""
+if [ -f node_modules/@earendil-works/pi-coding-agent/package.json ]; then
+  PI_INSTALLED=$(node -p \
+    'require("./node_modules/@earendil-works/pi-coding-agent/package.json").version' \
+    2>/dev/null) || PI_INSTALLED=""
+fi
 
-# When --update or --force is passed, always reinstall to get the latest npm version.
-# npm install with "latest" does not update an already-installed package unless we
-# remove node_modules first. For --update, we remove and reinstall.
-if [ "$UPDATE" = "1" ] || [ "$FORCE" = "1" ]; then
+# Reinstalling pi is the slowest step in this script, and on a re-run it usually
+# arrives at the bytes already on disk. So --update asks the registry what the
+# target resolves to and only reinstalls when that differs from what is
+# installed. --force still reinstalls unconditionally; that is what it is for.
+NEED_PI=0
+if [ "$FORCE" = "1" ] || [ -z "$PI_INSTALLED" ]; then
+  NEED_PI=1
+elif [ "$UPDATE" = "1" ]; then
+  PI_WANTED="$PI_VERSION"
+  if [ "$PI_WANTED" = "latest" ]; then
+    PI_WANTED=$(npm view "@earendil-works/pi-coding-agent@latest" version 2>/dev/null) || PI_WANTED=""
+  fi
+  if [ -z "$PI_WANTED" ]; then
+    # No answer from the registry is not evidence that the install is current.
+    echo "    could not reach the npm registry - reinstalling rather than assume"
+    NEED_PI=1
+  elif [ "$PI_WANTED" != "$PI_INSTALLED" ]; then
+    echo "    $PI_INSTALLED -> $PI_WANTED"
+    NEED_PI=1
+  fi
+fi
+
+if [ "$NEED_PI" = "1" ]; then
+  # npm install with "latest" does not update an already-installed package, so
+  # the tree goes first.
+  if [ "$UPDATE" = "1" ]; then rm -f package-lock.json; fi
   rm -rf node_modules
   npm install --no-audit --no-fund --loglevel=error
-elif [ ! -d "node_modules/@earendil-works/pi-coding-agent" ]; then
-  npm install --no-audit --no-fund --loglevel=error
+else
+  echo "    pi $PI_INSTALLED is already current (use --force to reinstall)"
 fi
 
 
