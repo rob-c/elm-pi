@@ -160,6 +160,21 @@ const [lifecycle, habitat] = await runs.all([
 return { lifecycle: lifecycle.output, habitat: habitat.output };
 ```
 
+**A script that throws after its children finished has not lost the work.** The
+failure notification lists every child and its run id. The children ran, their
+output is retained, and the only thing that broke is the few lines that
+aggregated it. Do not relaunch them:
+
+```
+subagent({ action: "children.list" })              // run ids, and resumable or not
+subagent({ action: "status", id: "<run-id>", view: "transcript", lines: 200 })
+```
+
+Read the outputs back, finish the aggregation yourself, and say in the report
+that the children succeeded and the script did not. Relaunching identical
+children to recover an aggregation bug is the expensive mistake here, not the
+bug.
+
 **Validate a workflow before you launch it.** It runs no children and costs
 nothing, and it catches this class of error before it costs you a run:
 
