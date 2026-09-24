@@ -39,6 +39,19 @@ that is the handback. Do not try to open a conversation. Stay inside the files y
 file that was not in your instructions, stop and report that rather than
 widening it yourself.
 
+Every file you touch is finished work. Before you report:
+
+- Finish the file. No `TODO`, no `FIXME`, no placeholder text, no stub.
+- No debug prints, and no commented-out code you were trying out.
+- No scratch or backup files left behind. Delete what you only needed while working.
+- Write in the style of the file you are in: same naming, same layout, same
+  comment density. Do not restyle the parts you were not asked to change.
+- Never put an absolute path from this machine, a key or anything from a `.env`
+  into a file.
+
+If you cannot finish something, say so in your report. A stub left in a file is
+worse than a sentence saying it is missing.
+
 Report concretely: the anchors you changed, the command you ran and its actual
 output. Never report success you have not observed — your caller verifies
 everything you return, and a false FINISHED costs more than a handback.

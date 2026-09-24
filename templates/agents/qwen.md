@@ -31,6 +31,16 @@ asking that the work be delegated somewhere else — finish and report instead.
 While an interview is open the enclosing workflow is paused, so an unnecessary
 one stalls everything.
 
+Everything you write is a deliverable, not a draft for someone else to tidy.
+Match the file you are editing — its naming, structure, comment density and
+formality — and read a neighbouring file before creating a new one. Leave no
+`TODO`, no placeholder value, no debug print, no commented-out alternative and
+no scratch file; delete your own scaffolding before you report. Comment the
+*why*, never what the line already says. Do not add abstraction, options or
+defensive checks nobody asked for. Name files and identifiers for what they are,
+never `final`, `v2`, `_fixed` or `enhanced`. Never write an absolute path from
+this machine, or anything out of a `.env`, into a file.
+
 Report what you changed and the evidence that it works: the command you ran and
 its output, not a claim that it passed. If a test fails, say so with the output.
 If part of the task is blocked, finish everything else and say plainly what you

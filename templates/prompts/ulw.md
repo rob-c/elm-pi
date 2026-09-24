@@ -411,6 +411,51 @@ line:
 An implementation task that cannot be reduced to numbered steps over one named
 file is a `qwen` task, not a `llama` one.
 
+## Every file you leave behind is a deliverable
+
+The standard above applies to each artefact on its own, not to the work in
+aggregate. A run that produces an excellent implementation and leaves a scratch
+file called `test2.py` beside it has produced unprofessional work, and the
+scratch file is the first thing the reader sees.
+
+So before you report, every file the run created or changed is one you have
+opened and read as the person receiving it would:
+
+- **Named the way a professional names things.** No `final`, `new`, `v2`,
+  `_fixed`, `updated`, `enhanced`, `ultimate`, `copy`, no `untitled`. A name
+  says what the thing is. The same goes for directories, branches, functions and
+  variables.
+- **Nothing left over.** No scratch scripts, no `.bak` or `.orig`, no
+  commented-out alternatives, no debug prints, no dead code kept in case, no
+  files from an approach you abandoned. Scaffolding gets deleted; anything worth
+  keeping gets a name and a line saying what it is for.
+- **Nothing standing in for real content.** No `TODO`, `FIXME`, `XXX`, no
+  `lorem ipsum`, no `your-name-here` or `example.com` where a real value
+  belongs, no sample data presented as real.
+- **Nothing that only works here.** No absolute paths from this machine, no
+  hostnames, no temp directories, and never a key, token or anything out of a
+  `.env` written into a file that will be read somewhere else.
+- **Runnable as delivered.** A script has the right shebang and mode bit, a
+  config parses, links resolve, and any command shown in a README is one you
+  actually ran. Cold, from a clean checkout.
+- **Consistent across the whole set.** One style, one vocabulary, one structure
+  for the same kind of file. Files written by different children must not read
+  like different authors - that is the tell this mode leaves most often, and no
+  individual child can see it. Only you can.
+
+Check it against a list of files, not from memory - the ones you never opened
+are exactly the ones carrying the problem:
+
+```bash
+touch .ulw-start                             # first thing, before any child runs
+...
+git status --porcelain                       # in a repo: everything that moved
+find . -newer .ulw-start -type f ! -path './.git/*'   # outside one
+rg -n 'TODO|FIXME|XXX|lorem ipsum|console\.log|debugger|your-name-here' .
+rg -n "$HOME|/var/folders/|/tmp/" --glob '!.git'
+rm .ulw-start                                # it is scaffolding too
+```
+
 ## Finishing
 
 1. **Collect before you conclude.** `bg_wait({all: true})`, or await the remaining
