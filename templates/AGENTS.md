@@ -259,6 +259,28 @@ return. `runs.host` exists for commands but is available only to the
 package-owned named resources (`review`, `run-ci`) — an inline `workflowScript`
 is unknown-provenance input and cannot call it.
 
+**`runs.all` returns an ordered array, not a key map.** A `key` labels the child
+in traces and for `runs.steer`; it does **not** create a variable, and the result
+is not indexed by it. This is the second most common way a workflow dies:
+
+```js
+// WRONG. ReferenceError: lifecycle is not defined
+const results = await runs.all([
+  { key: "lifecycle", agent: "qwen", task: "..." },
+  { key: "habitat",   agent: "qwen", task: "..." },
+]);
+return { lifecycle: results.lifecycle, habitat: results.habitat };
+```
+
+```js
+// RIGHT. Destructure in the order you launched them, or use indexes/.map().
+const [lifecycle, habitat] = await runs.all([
+  { key: "lifecycle", agent: "qwen", task: "..." },
+  { key: "habitat",   agent: "qwen", task: "..." },
+]);
+return { lifecycle: lifecycle.output, habitat: habitat.output };
+```
+
 **Validate a workflow before you launch it.** It runs no children and costs
 nothing, and it catches this class of error before it costs you a run:
 
