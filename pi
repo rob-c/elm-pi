@@ -320,6 +320,24 @@ fi
 # ---------------------------------------------------------------------------
 
 
+# --- keep .pi out of the repository -----------------------------------------
+# pi writes session transcripts to .pi/sessions in the working directory, and a
+# transcript holds every file the agent read and everything pasted in. In a git
+# repository that sits in the tree a `git push` would publish, and no project's
+# own .gitignore knows to exclude it.
+#
+# So .pi ignores itself: a .gitignore inside .pi matching `*`, which covers the
+# .gitignore too, so the directory is invisible to git rather than merely
+# untracked - `git add -A` cannot stage anything in it. It needs no cooperation
+# from the project's .gitignore, survives being copied, and leaves no trace in
+# files the researcher maintains. Only ever created inside a work tree.
+if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [ ! -f .pi/.gitignore ]; then
+    mkdir -p .pi 2>/dev/null && printf '*\n' > .pi/.gitignore 2>/dev/null || true
+  fi
+fi
+# ---------------------------------------------------------------------------
+
 # --- egress proxy -----------------------------------------------------------
 # Everything from here on goes through an allowlisting CONNECT proxy on
 # loopback, and the only host on the list is the ELM gateway. HTTPS through a
