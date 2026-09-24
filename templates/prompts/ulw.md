@@ -434,3 +434,19 @@ rm .ulw-start                                # it is scaffolding too
 - Thinking is off by default here; it measured ~400x slower with no quality gain on
   this deployment. If a step genuinely needs deep reasoning, say so rather than
   silently switching.
+
+# Final Reminder
+
+Read last, because compliance decays as a run goes on:
+
+- Keep children in flight. A fresh child is a fresh prompt, and the cheapest way
+  to reset that decay on a long task.
+- Validate every `workflowScript`. Every one.
+- Give each child its single responsibility, the facts it needs repeated in its
+  own prompt, and nothing it does not need.
+- Sweep adversarially with fresh-context reviewers, require evidence not opinion,
+  and re-sweep after material fixes. Cap at three rounds and report the cap.
+- Walk the file list before reporting - every entry, opened. The worst artefact is
+  always the file nobody reopened.
+- Report the evidence, never the grade.
+

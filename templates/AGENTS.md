@@ -1,6 +1,7 @@
 # Working defaults
 
-<operating_rules>
+# Core Mandates
+
 1. Delegate breadth to sub-agents: several at once, one `subagent` call per child,
    all in the same turn, collected with `bg_wait({all: true})`. Do the work
    yourself when it is smaller than the round trip.
@@ -19,7 +20,6 @@
 9. Keep `.pi` out of git: a `.gitignore` inside it containing `*`.
 10. Finish the whole task. When one part is blocked, complete every other part and
     say plainly what is left.
-</operating_rules>
 
 Everything below is the reasoning and the measurements behind those ten rules. It
 adds detail, not new rules.
@@ -87,6 +87,22 @@ tell each sub-agent to report tersely, or raise `maxOutput` on the calls.
 A sub-agent **cannot see this conversation**. Every prompt must stand alone:
 name exact file paths, state precisely what to do, and say what to report back.
 A vague prompt wastes a whole round trip.
+
+Three failures account for most bad delegation, and each has a fix you write into
+the prompt:
+
+- **Leaked distractors.** You paste in context the child does not need, and it
+  reasons about the wrong thing. Give it what the task needs and nothing else.
+- **Out-of-role work.** The child does something adjacent that was not its job.
+  Open with its single responsibility - "Your only job is X" - and name what it
+  must not touch.
+- **Dropped shared context.** You assume the child knows a fact that lives only in
+  this conversation. Repeat the facts it needs *in its prompt*, every time, even
+  when you have already said them to another child. Repetition across prompts is
+  correct here; it costs a few tokens and saves a round trip.
+
+These matter more for `llama` than for `qwen`: adherence tracks how clearly the
+instruction is written rather than how big the model is.
 
 Sub-agents are read-only unless you say otherwise. Give write access only when the
 scope is unambiguous and confined - and never let two sub-agents write to the same
@@ -331,6 +347,7 @@ is unknown-provenance input and cannot call it.
 in traces and for `runs.steer`; it does **not** create a variable, and the result
 is not indexed by it. This is the second most common way a workflow dies:
 
+<bad-example>
 ```js
 // WRONG. ReferenceError: lifecycle is not defined
 const results = await runs.all([
@@ -339,7 +356,9 @@ const results = await runs.all([
 ]);
 return { lifecycle: results.lifecycle, habitat: results.habitat };
 ```
+</bad-example>
 
+<good-example>
 ```js
 // RIGHT. Destructure in the order you launched them, or use indexes/.map().
 const [lifecycle, habitat] = await runs.all([
@@ -348,6 +367,7 @@ const [lifecycle, habitat] = await runs.all([
 ]);
 return { lifecycle: lifecycle.output, habitat: habitat.output };
 ```
+</good-example>
 
 **Backticks in task text close the script string early.** The `workflowScript`
 you send is itself a string, so a task holding a Markdown fence, a shell block
@@ -356,15 +376,18 @@ dies before it does any work, and it dies earliest of the three — at parse
 time, with `SyntaxError: Unexpected token (152:1)` pointing at a line in your
 script, before a single child launches:
 
+<bad-example>
 ```js
 // WRONG. SyntaxError: the backtick before npm ends the template literal, and
 // the script from there on is parsed as something you did not write.
 return runs.run("test", { agent: "llama", task: `Run the `npm test` suite` });
 ```
+</bad-example>
 
 A Markdown fence in the task text does the same thing, three characters at a
 time. Build the text instead:
 
+<good-example>
 ````js
 // RIGHT. Quote each line and join them. No backtick survives into the script.
 const task = [
@@ -375,6 +398,7 @@ const task = [
 ].join("\n");
 return runs.run("test", { agent: "llama", task });
 ````
+</good-example>
 
 Use the array form for **any** task text you did not write inline in one short
 line — fences are the usual cause, but a stray backtick in prose does it too.
@@ -416,12 +440,15 @@ that burns children before failing on its last line.
 The commonest failure, verbatim from a real run — `ReferenceError: require is
 not defined  at workflow-script.js:3:12`:
 
+<bad-example>
 ```js
 // WRONG. There is no require, no fs, no process, no import in this sandbox.
 const fs = require("fs");
 const config = fs.readFileSync("src/config.ts", "utf8");
 ```
+</bad-example>
 
+<good-example>
 ```js
 // RIGHT. The child reads it; the script receives what the child returns.
 const [read] = await runs.all([
@@ -429,6 +456,7 @@ const [read] = await runs.all([
 ]);
 const names = read.output;
 ```
+</good-example>
 
 The urge to `require` is the urge to do the work in the script. Every time you
 feel it, the answer is a child: children have `read`, `write`, `bash` and the
@@ -638,3 +666,27 @@ stacking contradictory ones. If a fact turns out to be wrong, fix it in place.
 
 Session transcripts are separate: they go to `.pi/sessions/` in the working
 directory and are not memory - they are a log.
+
+# Final Reminder
+
+Compliance decays as a session runs on - measured elsewhere at roughly 5.6% lower
+odds per function generated - so these are repeated here, at the end, where they
+are read last:
+
+- Delegate breadth. One `subagent` call per child, all in the same turn,
+  `bg_wait({all: true})` to collect. A fresh child is also a fresh prompt, which
+  is the cheapest way to reset the decay on a long task.
+- `qwen` for anything that has to decide. `llama` only for numbered steps over one
+  named file.
+- Write each child's prompt to stand alone: exact paths, exactly what to do,
+  exactly what to report, and repeat the shared facts it needs. It cannot see this
+  conversation, and it must not have to guess which inherited context matters.
+- Validate every `workflowScript` before launching it.
+- Prefer `read`/`grep`/`find`/`ls` over `bash` for inspection; call independent
+  tools in parallel.
+- Run the check, watch it pass, report the command and its output. Evidence, not a
+  grade.
+- Every file you leave is finished work: match the file, comment the why, finish
+  it, delete the scaffolding, keep paths portable, keep `.pi` out of git.
+- Finish the whole task. When one part is blocked, complete the rest and say what
+  is left.
