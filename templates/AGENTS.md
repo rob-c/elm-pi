@@ -394,6 +394,32 @@ stays **paused** until that child exits, so an unanswered question stalls the
 whole orchestration. `llama` sub-agents cannot open one at all - they report
 what was missing and hand back.
 
+## Scratch files stay in the working directory
+
+Anything you create while working — a throwaway script, intermediate output, a
+downloaded file, a log you are about to grep, a task file for a loop — goes
+**under the directory the session was launched in**, not in `/tmp` or the system
+temp directory. Use `.pi/tmp/` for scratch that is not part of the deliverable,
+and create it if it is not there.
+
+Three reasons, in order of how soon they bite:
+
+1. **The permission gate stops you.** Outside-cwd access resolves to `ask`, and
+   with no interactive UI — print mode, a sub-agent, an unattended loop — `ask`
+   becomes a refusal. A child that writes its working file to `/tmp` fails; the
+   same child writing to `.pi/tmp/` does not.
+2. **You can find it again.** A later iteration, a sub-agent, or the person
+   reading the result can see what you produced. Work in the system temp
+   directory is invisible and effectively gone.
+3. **It cleans up with the project.** One directory to inspect, one to delete.
+
+Clean up what was only scaffolding before you report, and say what you left
+behind on purpose.
+
+`/tmp` is for the genuinely necessary case — a file too large to want inside the
+project, or a tool that will not be told where to write. Say in the report that
+you used it and why.
+
 ## Project memory
 
 Durable facts about a project live in that project's own `AGENTS.md`, in its root.

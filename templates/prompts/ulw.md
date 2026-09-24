@@ -385,6 +385,13 @@ Extend that list as you notice your own habits. One `rg` counts as the tool.
    why, having finished everything that was not.
 
 ## Constraints
+- **Scratch stays in the working directory.** Throwaway scripts, intermediate
+  output, downloads, logs, loop task files: under the launch directory, in
+  `.pi/tmp/` when they are not part of the deliverable. Not `/tmp`, and not the
+  system temp directory — outside-cwd access is refused when nothing can answer
+  a permission prompt, which is every sub-agent and every unattended loop. Tell
+  children the same thing in their prompts, and delete the scaffolding before
+  you report.
 - Match the conventions already in the codebase; don't import your own style.
 - Don't add work nobody asked for. Completing the whole of what *was* asked is not
   widening scope - it is the job.
