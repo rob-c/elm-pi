@@ -6,6 +6,6 @@
   "worktreeProvider": "native",
   "worktreeBaseDir": "~/.cache/elm-pi/worktrees",
   "modelExclusions": {
-    "defaultTtlMs": 300000
+    "defaultTtlMs": 1000
   }
 }
