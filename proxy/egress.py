@@ -31,6 +31,7 @@ pid and then execs pi, and exec keeps the pid, so the watchdog follows pi itself
 """
 
 import argparse
+import errno
 import glob
 import os
 import select
@@ -42,6 +43,59 @@ from datetime import datetime, timezone
 
 BUF = 65536
 CONNECT_TIMEOUT = 15
+# A tunnel no longer closes because it went quiet, so a peer that dies without a
+# FIN would otherwise hold its thread until the system default keepalive fires -
+# two hours on macOS. Probe after a minute of silence, give up after four tries.
+KEEPALIVE_IDLE_S = 60
+KEEPALIVE_INTVL_S = 15
+KEEPALIVE_CNT = 4
+# Errors that say "not right now", not "stop serving". Ending the accept loop on
+# one of these takes the session's only route out with it.
+TRANSIENT_ACCEPT_ERRNOS = frozenset(
+    e for e in (
+        getattr(errno, name, None)
+        for name in ("EMFILE", "ENFILE", "ENOBUFS", "ENOMEM", "ECONNABORTED",
+                     "EINTR", "EAGAIN", "EWOULDBLOCK", "EPROTO", "EHOSTUNREACH",
+                     "ENETDOWN", "ENONET", "ENETUNREACH", "ETIMEDOUT")
+    ) if e is not None
+)
+
+
+def raise_fd_limit():
+    """Take as many descriptors as the system will give.
+
+    Every tunnel costs two, and a wide fan-out over a long session can want
+    hundreds at once against a soft limit of 256 on macOS.
+    """
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target = 10240 if hard == resource.RLIM_INFINITY else hard
+        if soft < target:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+            return target
+        return soft
+    except Exception:
+        return None
+
+
+def tune_keepalive(sock):
+    """Keep a live connection up, and notice a dead one in minutes not hours."""
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    except OSError:
+        return
+    for name, value in (("TCP_KEEPIDLE", KEEPALIVE_IDLE_S),    # Linux
+                        ("TCP_KEEPALIVE", KEEPALIVE_IDLE_S),   # macOS
+                        ("TCP_KEEPINTVL", KEEPALIVE_INTVL_S),
+                        ("TCP_KEEPCNT", KEEPALIVE_CNT)):
+        opt = getattr(socket, name, None)
+        if opt is None:
+            continue
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, opt, value)
+        except OSError:
+            pass  # a platform that will not tune it still keepalives
 
 
 def now():
@@ -107,6 +161,8 @@ class Proxy:
             # allowed, but the far end did not answer. Logged too: "why did that
             # fail" is the next question after "what did you block".
             self.log("FAILED", target, str(err))
+        except Exception as err:
+            self.log("FAILED", target, "unexpected %r" % (err,))
         finally:
             try:
                 client.close()
@@ -167,10 +223,7 @@ class Proxy:
         # "Connection error" on the next request that reused it. Idleness now
         # just goes round again; only a close or an error ends the tunnel.
         for sock in (a, b):
-            try:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-            except OSError:
-                pass  # keepalive is a nicety, not a requirement
+            tune_keepalive(sock)
         try:
             while True:
                 readable, _, errored = select.select([a, b], [], [a, b], 60)
@@ -189,6 +242,8 @@ class Proxy:
             # A reset mid-stream used to vanish here. It is the one thing worth
             # knowing when pi reports a connection error and the log is empty.
             self.log("DROPPED", target, str(err))
+        except Exception as err:                       # never kill the thread silently
+            self.log("DROPPED", target, "unexpected %r" % (err,))
         finally:
             for sock in (a, b):
                 try:
@@ -198,13 +253,16 @@ class Proxy:
 
     # -- lifecycle -----------------------------------------------------------
 
-    def serve(self, port_file, parent_pid):
+    def serve(self, port_file, parent_pid, want_port=0):
         self.port_file = port_file
         prune_stale_port_files(port_file)
+        limit = raise_fd_limit()
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server.bind(("127.0.0.1", 0))
-        server.listen(64)
+        # want_port is how the launcher's supervisor puts a replacement back on
+        # the port the session already exported as HTTPS_PROXY.
+        server.bind(("127.0.0.1", want_port))
+        server.listen(512)
         port = server.getsockname()[1]
 
         # Write the port atomically: the launcher waits on this file and must
@@ -214,19 +272,45 @@ class Proxy:
             fh.write(str(port))
         os.replace(tmp, port_file)
 
-        self.log("START", "127.0.0.1:%d" % port, "allow=" + ",".join(self.allow))
+        self.log("START", "127.0.0.1:%d" % port,
+                 "allow=%s fds=%s" % (",".join(self.allow), limit if limit else "?"))
 
         if parent_pid:
             threading.Thread(
                 target=self.watch_parent, args=(parent_pid,), daemon=True
             ).start()
 
+        me = "127.0.0.1:%d" % port
         while True:
             try:
                 client, peer = server.accept()
-            except OSError:
+            except OSError as err:
+                if server.fileno() == -1:
+                    break                      # listening socket gone: shut down
+                if err.errno in TRANSIENT_ACCEPT_ERRNOS:
+                    # Descriptor exhaustion during a wide fan-out is the one that
+                    # matters: this loop used to end on it, and the session lost
+                    # its only way out for good. Back off and keep serving.
+                    self.log("ACCEPT", me, "%s - backing off" % (err,))
+                    time.sleep(0.05)
+                    continue
+                self.log("ACCEPT", me, "fatal %s" % (err,))
                 break
-            threading.Thread(target=self.handle, args=(client, peer), daemon=True).start()
+            except Exception as err:
+                self.log("ACCEPT", me, "unexpected %r - continuing" % (err,))
+                time.sleep(0.05)
+                continue
+            try:
+                threading.Thread(target=self.handle, args=(client, peer), daemon=True).start()
+            except (RuntimeError, MemoryError) as err:
+                # Refusing one connection is survivable. Falling out of the loop
+                # is not, so this is deliberately not a break.
+                self.log("ACCEPT", me, "no thread for %s: %s" % (peer, err))
+                try:
+                    client.close()
+                except OSError:
+                    pass
+                time.sleep(0.05)
 
     def watch_parent(self, pid):
         while True:
@@ -277,6 +361,9 @@ def main():
     ap.add_argument("--log", required=True)
     ap.add_argument("--parent-pid", type=int, default=0)
     ap.add_argument("--upstream", default="")
+    ap.add_argument("--port", type=int, default=0,
+                    help="bind this port instead of an ephemeral one, so a "
+                         "restart lands where HTTPS_PROXY already points")
     args = ap.parse_args()
 
     allow = []
@@ -285,7 +372,7 @@ def main():
 
     proxy = Proxy(allow, args.log, parse_upstream(args.upstream))
     try:
-        proxy.serve(args.port_file, args.parent_pid)
+        proxy.serve(args.port_file, args.parent_pid, args.port)
     except KeyboardInterrupt:
         pass
     return 0

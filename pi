@@ -395,12 +395,17 @@ if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
   # watchdog started here ends up following pi itself.
   PORT_FILE="${TMPDIR:-/tmp}/elm-pi-egress-$$.port"
   rm -f "$PORT_FILE"
-  "$PYBIN" "$HERE/proxy/egress.py" \
-      --allow "$PROXY_ALLOW" \
-      --port-file "$PORT_FILE" \
-      --log "$HERE/agent/egress.log" \
-      --parent-pid "$$" \
-      ${PROXY_UPSTREAM:+--upstream "$PROXY_UPSTREAM"} >/dev/null 2>&1 &
+
+  start_proxy() {   # $1 = port to bind, 0 for "pick one"
+    "$PYBIN" "$HERE/proxy/egress.py" \
+        --allow "$PROXY_ALLOW" \
+        --port "$1" \
+        --port-file "$PORT_FILE" \
+        --log "$HERE/agent/egress.log" \
+        --parent-pid "$$" \
+        ${PROXY_UPSTREAM:+--upstream "$PROXY_UPSTREAM"} >/dev/null 2>&1 &
+  }
+  start_proxy 0
 
   # measured: python3 starts and the proxy is listening in ~125ms, so poll
   # tightly and cap at five seconds rather than paying a coarse interval
@@ -415,6 +420,32 @@ if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
   # goes. It is how the tool-call shim finds a live proxy: the shim is reused
   # across sessions and outlives the one that started it, so the address in its
   # environment stops working while the shim itself is still up.
+
+  # --- keep it there for the whole session ------------------------------------
+  # Everything pi does leaves through this one process, so if it ever goes, the
+  # session is finished - and an overnight run has hours in which to find that
+  # out. The proxy itself no longer ends its accept loop on a transient error,
+  # but that cannot cover being OOM-killed, or any other death from outside.
+  #
+  # So a supervisor watches the port rather than the process, and puts a
+  # replacement on the *same* port, which is why --port exists: HTTPS_PROXY has
+  # already been exported into pi and every child, and cannot be renegotiated
+  # afterwards. The check is a bash /dev/tcp connect in a subshell: one fork a
+  # second, no interpreter and no network, which is what makes it affordable to
+  # run all night at an interval short enough that nothing notices the gap.
+  #
+  # It follows $$, the same pid the proxy's own watchdog follows, so it goes
+  # when the session goes and never outlives it.
+  (
+    while kill -0 "$$" 2>/dev/null; do
+      if ! (exec 3<>"/dev/tcp/127.0.0.1/$PROXY_PORT") 2>/dev/null; then
+        kill -0 "$$" 2>/dev/null || break
+        start_proxy "$PROXY_PORT"
+        sleep 1
+      fi
+      sleep 1
+    done
+  ) >/dev/null 2>&1 &
 
   export HTTPS_PROXY="http://127.0.0.1:$PROXY_PORT"
   export HTTP_PROXY="$HTTPS_PROXY"
