@@ -387,10 +387,53 @@ if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
   # the child, which pi-subagents then caches as a model exclusion, refusing
   # every later launch until it expires. Loopback means ours: ignore it.
   PROXY_UPSTREAM="${HTTPS_PROXY:-${https_proxy:-}}"
+  INHERITED_PROXY="$PROXY_UPSTREAM"
   case "$PROXY_UPSTREAM" in
     *//127.0.0.1:*|*//localhost:*|*//\[::1\]:*) PROXY_UPSTREAM="" ;;
   esac
 
+  # --- is a proxy of ours alive on that port? ----------------------------------
+  # A TCP connect proves only that something holds the port. This asks the proxy
+  # who it is, over its own local health route, and is the test used both to
+  # adopt an inherited proxy and as the heartbeat below.
+  EGRESS_HEALTH="/__elm_pi_egress__/health"
+  proxy_alive() {   # $1 = port
+    (
+      exec 3<>"/dev/tcp/127.0.0.1/$1" || exit 1
+      printf 'GET %s HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n' \
+        "$EGRESS_HEALTH" >&3
+      case "$(cat <&3)" in *elm-pi-egress*) exit 0 ;; *) exit 1 ;; esac
+    ) 2>/dev/null
+  }
+
+  # --- adopt the session's proxy rather than starting a second one --------------
+  # Every launch of this script used to start its own proxy on its own ephemeral
+  # port. In one session that produced two proxies on two ports, and the children
+  # that were mid-flight when the first went away failed with "Connection error"
+  # - which pi-subagents cached as a model exclusion and used to refuse every
+  # later launch.
+  #
+  # So an inherited loopback proxy that answers as ours is adopted: one proxy per
+  # session, one stable port for its whole life, and whoever started it keeps it
+  # alive. Only the owner runs the heartbeat, because only the owner can rebind
+  # that port.
+  ADOPTED_PROXY=""
+  case "$INHERITED_PROXY" in
+    *//127.0.0.1:*|*//localhost:*|*//\[::1\]:*)
+      _port="${INHERITED_PROXY##*:}"
+      _port="${_port%%/*}"
+      if [ -n "$_port" ] && proxy_alive "$_port"; then
+        ADOPTED_PROXY="$INHERITED_PROXY"
+        PROXY_PORT="$_port"
+      fi
+      ;;
+  esac
+
+  if [ -n "$ADOPTED_PROXY" ]; then
+    # Someone up the tree owns a live proxy on this port and is already
+    # heartbeating it. Use it and start nothing.
+    :
+  else
   # $$ survives the exec below - exec replaces the image, not the pid - so the
   # watchdog started here ends up following pi itself.
   PORT_FILE="${TMPDIR:-/tmp}/elm-pi-egress-$$.port"
@@ -421,31 +464,47 @@ if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
   # across sessions and outlives the one that started it, so the address in its
   # environment stops working while the shim itself is still up.
 
-  # --- keep it there for the whole session ------------------------------------
+  # --- one proxy, one port, for the whole session ------------------------------
   # Everything pi does leaves through this one process, so if it ever goes, the
   # session is finished - and an overnight run has hours in which to find that
-  # out. The proxy itself no longer ends its accept loop on a transient error,
-  # but that cannot cover being OOM-killed, or any other death from outside.
+  # out. The proxy no longer ends its accept loop on a transient error, but that
+  # cannot cover being OOM-killed, or any other death from outside.
   #
-  # So a supervisor watches the port rather than the process, and puts a
-  # replacement on the *same* port, which is why --port exists: HTTPS_PROXY has
-  # already been exported into pi and every child, and cannot be renegotiated
-  # afterwards. The check is a bash /dev/tcp connect in a subshell: one fork a
-  # second, no interpreter and no network, which is what makes it affordable to
-  # run all night at an interval short enough that nothing notices the gap.
+  # The port is fixed for the life of the session and a replacement is bound to
+  # the same one, which is what --port is for: HTTPS_PROXY has already been
+  # exported into pi, into every child, and into the detached sub-agent runners,
+  # and none of them can renegotiate it afterwards. A session that answered a
+  # dead address once already cost a fan-out four children.
   #
-  # It follows $$, the same pid the proxy's own watchdog follows, so it goes
-  # when the session goes and never outlives it.
+  # The heartbeat asks the proxy who it is rather than only whether the port
+  # accepts, because a port can be held by something that is not ours, and a
+  # proxy can hold the port while being unable to answer. One bash subshell a
+  # second, no interpreter and no network, so it is affordable all night at an
+  # interval short enough that nothing notices the gap.
+  #
+  # It follows $$, the same pid the proxy's own watchdog follows, so it goes when
+  # the session goes and never outlives it.
   (
+    fails=0
     while kill -0 "$$" 2>/dev/null; do
-      if ! (exec 3<>"/dev/tcp/127.0.0.1/$PROXY_PORT") 2>/dev/null; then
+      if proxy_alive "$PROXY_PORT"; then
+        fails=0
+      else
         kill -0 "$$" 2>/dev/null || break
-        start_proxy "$PROXY_PORT"
-        sleep 1
+        fails=$((fails + 1))
+        # Two consecutive misses before rebinding: one miss can be a proxy busy
+        # enough to miss a health check, and rebinding a working port would cut
+        # the tunnels it is carrying.
+        if [ "$fails" -ge 2 ]; then
+          start_proxy "$PROXY_PORT"
+          fails=0
+          sleep 1
+        fi
       fi
       sleep 1
     done
   ) >/dev/null 2>&1 &
+  fi
 
   export HTTPS_PROXY="http://127.0.0.1:$PROXY_PORT"
   export HTTP_PROXY="$HTTPS_PROXY"

@@ -33,6 +33,7 @@ pid and then execs pi, and exec keeps the pid, so the watchdog follows pi itself
 import argparse
 import errno
 import glob
+import json
 import os
 import select
 import socket
@@ -46,6 +47,9 @@ CONNECT_TIMEOUT = 15
 # A tunnel no longer closes because it went quiet, so a peer that dies without a
 # FIN would otherwise hold its thread until the system default keepalive fires -
 # two hours on macOS. Probe after a minute of silence, give up after four tries.
+# Answered locally and never forwarded, so the launcher's heartbeat can tell a
+# live proxy of ours from a dead port or a stranger holding it.
+HEALTH_PATH = "/__elm_pi_egress__/health"
 KEEPALIVE_IDLE_S = 60
 KEEPALIVE_INTVL_S = 15
 KEEPALIVE_CNT = 4
@@ -109,6 +113,7 @@ class Proxy:
         self.upstream = upstream
         self.log_lock = threading.Lock()
         self.port_file = None
+        self.port = None
 
     def log(self, verdict, host, detail=""):
         line = f"{now()} {verdict:8} {host}{(' ' + detail) if detail else ''}\n"
@@ -140,6 +145,14 @@ class Proxy:
                 self.deny(client, "malformed", line[:80])
                 return
             method, target = parts[0].upper(), parts[1]
+
+            if method == "GET" and target.split("?", 1)[0] == HEALTH_PATH:
+                # Answered here, never forwarded. The launcher's heartbeat uses
+                # it to tell a live proxy of ours from a dead port, and from
+                # something else that has taken the port. A TCP connect proves
+                # neither.
+                self.serve_health(client)
+                return
 
             if method != "CONNECT":
                 # Plain HTTP. Nothing here speaks it - the ELM gateway and the
@@ -177,6 +190,24 @@ class Proxy:
                 break
             data += chunk
         return data.decode("latin-1", "replace")
+
+    def serve_health(self, client):
+        body = json.dumps({
+            "proxy": "elm-pi-egress",
+            "pid": os.getpid(),
+            "port": self.port,
+            "allow": self.allow,
+            "upstream": bool(self.upstream),
+        }).encode()
+        try:
+            client.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: " + str(len(body)).encode() + b"\r\n"
+                b"Connection: close\r\n\r\n" + body
+            )
+        except OSError:
+            pass  # the heartbeat will simply try again
 
     def deny(self, client, host, detail):
         self.log("REJECTED", host, detail)
@@ -264,6 +295,7 @@ class Proxy:
         server.bind(("127.0.0.1", want_port))
         server.listen(512)
         port = server.getsockname()[1]
+        self.port = port
 
         # Write the port atomically: the launcher waits on this file and must
         # never read a half-written one.
