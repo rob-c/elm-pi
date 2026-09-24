@@ -26,7 +26,13 @@
     },
     "bash": {
       "*": "allow",
-      "sudo *": "ask"
+      "sudo *": "ask",
+      "git push*": "ask",
+      "git remote add*": "ask",
+      "gh *": "ask",
+      "ssh *": "ask",
+      "scp *": "ask",
+      "sftp *": "ask"
     }
   },
   "piInfrastructureReadPaths": [
