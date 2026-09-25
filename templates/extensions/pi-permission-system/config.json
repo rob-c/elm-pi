@@ -17,6 +17,8 @@
       "*": "allow",
       "*.env": "deny",
       "*.env.*": "deny",
+      "*/.git/*": "deny",
+      ".git/*": "deny",
       "*.env.example": "allow",
       "~/.ssh/*": "deny",
       "~/.aws/*": "deny",
