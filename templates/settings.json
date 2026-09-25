@@ -17,7 +17,10 @@
     "npm:@henryqw/pi-task-models",
     "npm:@henryqw/pi-auto-compact",
     "npm:@tmustier/pi-ralph-wiggum",
-    "npm:@pify/btw"
+    "npm:@pify/btw",
+    "npm:awesome-pi-themes",
+    "npm:cc-safety-net",
+    "npm:@quintinshaw/pi-dynamic-workflows"
   ],
   "extensions": [
     "${PI_CODING_AGENT_DIR}/extensions"
