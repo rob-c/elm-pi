@@ -13,7 +13,6 @@
     "cc-safety-net": "^2.4.7",
     "pi-hashline-edit-pro": "^4.2.6",
     "pi-hermes-memory": "^0.9.9",
-    "pi-zentui": "^0.25.1",
     "pi-subagents": "^0.67.0",
     "pi-web-access": "^0.29.0"
   }

@@ -430,24 +430,27 @@ touching the tree. And context is the scarce resource on this deployment —
 `pi-auto-compact` exists because of it — so a channel that answers a question
 without spending any is worth more here than the convenience.
 
-`pi-zentui` provides the statusline and the TUI chrome. It replaced
-`pi-powerline-footer`, which cost nothing measurable — 3.48s against 3.55s with
-it removed, inside the run-to-run variance — but the two both draw a footer and
-only one should be loaded.
+**No footer extension is loaded.** `pi-powerline-footer` was dropped for
+`pi-zentui`, and `pi-zentui` was then dropped as well: it used a captured
+extension context across the session replacement `pi-dynamic-workflows` performs,
+so every workflow run logged `This extension ctx is stale after session
+replacement or reload` against it. The run completed anyway, and an ordinary
+sub-agent fork never triggered it, but a footer is not worth an error on every
+workflow. pi's own status line remains.
 
-What zentui costs instead is processes rather than milliseconds: its statusline
-shells out to `git` (`rev-parse`, `status --porcelain=2`, `stash list`,
-`describe`) and runs `--version` probes to label the toolchain. All read-only,
-all through `execFile` with an argument array rather than a shell. Worth knowing
-on a loaded machine, and worth knowing that these run inside the extension, so
-they do not pass through the permission gate the way the agent's own `bash` tool
-does.
+Either is easy to put back. `pi-powerline-footer` cost nothing measurable — 3.48s
+against 3.55s without it, inside the run-to-run variance — but it carries one
+trap: setting `cost.currency` to anything but USD turns on a background FX-rate
+fetch from `cdn.jsdelivr.net`, which the egress proxy refuses and logs, and which
+tells you nothing here because prices are zero in `agent/models.json`.
 
-Nothing in it reaches the network. The trap that was worth flagging about the old
-footer no longer applies here, but the shape recurs across packages: setting
-`cost.currency` to anything but USD in `pi-powerline-footer` turned on a
-background FX-rate fetch from `cdn.jsdelivr.net`, which the egress proxy refuses
-and logs. Prices are zero in `agent/models.json` either way.
+`pi-zentui` costs processes rather than milliseconds, which is worth knowing if it
+is ever reinstated: its statusline shells out to `git` (`rev-parse`,
+`status --porcelain=2`, `stash list`, `describe`) and runs `--version` probes to
+label the toolchain. All read-only and all through `execFile` with an argument
+array rather than a shell — but they run inside the extension, so they do not pass
+the permission gate that the agent's own `bash` tool does. Nothing in it reaches
+the network.
 
 **Three levers, in order of payoff:**
 
@@ -707,11 +710,17 @@ per-run `AgentRunOptions.preSpawnModel` and instance
 workflow script that sets its own wins. `strict` scope in pi-subagents has no such
 hole.
 
-**`pi-zentui` errors under it.** A Dynamic Workflows run produced `This extension
-ctx is stale after session replacement or reload` from
-`pi-zentui/extensions/zentui/index.ts`. The run still completed. It is specific to
-the session replacement Dynamic Workflows does: an ordinary `qwen` sub-agent fork
-in the same install produced zero extension errors.
+**It replaces the session, which breaks extensions that hold on to a context.**
+`pi-zentui` was removed over this. A Dynamic Workflows run produced `This extension
+ctx is stale after session replacement or reload` against
+`pi-zentui/extensions/zentui/index.ts` on every run; the run completed, and an
+ordinary `qwen` sub-agent fork never triggered it, so it is specific to the
+replacement Dynamic Workflows performs. pi's own message names the contract an
+extension has to keep — do not use a captured `pi` or command context after
+`newSession`, `fork`, `switchSession` or `reload`; move post-replacement work into
+`withSession` — so the defect is the extension's, and Dynamic Workflows is only
+what exposes it. Worth checking against any extension added later that draws
+persistent UI.
 
 And one observation about the output rather than the plumbing: in that two-agent
 run, one agent changed `v()` to return 2 while the other wrote a README saying it
