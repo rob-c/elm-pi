@@ -669,6 +669,57 @@ needs deciding *what* to do goes to Qwen.
 
 ---
 
+## Dynamic Workflows, and the one control it lacks
+
+`@quintinshaw/pi-dynamic-workflows` is installed alongside `pi-subagents`, not
+instead of it. It adds `/ultracode`, `/deep-research`, `/adversarial-review`,
+`/code-review`, `/codebase-audit` and a `/workflows` TUI, and it reads agent
+definitions from the same `agent/agents/` directory, so `qwen` and `llama` are
+already visible to it as agent types.
+
+What it has no equivalent of is `modelScope`. pi-subagents takes
+`enforce: true, strict: true, allow: ["elm/*", "elm-shim/*", "inherit"]` from
+settings and no child can leave those providers. Dynamic Workflows routes through
+tiers in `~/.pi/workflows/model-tiers.json`, whose documented examples are
+`openai-codex/gpt-5.4-mini` and `openai-codex/gpt-5.5`. So
+`agent/extensions/workflow-model-scope.ts` registers the one process-wide policy
+the package does expose, and refuses any model not under `elm/` or `elm-shim/`.
+
+Measured, on this install:
+
+- A workflow agent pinned to `openai-codex/gpt-5.4` is refused before any session
+  is created. The run store records `MODEL_SPAWN_REJECTED` and the policy's own
+  text, "This install is restricted to university-hosted models", against a total
+  spend of about 3 tokens.
+- With `inheritMainModel: true` in `~/.pi/workflows/settings.json`, untagged
+  agents inherit the session model. A two-agent workflow recorded
+  `elm/Qwen/Qwen3.5-397B-A17B-FP8` for every model reference in its run store and
+  nothing else.
+- It does **not** turn worktree isolation on by itself. A two-agent workflow that
+  edited `m.py` and created `README.md` wrote both into the working directory, and
+  `git worktree list` showed only the main tree.
+
+Two things to know before relying on it.
+
+**The policy is weaker than the one it stands in for.** The package documents
+per-run `AgentRunOptions.preSpawnModel` and instance
+`WorkflowAgentOptions.preSpawnModel` as outranking the process resolver, so a
+workflow script that sets its own wins. `strict` scope in pi-subagents has no such
+hole.
+
+**`pi-zentui` errors under it.** A Dynamic Workflows run produced `This extension
+ctx is stale after session replacement or reload` from
+`pi-zentui/extensions/zentui/index.ts`. The run still completed. It is specific to
+the session replacement Dynamic Workflows does: an ordinary `qwen` sub-agent fork
+in the same install produced zero extension errors.
+
+And one observation about the output rather than the plumbing: in that two-agent
+run, one agent changed `v()` to return 2 while the other wrote a README saying it
+returns 1, because it had read the file first. Individually correct, collectively
+wrong, and nothing in the workflow caught it. That is the failure the sweep step
+in `/ulw` exists for, which is the argument for keeping the standards even when
+the orchestration comes from somewhere else.
+
 ## Sessions, memory and artefacts
 
 `sessionDir: ".pi/sessions"` is **relative**, so it resolves against the working
