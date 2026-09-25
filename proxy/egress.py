@@ -364,14 +364,41 @@ class Proxy:
 
 
 def prune_stale_port_files(port_file, max_age_s=86400):
-    """Clear out port files a killed proxy never got to remove."""
+    """Clear out port files a killed proxy never got to remove.
+
+    A proxy unlinks its own file when its session ends, but only if it is alive
+    to notice: a SIGKILLed one leaves the file behind. The shim resolves a proxy
+    by testing the advertised ports in turn, so every leftover file costs it a
+    connect attempt, and they accumulate for as long as the machine is up.
+
+    A file is removed when the session that owns it is gone *and* nothing answers
+    on its port. Both conditions, because either alone can be temporarily true of
+    a live proxy: a pid can be reused, and a port stops accepting for the moment
+    between a proxy being killed and its heartbeat rebinding it.
+    """
     pattern = os.path.join(os.path.dirname(port_file) or ".", "elm-pi-egress-*.port")
     now = time.time()
     for path in glob.glob(pattern):
+        if os.path.abspath(path) == os.path.abspath(port_file):
+            continue                        # ours; we are about to write it
         try:
             if now - os.path.getmtime(path) > max_age_s:
                 os.unlink(path)
-        except OSError:
+                continue
+            owner = int(os.path.basename(path)[len("elm-pi-egress-"):-len(".port")])
+            try:
+                os.kill(owner, 0)
+                continue                    # session still running: keep it
+            except OSError:
+                pass
+            with open(path, encoding="utf-8") as fh:
+                port = int(fh.read().strip())
+            try:
+                with socket.create_connection(("127.0.0.1", port), 0.2):
+                    continue                # something still serves it: keep it
+            except OSError:
+                os.unlink(path)
+        except (OSError, ValueError):
             pass
 
 
