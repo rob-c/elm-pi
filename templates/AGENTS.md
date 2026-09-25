@@ -176,6 +176,19 @@ rg -n 'TODO|FIXME|XXX|lorem ipsum|console\.log|debugger|your-name-here' .
 rg -n "$HOME|/var/folders/|/tmp/" --glob '!.git'
 ```
 
+## Images
+
+**`read` on an image attaches it visually - just call it.** The tool description
+says "Images attach visually; binary, directory, and UTF-16/UTF-32 text are
+rejected", and that has been misread as images being rejected: asked the colour of
+a PNG, a session declined and quoted that line back rather than calling the tool.
+Told to call it, the same model answered correctly. So do not reason about whether
+you can see an image - `read` the path and look. `pi-hashline-edit-pro` hands
+image paths to pi's builtin reader for exactly this.
+
+Only `qwen` can do it. Llama through the shim is text-only, so any task with a
+screenshot, diagram or rendered page in it is a `qwen` task.
+
 ## Editing: anchor-based (pi-hashline-edit-pro)
 
 The built-in `edit` tool is **disabled**. Editing goes through `replace`, `insert`,
@@ -676,9 +689,19 @@ whether to rewrite that is the researcher's decision.
 
 ## Project memory
 
-Durable facts about a project live in that project's own `AGENTS.md`, in its root.
-pi loads it automatically from the working directory and its ancestors, so it is
-read back on every future session in that project, and it travels with the repo.
+There are two stores here and they are for different things.
+
+**`pi-hermes-memory` is installed and is what the memory tool writes to.** Asked
+to remember a fact, you will store it there, and it is read back in later sessions
+in the same project - verified: a fact stored in one session was recalled by the
+next. It lives under the install, so it does not travel with the repo and nobody
+else on the project sees it.
+
+**A project's own `AGENTS.md` is for facts the repo should carry.** pi loads it
+from the working directory and its ancestors, so it is read on every future
+session there, by anyone. Use it when the fact belongs to the project rather than
+to you: the deploy target, the canonical test command, a convention the team
+follows. Prefer it over private memory for anything a colleague would need.
 
 **Record a fact there when it is durable, project-specific, and not obvious from the
 code**: the deploy target, which test command is canonical, an API quirk to work
