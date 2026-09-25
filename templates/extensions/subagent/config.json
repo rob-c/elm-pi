@@ -4,8 +4,5 @@
   "share": false,
   "worktree": false,
   "worktreeProvider": "native",
-  "worktreeBaseDir": "~/.cache/elm-pi/worktrees",
-  "modelExclusions": {
-    "defaultTtlMs": 1000
-  }
+  "worktreeBaseDir": "~/.cache/elm-pi/worktrees"
 }
