@@ -167,6 +167,11 @@ that is reliably the file nobody reopened after a child reported it done.
   logs and continues, no guard on a value that is always set.
 - **Runnable as delivered.** Right shebang and mode bit, config parses, links
   resolve, and any command you put in a README is one you ran.
+- **Clean up after the checks too.** Running tests or a build leaves its own
+  droppings - `__pycache__`, `.pytest_cache`, `.ruff_cache`, `dist/`, coverage
+  files. Observed on a real /ulw run: the work was clean and both cache
+  directories were left in the project. If it is not part of the deliverable,
+  delete it or confirm the project already ignores it, and say which you did.
 
 Before reporting, check it against the list of files rather than from memory:
 

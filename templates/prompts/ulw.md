@@ -329,6 +329,11 @@ opened and read as the person receiving it would:
   for the same kind of file. Files written by different children must not read
   like different authors - that is the tell this mode leaves most often, and no
   individual child can see it. Only you can.
+- **Clean up after the checks too.** Running tests or a build leaves its own
+  droppings - `__pycache__`, `.pytest_cache`, `.ruff_cache`, `dist/`, coverage
+  files. Observed on a real /ulw run: the work was clean and both cache
+  directories were left in the project. If it is not part of the deliverable,
+  delete it or confirm the project already ignores it, and say which you did.
 
 Check it against a list of files, not from memory - the ones you never opened
 are exactly the ones carrying the problem:
