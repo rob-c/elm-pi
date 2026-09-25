@@ -430,12 +430,24 @@ touching the tree. And context is the scarce resource on this deployment —
 `pi-auto-compact` exists because of it — so a channel that answers a question
 without spending any is worth more here than the convenience.
 
-`pi-powerline-footer` is installed too and costs nothing measurable — 3.48s
-against 3.55s with it removed, which is inside the run-to-run variance. One
-thing to leave alone: setting `cost.currency` to anything but USD turns on a
-background FX-rate fetch from `cdn.jsdelivr.net`, which the egress proxy will
-refuse and log. It would also tell you nothing here, since the ELM models are
-priced at zero in `agent/models.json`.
+`pi-zentui` provides the statusline and the TUI chrome. It replaced
+`pi-powerline-footer`, which cost nothing measurable — 3.48s against 3.55s with
+it removed, inside the run-to-run variance — but the two both draw a footer and
+only one should be loaded.
+
+What zentui costs instead is processes rather than milliseconds: its statusline
+shells out to `git` (`rev-parse`, `status --porcelain=2`, `stash list`,
+`describe`) and runs `--version` probes to label the toolchain. All read-only,
+all through `execFile` with an argument array rather than a shell. Worth knowing
+on a loaded machine, and worth knowing that these run inside the extension, so
+they do not pass through the permission gate the way the agent's own `bash` tool
+does.
+
+Nothing in it reaches the network. The trap that was worth flagging about the old
+footer no longer applies here, but the shape recurs across packages: setting
+`cost.currency` to anything but USD in `pi-powerline-footer` turned on a
+background FX-rate fetch from `cdn.jsdelivr.net`, which the egress proxy refuses
+and logs. Prices are zero in `agent/models.json` either way.
 
 **Three levers, in order of payoff:**
 
