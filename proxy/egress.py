@@ -26,6 +26,11 @@ See LOCKDOWN.md.
     egress.py --allow elm.edina.ac.uk --port-file /tmp/p --log agent/egress.log
               [--parent-pid N] [--upstream http://proxy:3128]
 
+A single "*" in --allow is open mode: every host is spliced through, and each
+new destination is logged once as OPEN. That is what `pi --remote` asks for,
+where an allowlist cannot express "the web" and the log is the point - the
+proxy stops being a gate and stays a record.
+
 --parent-pid makes it exit when that process goes. The launcher passes its own
 pid and then execs pi, and exec keeps the pid, so the watchdog follows pi itself.
 """
@@ -109,6 +114,9 @@ def now():
 class Proxy:
     def __init__(self, allow, log_path, upstream=None):
         self.allow = [h.lower().lstrip(".") for h in allow if h]
+        # "*" is open mode: no gate, but still a record of every destination.
+        self.open_mode = "*" in self.allow
+        self.seen_open = set()
         self.log_path = log_path
         self.upstream = upstream
         self.log_lock = threading.Lock()
@@ -126,9 +134,21 @@ class Proxy:
 
     def allowed(self, host):
         host = host.lower().rstrip(".")
+        if self.open_mode:
+            return True
         # exact host, or a subdomain of an allowed host. Never a bare IP: an
         # allowlist that accepts 93.184.x.x accepts anything with a resolver.
         return any(host == a or host.endswith("." + a) for a in self.allow)
+
+    def note_open(self, host):
+        """First contact with a host in open mode. Once per host, not per
+        connection: a session opens many sockets to the same few places, and a
+        log nobody can read is a log nobody reads."""
+        host = host.lower().rstrip(".")
+        if host in self.seen_open:
+            return
+        self.seen_open.add(host)
+        self.log("OPEN", host, "no allowlist in this install (--allow '*')")
 
     # -- connection handling -------------------------------------------------
 
@@ -136,7 +156,7 @@ class Proxy:
         client.settimeout(CONNECT_TIMEOUT)
         target = "?"
         try:
-            head = self.read_head(client)
+            head, pending = self.read_head(client)
             if not head:
                 return
             line = head.split("\r\n", 1)[0]
@@ -168,8 +188,10 @@ class Proxy:
             if not self.allowed(host):
                 self.deny(client, f"{host}:{port}", "not on the allowlist")
                 return
+            if self.open_mode:
+                self.note_open(host)
 
-            self.connect_through(client, host, port, head)
+            self.connect_through(client, host, port, head, pending)
         except (OSError, socket.timeout) as err:
             # allowed, but the far end did not answer. Logged too: "why did that
             # fail" is the next question after "what did you block".
@@ -183,13 +205,38 @@ class Proxy:
                 pass
 
     def read_head(self, sock):
+        """Return (header, leftover).
+
+        A client may put the first bytes of the tunnel in the same packet as
+        the CONNECT line - most wait for the 200 first, but nothing requires
+        it. Those bytes belong to the tunnel, not to the header, and an earlier
+        version of this dropped them on the floor: the destination then waited
+        for a TLS ClientHello that had already been sent and thrown away, which
+        is a hang with nothing in any log to explain it.
+        """
         data = b""
         while b"\r\n\r\n" not in data and len(data) < 32768:
             chunk = sock.recv(BUF)
             if not chunk:
                 break
             data += chunk
-        return data.decode("latin-1", "replace")
+        head, sep, rest = data.partition(b"\r\n\r\n")
+        return (head + sep).decode("latin-1", "replace"), rest
+
+    def read_upstream_reply(self, sock):
+        """The upstream proxy's answer to a forwarded CONNECT, in full.
+
+        One recv() can return half a status line. Judging the verdict on half a
+        line either drops a tunnel the upstream allowed or splices one it
+        refused, and both are rare enough to be diagnosed as something else.
+        """
+        data = b""
+        while b"\r\n\r\n" not in data and len(data) < 32768:
+            chunk = sock.recv(BUF)
+            if not chunk:
+                break
+            data += chunk
+        return data
 
     def serve_health(self, client):
         body = json.dumps({
@@ -225,14 +272,15 @@ class Proxy:
         except OSError:
             pass
 
-    def connect_through(self, client, host, port, head):
+    def connect_through(self, client, host, port, head, pending=b""):
         if self.upstream:
             # A campus proxy in the environment is not something to route
-            # around: dial it and pass the CONNECT on.
+            # around: dial it and pass the CONNECT on, with anything the client
+            # pipelined behind it.
             up_host, up_port = self.upstream
             server = socket.create_connection((up_host, up_port), CONNECT_TIMEOUT)
-            server.sendall(head.encode("latin-1"))
-            reply = server.recv(BUF)
+            server.sendall(head.encode("latin-1") + pending)
+            reply = self.read_upstream_reply(server)
             client.sendall(reply)
             if b" 200 " not in reply.split(b"\r\n", 1)[0]:
                 server.close()
@@ -240,6 +288,8 @@ class Proxy:
         else:
             server = socket.create_connection((host, int(port)), CONNECT_TIMEOUT)
             client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+            if pending:
+                server.sendall(pending)
 
         self.splice(client, server, f"{host}:{port}")
 

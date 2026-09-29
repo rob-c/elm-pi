@@ -21,11 +21,8 @@
 #   --no-path                do not add ~/.local/bin to PATH in a shell profile
 #   --force-link             replace an existing ~/.local/bin/pi symlink
 #
-# Flags forwarded to bootstrap.sh:
-#   --no-memory              drop pi-hermes-memory: ~1.8s off every launch
-#   --no-packages            pi only: no sub-agents, memory, web access
-#   --no-shim                no Llama tool-call shim
-#   --no-auth-lock           leave agent/auth.json writable, so /login works
+# Run with --help for the flags; that list lives in usage() below and nowhere
+# else, so it cannot drift from what is parsed or from what bootstrap.sh takes.
 #
 set -euo pipefail
 
@@ -40,13 +37,49 @@ DOCS="${ELM_PI_DOCS:-https://rob-c.github.io/elm-pi/}"
 PASS_ARGS=""
 NO_PATH="${ELM_PI_NO_PATH:-0}"
 FORCE_LINK="${ELM_PI_FORCE_LINK:-0}"
+usage() {
+  cat <<'EOU'
+elm-pi installer: fetches the repo, runs bootstrap.sh, links pi onto your PATH.
+
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
+  ./install.sh [flags]
+
+Installer flags:
+  --update            update an existing install in place
+  --no-path           do not add ~/.local/bin to PATH in a shell profile
+  --force-link        replace an existing ~/.local/bin/pi symlink
+  -h, --help          this text
+
+Passed through to bootstrap.sh:
+  --no-packages       pi only: no sub-agents, memory, web access or anchor edit
+  --no-memory         drop pi-hermes-memory: ~1.2s off every launch
+  --no-tools          skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
+  --no-shim           no Llama tool-call shim
+  --no-patch          leave pi's /share and /bug commands in place
+  --no-auth-lock      leave agent/auth.json writable, so /login works
+  --force             re-download the tools and reinstall the npm packages
+
+Environment: ELM_PI_PREFIX, ELM_PI_BINDIR, ELM_PI_REPO, ELM_PI_BRANCH,
+ELM_PI_DOCS, ELM_PI_UPDATE, ELM_PI_NO_PATH, ELM_PI_FORCE_LINK, ELM_API_KEY.
+EOU
+}
+
+# Before anything else, and as a heredoc rather than `sed` over "$0": piped
+# into bash there is no "$0" to read, which is how `curl ... | bash -s -- --help`
+# came to print nothing at all and exit 0.
+for arg in "$@"; do
+  case "$arg" in -h|--help) usage; exit 0 ;; esac
+done
 for arg in "$@"; do
   case "$arg" in
     --update)  UPDATE=1 ;;
     --no-path) NO_PATH=1 ;;
     --force-link) FORCE_LINK=1 ;;
-    --no-memory|--no-packages|--no-shim|--no-auth-lock) PASS_ARGS="$PASS_ARGS $arg" ;;
-    -h|--help) sed -n '3,24p' "$0" 2>/dev/null || true; exit 0 ;;
+    # Forwarded verbatim. A flag missing from this list used to be dropped in
+    # silence, so `install.sh --no-tools` installed the tools anyway.
+    --no-memory|--no-packages|--no-shim|--no-auth-lock|--no-tools|--no-patch|--force)
+      PASS_ARGS="$PASS_ARGS $arg" ;;
+    *) echo "unknown option: $arg" >&2; echo "try: --help" >&2; exit 2 ;;
   esac
 done
 

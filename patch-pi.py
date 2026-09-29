@@ -50,14 +50,22 @@ REFUSAL = (
 )
 THROW = "throw new Error('elm-pi: session uploads are disabled on this install');"
 
-# (name, anchor, replacement). Every anchor must appear exactly once across the
-# bundle, and every replacement must be recognisable on a second run so that
-# applying twice is a no-op.
+# (name, anchor, replacement, sentinel). Every anchor must appear exactly once
+# across the bundle, and every replacement must be recognisable on a second run
+# so that applying twice is a no-op.
+#
+# `sentinel` exists for the deletions, where "done" is the absence of the anchor
+# and absence has two causes: we removed it, or a pi release reworded it. Those
+# are indistinguishable without a second probe, so a deletion also asserts that
+# a shorter, wording-independent fragment is gone. Anchor absent but sentinel
+# present means the bundle moved under us, and that fails the install rather
+# than quietly leaving the command in place.
 EDITS = [
     (
         "dispatcher: /share",
         'if(text==="/share"){await this.handleShareCommand(),this.editor.setText("");return}',
         'if(text==="/share"){this.editor.setText(""),this.showError("%s");return}' % REFUSAL,
+        None,
     ),
     (
         "dispatcher: /bug",
@@ -65,31 +73,37 @@ EDITS = [
         'this.editor.setText(""),await this.handleBugCommand(hint||void 0);return}',
         'if(text==="/bug"||text.startsWith("/bug ")){this.editor.setText(""),'
         'this.showError("%s");return}' % REFUSAL,
+        None,
     ),
     (
         "autocomplete: /share",
         '{name:"share",description:"Share session as a secret GitHub gist"},',
         "",
+        'name:"share"',
     ),
     (
         "autocomplete: /bug",
         '{name:"bug",description:"Report a bug to the Pi developers",argumentHint:"<description>"},',
         "",
+        'name:"bug"',
     ),
     (
         "upload: bug report to radius.pi.dev",
         "async function uploadBugReport(bundle,options={}){",
         "async function uploadBugReport(bundle,options={}){" + THROW,
+        None,
     ),
     (
         "upload: share via radius.pi.dev",
         "async function tryShareViaRadius(tmpFile,context){",
         "async function tryShareViaRadius(tmpFile,context){" + THROW,
+        None,
     ),
     (
         "upload: share via GitHub gist",
         "async function shareViaGist(tmpFile,context){",
         "async function shareViaGist(tmpFile,context){" + THROW,
+        None,
     ),
 ]
 
@@ -106,7 +120,7 @@ def main():
 
     changed, already, failed = [], [], []
 
-    for name, anchor, replacement in EDITS:
+    for name, anchor, replacement, sentinel in EDITS:
         # Ask "is it already done?" first. Several replacements keep the anchor
         # as their own prefix - the throw is inserted after the function opens -
         # so a present anchor does not mean an unpatched file, and checking the
@@ -115,6 +129,15 @@ def main():
             done = any(replacement in s for s in sources.values())
         else:
             done = not any(anchor in s for s in sources.values())
+            if done and sentinel and any(sentinel in s for s in sources.values()):
+                # The exact entry is gone but the command still is not. A
+                # reworded description reads as "already patched" to the check
+                # above, which is the one way this script can fail silently.
+                failed.append(
+                    f"{name}: anchor absent but {sentinel} is still in the bundle "
+                    "- the wording changed, the command did not go"
+                )
+                continue
         if done:
             already.append(name)
             continue

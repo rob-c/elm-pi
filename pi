@@ -22,10 +22,64 @@ HERE="$(cd "$(dirname "$SELF")" && pwd)"
 # name - that is a directive, and it stops the file being checked at all.
 export PATH="$HERE/agent/bin:$HERE/.node/bin:$PATH"
 
+# --- pi --help ---------------------------------------------------------------
+# First, and before the key check, the load preflight and the egress proxy: an
+# install that cannot start is exactly the one whose help you want to read.
+# This launcher adds flags of its own, and until now `pi --help` showed only
+# pi's, so they were documented everywhere except where you would look.
+elm_usage() {
+  cat <<'EOU'
+elm-pi: pi wired to the University's ELM gateway. Models are ELM-only - see
+LOCKDOWN.md for what that blocks and how to lift it.
+
+Flags added by this launcher:
+  --fast              load only the local extensions: no sub-agents, memory,
+                      web access or anchor editing. ~1s to start instead of ~3s
+  --llama             run on Llama 3.3 70B through the tool-call shim
+  --remote            allow this run to reach the internet: the web tools come
+                      back on and the egress proxy records every destination
+                      instead of allowing only the ELM gateway. The model is
+                      not affected - inference still goes to ELM and nowhere
+                      else, and no other provider becomes reachable
+  --help, -h          this text, then pi's own
+
+Useful environment:
+  PI_ELM_WEB=1              web tools for one run, without opening the proxy
+  ELM_PI_PROXY_ALLOW=a,b    let this run reach these hosts and no others
+  ELM_PI_NO_PROXY=1         run unproxied (debugging)
+  PI_ELM_UNLOCK=1           lift the credential scrub and the argument guard
+  PI_FORCE=1                skip the busy-machine warning
+  PI_ELM_STARTUP_CHECKS=1   restore pi's own startup network checks
+
+pi's own flags follow.
+EOU
+}
+for a in "$@"; do
+  case "$a" in
+    -h|--help)
+      elm_usage
+      if [ -x "$HERE/pi.orig" ]; then
+        echo
+        exec "$HERE/pi.orig" --help
+      fi
+      exit 0 ;;
+  esac
+done
+
 
 
 if [ -f "$HERE/.env" ]; then
   set -a; . "$HERE/.env"; set +a
+fi
+
+# --- install-wide policy defaults -------------------------------------------
+# Written by bootstrap.sh: present only on an install set up with --remote,
+# where it turns the web tools back on and lifts the ELM-only guards. It uses
+# `: "${VAR:=...}"`, so anything already in the environment still wins and a
+# single run can be locked back down with PI_ELM_WEB=0 PI_ELM_UNLOCK=0.
+# Telemetry and the version check are not settable from it - see below.
+if [ -f "$HERE/agent/policy.env" ]; then
+  . "$HERE/agent/policy.env"
 fi
 
 # Disable telemetry by default (can be overridden with PI_TELEMETRY=1)
@@ -100,15 +154,42 @@ export PI_SUBAGENT_PI_BINARY="${PI_SUBAGENT_PI_BINARY:-$HERE/pi}"
 # --fast keeps the ELM-only policy (elm-only.ts is always loaded) and pi's
 # built-in edit tool; it drops anchor editing, subagent/bg_wait, hermes memory
 # and web search. Use a plain `pi` for real multi-step work.
-FAST=0; LLAMA=0; ARGS=()
+FAST=0; LLAMA=0; REMOTE=0; ARGS=()
 for a in "$@"; do
   case "$a" in
     --fast) FAST=1 ;;
     --llama) LLAMA=1 ;;
+    --remote) REMOTE=1 ;;
     *) ARGS+=("$a") ;;
   esac
 done
 set -- ${ARGS[@]+"${ARGS[@]}"}
+
+# --- --remote: let this run reach the internet -------------------------------
+# Two things stop pi reaching anything but the gateway: the web tools are off by
+# default, and the egress proxy allows one host. Turning the tools on without
+# the proxy gets a session of refused connections, so --remote does both, for
+# this run only.
+#
+# It does NOT touch the model policy. The credential scrub, the argument guard
+# and the catalogue strip all stay exactly as they are: inference goes to ELM,
+# no other provider becomes reachable or visible, and Qwen stays the model.
+#
+# What it does cost: the proxy is also the backstop that would have stopped a
+# lifted model policy reaching a commercial API. With --remote that second line
+# of defence is down for the run, so the scrub and the guard are on their own.
+# Every destination is logged to agent/egress.log, which is the trade.
+#
+#   pi --remote                        web tools + open proxy, ELM models
+#   PI_ELM_WEB=1 pi                    web tools, proxy still allows ELM only
+#   ELM_PI_PROXY_ALLOW=api.exa.ai pi   one extra host, nothing else
+if [ "$REMOTE" = "1" ]; then
+  export PI_ELM_WEB=1
+  ELM_PI_PROXY_ALLOW="${ELM_PI_PROXY_ALLOW:+$ELM_PI_PROXY_ALLOW,}*"
+  export ELM_PI_PROXY_ALLOW
+  echo "pi: --remote - web tools on, and the egress proxy is recording rather than" >&2
+  echo "    gating. Models are unchanged: ELM only. Destinations: agent/egress.log" >&2
+fi
 
 PRE=()
 LLAMA_MODEL="elm-shim/meta-llama/Llama-3.3-70B-Instruct"
@@ -510,8 +591,10 @@ if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
   export HTTP_PROXY="$HTTPS_PROXY"
   export https_proxy="$HTTPS_PROXY"
   export http_proxy="$HTTPS_PROXY"
-  # the Llama shim is on loopback, and so is the proxy itself
-  export NO_PROXY="127.0.0.1,localhost"
+  # the Llama shim is on loopback, and so is the proxy itself. All three
+  # spellings: a client that resolves localhost to ::1 and finds only the other
+  # two in the list sends its loopback traffic to the proxy, which refuses it.
+  export NO_PROXY="127.0.0.1,localhost,::1"
   export no_proxy="$NO_PROXY"
 fi
 # ---------------------------------------------------------------------------

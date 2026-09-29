@@ -126,6 +126,11 @@ The launcher therefore passes `--exclude-tools` for all four. The package stays
 installed, so this is a per-run decision rather than a per-install one:
 
     PI_ELM_WEB=1 pi ...     web search and fetching, for that run
+    pi --remote ...         the same, and opens the proxy so they can connect
+
+`PI_ELM_WEB=1` on its own turns the tools on while layer 6 still allows only
+the gateway, so every search refuses and lands in the log. That is the honest
+combination for testing the block; `--remote` is the one that works.
 
 If the caller passes `--tools` or `--exclude-tools` themselves, the launcher
 leaves the decision alone. The four names are `pi-web-access` defaults and can
@@ -168,6 +173,18 @@ Escape hatches, as everywhere else here:
 
     ELM_PI_NO_PROXY=1 pi ...          run unfiltered, for debugging
     ELM_PI_PROXY_ALLOW=host,host pi   add hosts for one run
+    pi --remote ...                   open mode: no gate, but still a record
+
+Open mode is a single `*` in the allowlist. Work that needs the web cannot be
+expressed as a list of hosts — `fetch_content` exists to go where the page
+points — so `--remote` splices every host through and logs each new destination
+once as `OPEN`. Turning the proxy off instead would have been simpler and would
+have lost the log, which on a run that may go anywhere is the only thing left.
+
+Worth being clear about what that costs: the proxy is also the backstop that
+would stop a *lifted* model policy reaching a commercial API. Under `--remote`
+layers 1 to 3 are on their own for that run. They are untouched — inference
+still goes to ELM — but the second line of defence is down, by design.
 
 **This is the control that does not need updating when pi changes.**
 `patch-pi.py` closed `/share` and `/bug` and will break the day upstream
@@ -235,6 +252,10 @@ PI_ELM_UNLOCK=1 PI_ELM_ALLOWED_PROVIDERS="elm,elm-shim,anthropic" pi ...   # + l
 Permanently, for a host or a person with funded access: edit `ALLOWED` in
 `templates/extensions/elm-only.ts`, drop the `unset` block from `pi`, and
 `./bootstrap.sh --update --no-auth-lock`.
+
+Note that `pi --remote` is **not** this. It lifts layers 5 and 6 — the network
+ones — and leaves 1, 2 and 3 exactly where they are. Inference still goes to
+ELM and nothing else becomes reachable or visible.
 
 `PI_ELM_ALLOWED_PROVIDERS` alone does nothing: the launcher unsets it unless
 `PI_ELM_UNLOCK=1` is also present, so the escape hatch is always a conscious act.

@@ -1,15 +1,8 @@
 #!/usr/bin/env bash
 #
-#   ./bootstrap.sh                  install everything, prompt for the ELM key
-#   ELM_API_KEY=elm-... ./bootstrap.sh --non-interactive
-#   ./bootstrap.sh --no-shim        skip the Llama tool-call shim
-#   ./bootstrap.sh --no-packages    pi only, no sub-agent/memory/web packages
-#   ./bootstrap.sh --no-memory      drop pi-hermes-memory: ~1.8s off every launch
-#   ./bootstrap.sh --update         refresh pi and packages, keep configs
-#   ./bootstrap.sh --force          re-download the tools and reinstall npm packages
-#   ./bootstrap.sh --no-auth-lock   leave agent/auth.json writable (allows /login)
-#   ./bootstrap.sh --no-tools       skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
-#   ./bootstrap.sh --no-patch       leave pi's /share and /bug commands in place
+# elm-pi installer: bundled Node, pi, the agent config, the search tools and
+# the ELM key. Run ./bootstrap.sh --help for the flags - that list lives in
+# usage() below, and nowhere else, so it cannot drift from what is parsed.
 #
 # Idempotent: re-running never overwrites .env, sessions, memory or any config
 # you have edited. Nothing is installed system-wide; delete this directory and
@@ -33,6 +26,36 @@ PI_VERSION="${PI_VERSION:-latest}"
 
 WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; WITH_MEMORY=1; FORCE=0
 WITH_TOOLS=1; WITH_PATCH=1
+
+usage() {
+  cat <<'EOU'
+elm-pi installer. Installs into this directory; nothing goes system-wide.
+
+  ./bootstrap.sh                  install everything, prompt for the ELM key
+  ELM_API_KEY=elm-... ./bootstrap.sh --non-interactive
+
+  --non-interactive   take the key from $ELM_API_KEY, never prompt
+  --update            refresh pi, packages and extensions; keep your configs
+  --force             re-download the tools and reinstall the npm packages
+
+  --no-packages       pi only: no sub-agents, memory, web access or anchor edit
+  --no-memory         drop pi-hermes-memory: ~1.2s off every launch
+  --no-tools          skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
+  --no-shim           skip the Llama tool-call shim
+  --no-patch          leave pi's /share and /bug commands in place
+  --no-auth-lock      leave agent/auth.json writable, so /login works
+  -h, --help          this text
+
+Environment: NODE_VERSION, PI_VERSION, ELM_PI_TOOLS, FD_VERSION, RG_VERSION,
+JQ_VERSION, YQ_VERSION, SHELLCHECK_VERSION, ASTGREP_VERSION.
+EOU
+}
+
+# --help wins over everything, including a typo earlier in the line: someone
+# who has just been told "unknown option" is exactly who needs to read it.
+for arg in "$@"; do
+  case "$arg" in -h|--help) usage; exit 0 ;; esac
+done
 for arg in "$@"; do
   case "$arg" in
     --no-shim) WITH_SHIM=0 ;;
@@ -44,10 +67,10 @@ for arg in "$@"; do
     --no-auth-lock) AUTH_LOCK=0 ;;
     --no-tools) WITH_TOOLS=0 ;;
     --no-patch) WITH_PATCH=0 ;;
-    -h|--help) sed -n '3,16p' "$0"; exit 0 ;;
-    *) echo "unknown option: $arg" >&2; exit 2 ;;
+    *) echo "unknown option: $arg" >&2; echo "try: $0 --help" >&2; exit 2 ;;
   esac
 done
+
 
 say()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m    %s\033[0m\n' "$*"; }
@@ -55,14 +78,25 @@ die()  { printf '\033[31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 # macOS ships shasum, most Linux distros ship sha256sum. Pick before piping:
 # a missing binary inside a pipeline still exits 0 through awk.
+#
+# Resolved once, and reported by return code rather than by `die`: this only
+# ever runs inside `$( )`, where `die` exits the subshell and leaves the script
+# running with an empty hash. That then failed as "checksum mismatch", which
+# sends whoever hits it looking for a corrupted download instead of a missing
+# tool. Callers turn a non-zero return into the accurate message.
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA256_CMD=(sha256sum)
+elif command -v shasum >/dev/null 2>&1; then
+  SHA256_CMD=(shasum -a 256)
+else
+  SHA256_CMD=()
+fi
 sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$1" | awk '{print $1}'
-  else
-    die "neither sha256sum nor shasum found - cannot verify downloads"
+  if [ "${#SHA256_CMD[@]}" -eq 0 ]; then
+    echo "neither sha256sum nor shasum is installed" >&2
+    return 1
   fi
+  "${SHA256_CMD[@]}" "$1" | awk '{print $1}'
 }
 
 # --- 1. Node ----------------------------------------------------------------
@@ -89,7 +123,7 @@ else
   curl -fsSL -o "$TMP/$TAR" "https://nodejs.org/dist/$NODE_VERSION/$TAR"
   curl -fsSL -o "$TMP/SHASUMS256.txt" "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt"
   want=$(grep " $TAR\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')
-  got=$(sha256_of "$TMP/$TAR")
+  got=$(sha256_of "$TMP/$TAR") || die "cannot verify $TAR without a sha256 tool"
   [ -n "$want" ] && [ "$want" = "$got" ] || die "checksum mismatch for $TAR"
   rm -rf .node && mkdir -p .node
   tar -xzf "$TMP/$TAR" -C .node --strip-components=1
@@ -374,7 +408,7 @@ if [ "$WITH_TOOLS" = "1" ]; then
       want="$(curl -fsSL "$shaurl" 2>/dev/null \
               | awk -v a="$asset" '$2 == a {print $1; exit} NF == 1 {print $1; exit}')"
     fi
-    got="$(sha256_of "$TOOLS_TMP/$asset")"
+    got="$(sha256_of "$TOOLS_TMP/$asset")" || die "cannot verify $asset without a sha256 tool"
     if [ -n "$want" ]; then
       [ "$want" = "$got" ] || die "checksum mismatch for $asset"
     else

@@ -101,6 +101,32 @@ Two things people get wrong:
 | `--no-tools` | do not bundle fd, rg, jq, yq, shellcheck and ast-grep |
 | `--no-shim` | no Llama tool-call shim (Qwen unaffected) |
 | `--no-auth-lock` | leave `agent/auth.json` writable, so `/login` works |
+| `--no-patch` | leave pi's `/share` and `/bug` commands in place |
+| `--force` | re-download the tools and reinstall the npm packages |
+| `-h`, `--help` | the flag list, which now lives in one place in the script |
+
+`pi --remote` is the flag for work that needs the web. It is on the launcher,
+not the installer, so it is a decision per run rather than per host:
+
+```bash
+pi --remote                 # web tools on, egress proxy recording not gating
+pi --remote --fast -p "..." # and without the npm packages
+```
+
+It lifts exactly two things — the web tools come back on, and the egress proxy
+stops allowing only the ELM gateway. **The model policy is untouched**: the
+credential scrub, the argument guard and the catalogue strip all stay, so
+inference still goes to ELM, no other provider becomes reachable or visible,
+and Qwen is still the model. Telemetry and the version check stay off, as they
+are in every mode. Every destination the run reaches is recorded in
+`agent/egress.log`.
+
+Narrower options, when you know where you are going:
+
+```bash
+ELM_PI_PROXY_ALLOW=api.exa.ai pi    # one extra host, nothing else
+PI_ELM_WEB=1 pi                     # tools on, proxy unchanged (they will fail)
+```
 
 Whatever these flags decide, `agent/settings.json`'s `packages` list is written
 to match on every run. It is derived from `templates/settings.json` minus the
