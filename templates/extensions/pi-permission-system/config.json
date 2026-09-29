@@ -13,6 +13,10 @@
       "/tmp/pi-subagents-uid-*/**": "allow",
       "/private/tmp/pi-subagents-uid-*/**": "allow"
     },
+    "external_directory_read": {
+      "@AGENT_DIR@/**": "allow",
+      "~/.pi/workflows/**": "allow"
+    },
     "path": {
       "*": "allow",
       "*.env": "deny",

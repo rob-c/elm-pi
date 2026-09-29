@@ -236,7 +236,18 @@ echo "    refreshed agent/extensions/*.ts (ELM-only policy, write protections, t
 install_if_absent templates/extensions/subagent/config.json agent/extensions/subagent/config.json
 # The permission gate's policy. @AGENT_DIR@ marks this install as pi's own
 # infrastructure, so reading its node_modules does not trip the outside-cwd
-# prompt. Never clobbered once written: this is a policy file people tune.
+# prompt. Never clobbered once written: this is a policy file people tune -
+# though `permission` is reapplied from templates/ further down, so a rule
+# added there reaches installs that already exist.
+#
+# Two keys do that job and they are not interchangeable.
+# piInfrastructureReadPaths auto-allows reads, but only for the four tools the
+# package counts as read-only - read, find, grep and ls. A `bash: cat` of the
+# same path is not one of them: it goes to the external_directory_read surface
+# and hits the `"*": "ask"` catch-all, which is the prompt people actually see.
+# So a path that should never prompt needs a line in external_directory_read as
+# well, and entries there are matched last-wins, so the specific ones go after
+# the catch-all.
 if [ -f agent/extensions/pi-permission-system/config.json ]; then
   echo "    keeping existing agent/extensions/pi-permission-system/config.json"
 else
