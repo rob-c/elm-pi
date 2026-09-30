@@ -14,8 +14,14 @@
       "/private/tmp/pi-subagents-uid-*/**": "allow"
     },
     "external_directory_read": {
-      "@AGENT_DIR@/**": "allow",
-      "~/.pi/workflows/**": "allow"
+      "@INSTALL_DIR@": "allow",
+      "@INSTALL_DIR@/**": "allow",
+      "~/.pi/workflows": "allow",
+      "~/.pi/workflows/**": "allow",
+      "/tmp": "allow",
+      "/tmp/**": "allow",
+      "/private/tmp": "allow",
+      "/private/tmp/**": "allow"
     },
     "path": {
       "*": "allow",

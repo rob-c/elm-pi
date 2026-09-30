@@ -251,7 +251,8 @@ install_if_absent templates/extensions/subagent/config.json agent/extensions/sub
 if [ -f agent/extensions/pi-permission-system/config.json ]; then
   echo "    keeping existing agent/extensions/pi-permission-system/config.json"
 else
-  sed "s|@AGENT_DIR@|$HERE/agent|g" templates/extensions/pi-permission-system/config.json \
+  sed -e "s|@AGENT_DIR@|$HERE/agent|g" -e "s|@INSTALL_DIR@|$HERE|g" \
+    templates/extensions/pi-permission-system/config.json \
     > agent/extensions/pi-permission-system/config.json
   echo "    wrote agent/extensions/pi-permission-system/config.json"
 fi
@@ -550,7 +551,10 @@ for rel, keys in OWNED.items():
     for key in keys:
         if key not in tmpl:
             continue
-        want = json.loads(json.dumps(tmpl[key]).replace("@AGENT_DIR@", os.path.join(HERE, "agent")))
+        raw = json.dumps(tmpl[key])
+        raw = raw.replace("@AGENT_DIR@", os.path.join(HERE, "agent"))
+        raw = raw.replace("@INSTALL_DIR@", HERE)
+        want = json.loads(raw)
         if live.get(key) != want:
             changed.append((key, live.get(key), want))
             live[key] = want
