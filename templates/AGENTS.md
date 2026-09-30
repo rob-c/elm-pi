@@ -549,6 +549,98 @@ nobody has verified, because `guidanceCost` is only visible in the ELM web UI.
 If the goal is a faster delegation rather than a cheaper one, the measured lever
 is `pi --fast`, which cuts sub-agent startup from ~3.3s to ~0.9s.
 
+## The `workflow` tool is not `workflowScript`, and its agents return strings
+
+Two orchestrators are installed and their vocabularies overlap almost exactly.
+Everything above is `pi-subagents`: `subagent` with a `workflowScript`, `runs.all`,
+children that come back as JSON with `ok`, `output` and `structuredOutput`.
+
+The `workflow` tool is `@quintinshaw/pi-dynamic-workflows` — `/ultracode`,
+`/deep-research`, `/adversarial-review` — and its script API is different in the
+one place that matters:
+
+| | returns |
+|---|---|
+| `await agent('...')` | the agent's text, a **string** |
+| `await parallel([...])` | an **array of strings**, in launch order |
+
+There is no `.output` on either. The package's own examples treat them as what
+they are — `files.split('\n')` on an `agent()` result, `findings.join('\n\n')`
+on a `parallel()` one — and **the script must `return` the text you want back**,
+because whatever it returns is the whole of what the caller sees.
+
+<bad-example>
+```js
+// WRONG. agent() resolved to a string; a string has no .output. Both fields are
+// undefined, and the workflow's result serialises to {}.
+const [research, images] = await parallel([
+  () => agent('Research ...', { key: 'research' }),
+  () => agent('Find images ...', { key: 'images' }),
+]);
+return { research: research.output, images: images.output };
+```
+</bad-example>
+
+<good-example>
+```js
+// RIGHT. The values are the results.
+const [research, images] = await parallel([
+  () => agent('Research ...', { key: 'research' }),
+  () => agent('Find images ...', { key: 'images' }),
+]);
+return { research, images };
+```
+</good-example>
+
+That bad example is a real run on this install, not an invented one: two agents,
+748,203 tokens, both finished `done` with 5,977 and 2,870 characters of result,
+and a workflow result of `{}`. **An empty result means the return was wrong, not
+that the agents failed** — and the tokens are spent either way, so read the
+results back rather than relaunching.
+
+### Reading a run's results back
+
+The run store is **not** in the working directory. It is:
+
+```
+~/.pi/workflows/projects/<project>-<hash>/runs/<runId>.json.events.jsonl
+```
+
+Read the `.events.jsonl`, not the `.json`. The `.json` and `.json.bak` are index
+snapshots — `keys`, `index`, `summary` and nothing else — so loading one and
+looking for `agents` finds nothing and reads as another empty result. The record
+itself is a delta chain in the events log, and replaying it gives every agent's
+`status` and `result`, which survive the run's end even though the mid-run
+`journal` is pruned:
+
+```bash
+python3 - ~/.pi/workflows/projects/<project>-<hash>/runs/<runId>.json.events.jsonl <<'EOF'
+import json, sys
+rec = {}
+for line in open(sys.argv[1]):
+    d = json.loads(line)["delta"]
+    rec.update(d.get("set", {}))
+    for k in d.get("remove", []): rec.pop(k, None)
+    for name, spec in (d.get("arrays") or {}).items():
+        arr = rec.setdefault(name, [])
+        while len(arr) < spec.get("length", 0): arr.append(None)
+        for idx, val in spec.get("set", []): arr[idx] = val
+for a in rec.get("agents", []):
+    print("==", a["label"], a["status"])
+    print(a.get("result", ""))
+EOF
+```
+
+Verified against the run above: `agent 1 done` with 5,977 characters and
+`agent 2 done` with 2,870, recovered after the workflow itself returned `{}`.
+
+Guessing `<cwd>/.pi/workflows/<runId>/...` is the wrong path, and the reason a
+wrong path looks like lost work is `2>/dev/null`: it turns "No such file" into no
+output at all, which reads as an empty result. **Never send stderr to /dev/null
+on a command whose output you are about to treat as evidence.** Reads under
+`~/.pi/workflows` and under this install need no permission prompt; they are
+allowed in the gate's config.
+
 ## Concurrent writers, and the worktree option
 
 Two children writing the same file, or a child and you writing it at once, is
