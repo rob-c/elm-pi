@@ -764,6 +764,45 @@ fi
 if [ "$WITH_PATCH" = "1" ]; then
   ./patch-pi.py --check || warn "/share and /bug are NOT disabled in this install"
 fi
+# The launcher hides pi-web-access's tools by naming them in --exclude-tools, and
+# pi ignores an exclusion for a tool that does not exist - so a version that adds
+# a fifth tool would leave it live in the default mode, silently. Compare the two
+# lists rather than trusting that they still agree.
+HERE="$HERE" python3 - <<'PYW' || warn "could not check the web-tool exclusion list"
+import json, os, re, sys
+
+here = os.environ["HERE"]
+pkg = os.path.join(here, "agent/npm/node_modules/pi-web-access/index.ts")
+if not os.path.exists(pkg):
+    print("    web tools: pi-web-access is not installed, nothing to exclude")
+    sys.exit(0)
+
+source = open(pkg, encoding="utf-8", errors="replace").read()
+block = re.search(r"const DEFAULT_TOOL_NAMES[^=]*=\s*\{(.*?)\}", source, re.S)
+registers = set(re.findall(r'"([a-z][a-z0-9_]*)"', block.group(1))) if block else set()
+
+launcher = open(os.path.join(here, "pi"), encoding="utf-8").read()
+# Tool-name characters only: `--exclude-tools "` also appears in the case
+# pattern that detects a caller's own --exclude-tools, and a loose class
+# matches `*|*` from that line first.
+listed = re.findall(r'--exclude-tools "([a-z0-9_,-]+)"', launcher)
+excluded = set(listed[0].split(",")) if listed else set()
+
+if not registers or not excluded:
+    print("    web tools: could not read one of the two lists - check ./pi by hand")
+    sys.exit(1)
+missing = registers - excluded
+if missing:
+    print("    web tools: %s registered but NOT excluded - live in the default mode"
+          % ", ".join(sorted(missing)))
+    sys.exit(1)
+stale = excluded - registers
+print("    web tools: %d registered, all excluded by default (pi --remote enables them)"
+      % len(registers))
+if stale:
+    print("    web tools: %s excluded but no longer registered - harmless, tidy when convenient"
+          % ", ".join(sorted(stale)))
+PYW
 GUARD="$(PI_FORCE=1 ./pi --model anthropic/claude-opus-5 -p x </dev/null 2>&1 || true)"
 case "$GUARD" in
   *"not available"*) echo "    argument guard: --model anthropic/... refused" ;;

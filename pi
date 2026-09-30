@@ -189,6 +189,11 @@ if [ "$REMOTE" = "1" ]; then
   export ELM_PI_PROXY_ALLOW
   echo "pi: --remote - web tools on, and the egress proxy is recording rather than" >&2
   echo "    gating. Models are unchanged: ELM only. Destinations: agent/egress.log" >&2
+  # Lifting the exclusion does nothing if there is no package behind it, and a
+  # silent nothing is worse than a line of text: an install built with
+  # --no-packages has no web tools to enable.
+  [ -d "$HERE/agent/npm/node_modules/pi-web-access" ] || \
+    echo "    note: pi-web-access is not installed, so there are no web tools to enable." >&2
 fi
 
 PRE=()
