@@ -228,8 +228,14 @@ if [ -d "$PREFIX/node_modules" ] || [ -d "$PREFIX/agent/npm/node_modules" ]; the
 else
   say "running bootstrap (Node, pi, extensions — a few minutes)"
 fi
-BOOT_ARGS=("${PASS_ARGS[@]}")
-[ "$UPDATE" = "1" ] && BOOT_ARGS=(--update "${BOOT_ARGS[@]}")
+# ${arr[@]+"${arr[@]}"} and not "${arr[@]}": macOS ships bash 3.2, where
+# expanding an empty array under `set -u` is an unbound-variable error rather
+# than nothing. Every one of these arrays is empty in the common case - an
+# install with no flags - so the plain form broke the documented one-line
+# install on the platform this targets. bash 4.4 made it harmless, which is
+# why it survives review on Linux.
+BOOT_ARGS=(${PASS_ARGS[@]+"${PASS_ARGS[@]}"})
+[ "$UPDATE" = "1" ] && BOOT_ARGS=(--update ${BOOT_ARGS[@]+"${BOOT_ARGS[@]}"})
 # A re-install adds no flags of its own. It deliberately does not reinstall pi,
 # re-download the bundled binaries, or reinstall the extension packages when
 # they are already present: that is minutes of work to reproduce a state that
@@ -245,10 +251,10 @@ BOOT_ARGS=("${PASS_ARGS[@]}")
 if [ -t 0 ]; then
   # Invoked as bash -c "$(curl ...)", so stdin is still the terminal and
   # bootstrap can prompt for the ELM key.
-  "$PREFIX/bootstrap.sh" "${BOOT_ARGS[@]}"
+  "$PREFIX/bootstrap.sh" ${BOOT_ARGS[@]+"${BOOT_ARGS[@]}"}
 else
   warn "not running on a terminal — bootstrap cannot prompt for your ELM key"
-  "$PREFIX/bootstrap.sh" "${BOOT_ARGS[@]}" --non-interactive
+  "$PREFIX/bootstrap.sh" ${BOOT_ARGS[@]+"${BOOT_ARGS[@]}"} --non-interactive
 fi
 
 # --- 4. put pi on the PATH --------------------------------------------------
