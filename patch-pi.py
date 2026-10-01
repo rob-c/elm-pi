@@ -36,13 +36,14 @@ chunk files are content-hash-named, so nothing here may hardcode a filename.
 
     ./patch-pi.py            apply (idempotent)
     ./patch-pi.py --check    verify, non-zero if any edit is missing
+    ./patch-pi.py --bundle PATH   patch a staged bundle before activation
 """
 
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-BUNDLE = HERE / "node_modules/@earendil-works/pi-coding-agent/dist/bundle"
+DEFAULT_BUNDLE = HERE / "node_modules/@earendil-works/pi-coding-agent/dist/bundle"
 
 REFUSAL = (
     "/share and /bug upload the whole session off-site and are disabled on "
@@ -109,13 +110,27 @@ EDITS = [
 
 
 def main():
-    check_only = "--check" in sys.argv[1:]
+    check_only = False
+    bundle = DEFAULT_BUNDLE
+    args = iter(sys.argv[1:])
+    for arg in args:
+        if arg == "--check":
+            check_only = True
+        elif arg == "--bundle":
+            try:
+                bundle = Path(next(args)).resolve()
+            except StopIteration:
+                print("patch-pi: --bundle requires a path", file=sys.stderr)
+                return 2
+        else:
+            print(f"patch-pi: unknown option: {arg}", file=sys.stderr)
+            return 2
 
-    if not BUNDLE.is_dir():
-        print(f"patch-pi: no pi install at {BUNDLE}", file=sys.stderr)
+    if not bundle.is_dir():
+        print(f"patch-pi: no pi install at {bundle}", file=sys.stderr)
         return 1
 
-    files = sorted(BUNDLE.rglob("*.js"))
+    files = sorted(bundle.rglob("*.js"))
     sources = {f: f.read_text(encoding="utf-8", errors="surrogateescape") for f in files}
 
     changed, already, failed = [], [], []

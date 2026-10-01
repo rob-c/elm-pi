@@ -25,9 +25,11 @@ wrapped, ELM-only one — including pi-subagents when it spawns children.
 pi                                 # start working
 ```
 
-Nothing lands outside the install directory: bundled Node, local `node_modules`,
-and `PI_CODING_AGENT_DIR` pointed at `./agent` so config, sessions and
-credentials never touch `~/.pi`. To remove it all:
+Runtime dependencies stay in the install directory: bundled Node, local
+`node_modules`, and `PI_CODING_AGENT_DIR` pointed at `./agent`, so config and
+credentials never touch `~/.pi`. The installer also creates the launcher link,
+adds its directory to your shell profile unless asked not to, and each project
+gets its own ignored `.pi/sessions/` directory. To remove the installed runtime:
 
 ```bash
 rm -rf ~/.local/share/elm-pi ~/.local/bin/pi
@@ -48,18 +50,21 @@ every step: **[INSTALL.md](INSTALL.md)**. Web version of this page:
 | **Memory** | Per-project `AGENTS.md`, plus `pi-hermes-memory` for cross-session search |
 | **Web** | `pi-web-access` (DuckDuckGo, then Exa) |
 | **Sessions** | `.pi/sessions/` inside each project, not one central 1.9 GB pile |
-| **Models offered** | ELM only. 39 commercial providers stripped from the catalogue |
+| **Models offered** | ELM only. 41 non-ELM provider catalogues stripped |
 
 ## Layout
 
 ```
 install.sh          the curl|bash entry point: fetch, bootstrap, link
-bootstrap.sh        one-command install / update, idempotent
+bootstrap.sh        installs the reviewed, locked runtime; idempotent
 pi                  the wrapper: bundled Node, .env, ELM-only guards, preflight
 pi.orig             the unwrapped CLI the wrapper hands over to
 configure.sh        resolves the model id from the gateway, merges it into config
 patch-pi.py         removes /share and /bug from the release; run on every install
 templates/          the source of truth for everything under agent/
+config/elm-pi.json  shared model, provider, extension and web-tool policy
+lib/                launcher policy and private-state permission helpers
+scripts/ tests/     config rendering, checks and regression tests
 docs/               the GitHub Pages site
 shim/               Llama tool-call shim (Python, loopback only)
 proxy/              egress proxy: allowlists ELM, logs and refuses the rest
@@ -68,11 +73,12 @@ agent/bin/          generated: fd rg jq yq shellcheck ast-grep, pinned + checksu
 .node/ node_modules/  generated: Node 24 + pi, ~650 MB
 ```
 
-`agent/` is generated from `templates/`, and the split is **code versus config**.
+`agent/` is generated from `templates/`; shared runtime values come from
+`config/elm-pi.json`, and exact npm graphs are committed in lockfiles. The split
+is **code versus config**.
 
-Code and policy — `AGENTS.md`, the agent definitions, the local extensions, the
-`/ulw` prompt — are **refreshed on every run**, so a re-install always runs the
-current rules. Config you tune — `settings.json`, `models.json`,
+Code and policy — `AGENTS.md`, the agent definitions, the local extensions — are
+**refreshed on every run**, so a re-install always runs the current rules. Config you tune — `settings.json`, `models.json`,
 `web-search.json`, the extension configs — is kept.
 
 Within the kept config, **one exception**, so a re-install can change its mind. Some values are
@@ -90,8 +96,10 @@ routing, and any key the list does not name. Change a decision permanently in
 **A re-install never redoes work that is already done.** It does not reinstall
 pi, re-download the bundled binaries, or reinstall the extension packages when
 they are present — that is minutes spent reproducing a state that already
-exists. `pi update` reinstalls them deliberately, and an install that is truly
-broken is a `rm -rf` away from a clean one.
+exists. `pi update` fetches and validates the source, builds dependencies in
+staging from the reviewed lockfiles, verifies the patched CLI, and only then
+swaps the runtime into place. A genuinely broken install is a `rm -rf` away from
+a clean one.
 
 ## Daily use
 
@@ -101,12 +109,14 @@ pi -p "..."                    # one-shot
 pi --fast -p "..."             # one-shot, ~3x quicker to start
 pi --llama -p "..."            # run on Llama 3.3 70B through the tool-call shim
 cat file | pi -p "summarise"
-pi update                      # elm-pi + pi from GitHub, then the pi packages
+pi update                      # validated source + repository-locked runtime
 ```
 
 Nothing updates itself while you are trying to start work: the launcher runs pi
 with `PI_OFFLINE=1`, so no version check, package check or tool download happens
-at launch. `pi update` is the one place updates happen.
+at launch. `pi update` is the one place updates happen. `pi update --extensions`
+reinstalls the repository-pinned extension set rather than silently moving to
+new npm versions.
 
 `pi` is a symlink to `~/.local/share/elm-pi/pi`; the launcher resolves symlinks,
 so you can move or re-link it freely. `pi.orig` in the install directory is the
@@ -116,14 +126,13 @@ wrapper's fault?".
 
 | Flag | |
 |---|---|
-| `--fast` | skip the four npm packages: ~1.2s of CPU at launch instead of ~4.4s. No sub-agents, cross-session memory, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
+| `--fast` | skip the npm package set: ~1.2s of CPU at launch instead of ~4.4s. No sub-agents, cross-session memory, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
 | `--llama` | Llama 3.3 70B via the local shim. A fallback, **not** a speed-up — Qwen is faster here. |
 
 | Command | |
 |---|---|
 | `/model` | switch between the ELM models |
 | `/thinking` | reasoning is **off** by default here — see below |
-| `/ulw <task>` | ultrawork mode: delegate, verify, keep going until done |
 | `/elm-policy` | why only ELM models are available |
 | `/export`, `/import` | session to HTML/JSONL and back |
 
@@ -154,6 +163,17 @@ Hard-won settings that are in here deliberately. Full measurements in
 - **Load is reported, not policed.** Each sub-agent is a full Node process, and
   above ~1.5x core count startup gets slow. The launcher says so and starts
   anyway; `PI_FORCE=1` silences the note, `PI_STRICT_LOAD=1` refuses instead.
+- **Transcripts and memory are private by default.** Session and memory directories
+  are mode 700, existing state files are tightened to mode 600, and locked
+  credentials use mode 400. Set `ELM_PI_SHARED_STATE=1` only for a deliberately
+  shared session directory.
+
+## Developing elm-pi
+
+Run `./scripts/check.sh` before committing. It performs shell and Python syntax
+checks, policy/runtime tests, ShellCheck when available, and TypeScript checking
+with the locked development tree. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+dependency-update and generated-configuration workflow.
 
 ## Cost and policy
 

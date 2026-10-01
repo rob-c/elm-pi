@@ -2,18 +2,23 @@
   "name": "pi-extensions",
   "private": true,
   "dependencies": {
-    "@gotgenes/pi-permission-system": "^33.0.8",
-    "@henryqw/pi-auto-compact": "^4.1.0",
-    "@henryqw/pi-task-models": "^7.0.1",
-    "@pify/btw": "^0.5.2",
-    "@quintinshaw/pi-dynamic-workflows": "^3.13.0",
-    "@tmustier/pi-ralph-wiggum": "^0.2.4",
-    "awesome-pi-themes": "^1.2.13",
-    "better-sqlite3": "^11.0.0",
-    "cc-safety-net": "^2.4.7",
-    "pi-hashline-edit-pro": "^4.2.6",
-    "pi-hermes-memory": "^0.9.9",
-    "pi-subagents": "^0.67.0",
-    "pi-web-access": "^0.29.0"
+    "@gotgenes/pi-permission-system": "33.1.0",
+    "@henryqw/pi-auto-compact": "4.1.0",
+    "@henryqw/pi-task-models": "7.0.1",
+    "@pify/btw": "0.5.2",
+    "@tmustier/pi-ralph-wiggum": "0.2.4",
+    "awesome-pi-themes": "1.2.13",
+    "better-sqlite3": "11.10.0",
+    "brace-expansion": "5.0.12",
+    "cc-safety-net": "2.4.7",
+    "pi-hashline-edit-pro": "4.3.4",
+    "pi-hermes-memory": "0.9.9",
+    "pi-subagents": "0.67.0",
+    "pi-web-access": "0.29.0",
+    "undici": "8.10.2"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.12",
+    "undici": "8.10.2"
   }
 }

@@ -3,10 +3,12 @@
 # installed software
 .node/
 node_modules/
-package-lock.json
+.elm-pi-source-manifest
+.elm-pi-stage-*/
+.elm-pi-old-*/
 agent/npm/
 # generated at install time from templates/ by bootstrap.sh
 agent/
 shim/shim.log
-shim/__pycache__/
+__pycache__/
 .pi/

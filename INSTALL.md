@@ -13,7 +13,7 @@ optional — the installer falls back to a source tarball without it.
 ```
 
 That is `install.sh`: it checks the machine, fetches this repository to
-`~/.local/share/elm-pi`, runs `bootstrap.sh`, and links `~/.local/bin/elm-pi`.
+`~/.local/share/elm-pi`, runs `bootstrap.sh`, and links `~/.local/bin/pi`.
 Use the `bash -c "$(curl ...)"` form rather than `curl | bash` — piping replaces
 stdin, and bootstrap would not be able to prompt you for the key.
 
@@ -24,8 +24,9 @@ cd ~/.local/share/elm-pi
 ./bootstrap.sh
 ```
 
-Only these need to travel: `install.sh`, `bootstrap.sh`, `pi`, `configure.sh`,
-`templates/`, `shim/`, and the docs. Everything else is downloaded or generated.
+The source checkout must travel as a unit: the launch scripts, `config/`, `lib/`,
+`scripts/`, `templates/`, lockfiles, shim, proxy and docs are all used by install
+or validation. Installed software and runtime state are downloaded or generated.
 `.gitignore` already excludes the key, the installed software and all runtime
 state, so the repository is safe to push.
 
@@ -43,8 +44,8 @@ ELM_API_KEY=elm-... /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com
 ```
 
 Re-running either is safe: neither overwrites `.env`, sessions, memory, or a
-config you have edited. `./bootstrap.sh --update` refreshes pi, the packages and
-the extensions, keeping your configs.
+config you have edited. `pi update` fetches and validates current source, then
+refreshes pi and the packages from repository lockfiles while keeping configs.
 
 Installer knobs, if the defaults do not suit:
 
@@ -55,7 +56,7 @@ Installer knobs, if the defaults do not suit:
 | `ELM_PI_BRANCH` | `main` |
 | `ELM_PI_UPDATE` | `0`; `1` passes `--update` through to bootstrap |
 
-To remove everything: `rm -rf ~/.local/share/elm-pi ~/.local/bin/elm-pi`.
+To remove everything: `rm -rf ~/.local/share/elm-pi ~/.local/bin/pi`.
 
 ---
 
@@ -95,9 +96,9 @@ Two things people get wrong:
 | Flag | |
 |---|---|
 | `--non-interactive` | take the key from `$ELM_API_KEY`, never prompt |
-| `--update` | refresh pi, packages and extensions; keep configs |
+| `--update` | apply repository-locked pi and extension trees; keep configs |
 | `--no-packages` | pi only: no sub-agents, memory, web access or anchor editing |
-| `--no-memory` | drop `pi-hermes-memory`: a third off every launch |
+| `--no-memory` | keep the locked tree but do not load `pi-hermes-memory` |
 | `--no-tools` | do not bundle fd, rg, jq, yq, shellcheck and ast-grep |
 | `--no-shim` | no Llama tool-call shim (Qwen unaffected) |
 | `--no-auth-lock` | leave `agent/auth.json` writable, so `/login` works |
@@ -132,7 +133,7 @@ Whatever these flags decide, `agent/settings.json`'s `packages` list is written
 to match on every run. It is derived from `templates/settings.json` minus the
 drops, not edited in place — editing in place could only ever remove, so an
 install that had once been run with `--no-packages` kept an empty list for ever
-after, installed all four packages on the next run and then loaded none of
+after, installed the package set on the next run and then loaded none of
 them. Everything else in that file is yours and is left alone. A package that
 is listed but missing from `agent/npm/node_modules` is now called out during
 the install, because at runtime it is silent: pi starts offline, so it does not
@@ -163,9 +164,10 @@ mkdir -p .node && tar -xzf "/tmp/$TAR" -C .node --strip-components=1
 
 ### 2. pi
 
-`templates/package.json` → `package.json`, then `npm install`. npm warns that
-esbuild, protobufjs and `@google/genai` have unapproved install scripts; pi runs
-from a prebuilt bundle and does not need them.
+`package.json` and `package-lock.json` are the reviewed source of truth. Bootstrap
+runs `npm ci --omit=dev --ignore-scripts` in a sibling staging directory, patches
+and starts the staged CLI, then atomically swaps its `node_modules` into place.
+The prebuilt pi bundle does not need dependency install scripts.
 
 ### 3. `agent/` from `templates/`
 
@@ -178,7 +180,6 @@ pi install.
 | `agent/models.json` | the ELM provider: base URL, `$ELM_API_KEY`, the two models |
 | `agent/settings.json` | defaults, packages, extensions, retry, `sessionDir` |
 | `agent/AGENTS.md` | loaded every session: delegation policy, model choice, memory rules |
-| `agent/prompts/ulw.md` | the `/ulw` ultrawork mode |
 | `agent/extensions/elm-only.ts` | the ELM-only policy — always refreshed |
 | `agent/extensions/elm-shim.ts` | registers the Llama tool-shim provider |
 | `agent/extensions/protected-paths.ts` | blocks writes to `.env`, `.git/`, `node_modules/` |
@@ -188,14 +189,15 @@ pi install.
 | `agent/web-search.json` | DuckDuckGo then Exa; `unpdf` for PDFs |
 | `agent/hermes-memory-config.json` | cross-session memory, 30-day retention |
 
-`agent/` is generated. Put durable changes in `templates/` and re-run
-`./bootstrap.sh --update` so every host gets them.
+`agent/` is generated. Put durable changes in `templates/`, commit them, and run
+`pi update` on each host so the validated source reaches it.
 
 ### 4. pi packages
 
-pi resolves `npm:<name>` from `agent/npm/node_modules`, so bootstrap writes
-`agent/npm/package.json` and runs `npm install` there. Equivalent to
-`./pi install npm:pi-subagents` etc., but deterministic and offline-friendly.
+pi resolves `npm:<name>` from `agent/npm/node_modules`. Bootstrap installs the
+exact graph in `templates/packages-lock.json` with `npm ci`, initially with all
+package scripts disabled. It then rebuilds only the reviewed native dependency,
+`better-sqlite3`, in staging before activating the tree.
 
 | Package | |
 |---|---|
@@ -322,7 +324,11 @@ cat calc.py          # expect: return a + b
 If 3 fails while 2 succeeds, test the gateway directly:
 
 ```bash
-curl -s -H "Authorization: Bearer $ELM_API_KEY" -H "Content-Type: application/json" \
+auth_header=$(mktemp)
+trap 'rm -f "$auth_header"' EXIT
+chmod 600 "$auth_header"
+printf 'Authorization: Bearer %s\n' "$ELM_API_KEY" > "$auth_header"
+curl -fsS -H "@$auth_header" -H "Content-Type: application/json" \
   https://elm.edina.ac.uk/api/v1/chat/completions \
   -d '{"model":"Qwen/Qwen3.5-397B-A17B-FP8",
        "messages":[{"role":"user","content":"Read /etc/hosts using the tool."}],
@@ -408,7 +414,7 @@ Updates then happen when you ask for them, which is what `pi update` is for.
 
 ### Startup time: where it goes, and how to cut it
 
-`pi` itself starts in well under a second. The four npm packages are what you wait
+`pi` itself starts in well under a second. The npm package set is what you wait
 for: they ship **raw TypeScript**, so every launch transpiles and imports them from
 several hundred files. Measured with `PI_TIMING=1` and `/usr/bin/time`, reporting
 CPU time (user+sys) because that is the number that does not move with machine load
@@ -429,12 +435,12 @@ command: a Ralph Wiggum loop that works a task across **fresh sessions** rather
 than one growing context. It costs 0.1s of startup, measured at 6.18s against
 6.08s with it removed.
 
-It is worth knowing when it beats `/ulw`, since they look similar. `/ulw` keeps
-one session and accumulates context, which is why `pi-auto-compact` is here.
-Ralph restarts each iteration, so context rot never happens and state lives in
-the repo and `.ralph/<name>.md` instead. Long verifiable grinds — make the suite
-pass, work through a backlog — suit Ralph; work where the thread of reasoning
-matters suits `/ulw`.
+It is worth knowing when it beats an ordinary long session, since the two look
+similar from outside. One session accumulates context, which is why
+`pi-auto-compact` is here. Ralph restarts each iteration, so context rot never
+happens and state lives in the repo and `.ralph/<name>.md` instead. Long
+verifiable grinds — make the suite pass, work through a backlog — suit Ralph;
+work where the thread of reasoning matters wants one session.
 
 Its completion gate is the part that makes it safe to leave alone: before
 emitting `COMPLETE` it must record a final verification command that a separate
@@ -458,8 +464,8 @@ without spending any is worth more here than the convenience.
 
 **No footer extension is loaded.** `pi-powerline-footer` was dropped for
 `pi-zentui`, and `pi-zentui` was then dropped as well: it used a captured
-extension context across the session replacement `pi-dynamic-workflows` performs,
-so every workflow run logged `This extension ctx is stale after session
+extension context across the session replacement `pi-dynamic-workflows` performed
+during evaluation, so every workflow run logged `This extension ctx is stale after session
 replacement or reload` against it. The run completed anyway, and an ordinary
 sub-agent fork never triggered it, but a footer is not worth an error on every
 workflow. pi's own status line remains.
@@ -493,10 +499,10 @@ the network.
    End to end on a real edit task (read `calc.py`, fix the bug, write it back):
    **8.01s → 3.49s**, both producing the correct edit.
 
-2. **`./bootstrap.sh --no-memory`** drops `pi-hermes-memory` permanently, ~1.8s of
-   CPU off every launch including interactive sessions. Per-project `AGENTS.md`
-   memory is unaffected — that is a pi built-in, not a package. You lose
-   cross-session FTS5 search.
+2. **`./bootstrap.sh --no-memory`** stops loading `pi-hermes-memory`, saving ~1.8s
+   of CPU per launch. The package stays in the reviewed locked tree so the install
+   remains reproducible. Per-project `AGENTS.md` is unaffected; cross-session FTS5
+   search is unavailable until bootstrap is rerun without the flag.
 
 3. **Machine load.** Wall time is CPU time multiplied by whatever else the machine
    is doing. The same launch measured 4.7s wall at load 8 and 32-47s wall at load
@@ -509,7 +515,7 @@ the network.
 ### The transpile cache: 21s cold, 3.3s warm
 
 The packages are transpiled by jiti, which caches the result in `$TMPDIR/jiti`
-and reuses it on every later launch. Measured here with the four packages
+and reuses it on every later launch. Measured here with the package set
 loaded, CPU time, by pointing `TMPDIR` at an empty directory:
 
 | | CPU |
@@ -700,21 +706,22 @@ needs deciding *what* to do goes to Qwen.
 
 ## Dynamic Workflows, and the one control it lacks
 
-`@quintinshaw/pi-dynamic-workflows` is installed alongside `pi-subagents`, not
-instead of it. It adds `/ultracode`, `/deep-research`, `/adversarial-review`,
-`/code-review`, `/codebase-audit` and a `/workflows` TUI, and it reads agent
-definitions from the same `agent/agents/` directory, so `qwen` and `llama` are
-already visible to it as agent types.
+`@quintinshaw/pi-dynamic-workflows` is **not enabled by default**. It offers
+`/ultracode`, `/deep-research`, `/adversarial-review`, `/code-review`,
+`/codebase-audit` and a `/workflows` TUI, but its model-policy hook can be
+overridden by individual workflow scripts. That is weaker than this install's
+strict ELM-only promise, so the package remains opt-in until upstream offers an
+unoverrideable model scope.
 
 What it has no equivalent of is `modelScope`. pi-subagents takes
 `enforce: true, strict: true, allow: ["elm/*", "elm-shim/*", "inherit"]` from
-settings and no child can leave those providers. Dynamic Workflows routes through
+settings and no child can leave those providers. Dynamic Workflows can route through
 tiers in `~/.pi/workflows/model-tiers.json`, whose documented examples are
-`openai-codex/gpt-5.4-mini` and `openai-codex/gpt-5.5`. So
-`agent/extensions/workflow-model-scope.ts` registers the one process-wide policy
-the package does expose, and refuses any model not under `elm/` or `elm-shim/`.
+`openai-codex/gpt-5.4-mini` and `openai-codex/gpt-5.5`. The installer still deploys
+`agent/extensions/workflow-model-scope.ts` as a guard for explicit local opt-ins;
+it refuses models outside the configured ELM providers.
 
-Measured, on this install:
+Measured during evaluation before it was removed from the default package set:
 
 - A workflow agent pinned to `openai-codex/gpt-5.4` is refused before any session
   is created. The run store records `MODEL_SPAWN_REJECTED` and the policy's own
@@ -751,9 +758,9 @@ persistent UI.
 And one observation about the output rather than the plumbing: in that two-agent
 run, one agent changed `v()` to return 2 while the other wrote a README saying it
 returns 1, because it had read the file first. Individually correct, collectively
-wrong, and nothing in the workflow caught it. That is the failure the sweep step
-in `/ulw` exists for, which is the argument for keeping the standards even when
-the orchestration comes from somewhere else.
+wrong, and nothing in the workflow caught it. That is the failure a cross-checking
+sweep exists for, which is the argument for keeping the standards even when the
+orchestration comes from somewhere else.
 
 ## Sessions, memory and artefacts
 

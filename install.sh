@@ -7,7 +7,7 @@
 # those two paths is your shell profile, and only to put ~/.local/bin on PATH
 # when it is not already there - skip that with --no-path. Re-running is safe.
 # Re-running the installer on an existing installation automatically updates
- # pi and npm packages while preserving your configs and sessions.
+# pi and npm packages while preserving your configs and sessions.
 # Environment overrides:
 #   ELM_PI_PREFIX=/path      where to install        (default ~/.local/share/elm-pi)
 #   ELM_PI_BINDIR=/path      where to link pi         (default ~/.local/bin)
@@ -16,6 +16,7 @@
 #   ELM_API_KEY=elm-...      skip the interactive key prompt
 #   ELM_PI_UPDATE=1          refresh pi and the extensions, keeping your configs
 #   ELM_PI_NO_PATH=1         do not touch any shell profile
+#   ELM_PI_NO_LINK=1         do not create or replace the launcher symlink
 #   ELM_PI_FORCE_LINK=1      replace an existing ~/.local/bin/pi symlink
 #
 #   --no-path                do not add ~/.local/bin to PATH in a shell profile
@@ -34,8 +35,9 @@ UPDATE="${ELM_PI_UPDATE:-0}"
 SLUG="$(printf '%s' "$REPO" | sed -e 's#^.*github\.com[:/]##' -e 's#\.git$##')"
 DOCS="${ELM_PI_DOCS:-https://rob-c.github.io/elm-pi/}"
 
-PASS_ARGS=""
+PASS_ARGS=()
 NO_PATH="${ELM_PI_NO_PATH:-0}"
+NO_LINK="${ELM_PI_NO_LINK:-0}"
 FORCE_LINK="${ELM_PI_FORCE_LINK:-0}"
 usage() {
   cat <<'EOU'
@@ -47,6 +49,7 @@ elm-pi installer: fetches the repo, runs bootstrap.sh, links pi onto your PATH.
 Installer flags:
   --update            update an existing install in place
   --no-path           do not add ~/.local/bin to PATH in a shell profile
+  --no-link           do not create or replace the launcher symlink
   --force-link        replace an existing ~/.local/bin/pi symlink
   -h, --help          this text
 
@@ -58,9 +61,11 @@ Passed through to bootstrap.sh:
   --no-patch          leave pi's /share and /bug commands in place
   --no-auth-lock      leave agent/auth.json writable, so /login works
   --force             re-download the tools and reinstall the npm packages
+  --force-packages    reinstall only the locked extension dependency tree
 
 Environment: ELM_PI_PREFIX, ELM_PI_BINDIR, ELM_PI_REPO, ELM_PI_BRANCH,
-ELM_PI_DOCS, ELM_PI_UPDATE, ELM_PI_NO_PATH, ELM_PI_FORCE_LINK, ELM_API_KEY.
+ELM_PI_DOCS, ELM_PI_UPDATE, ELM_PI_NO_PATH, ELM_PI_NO_LINK,
+ELM_PI_FORCE_LINK, ELM_API_KEY.
 EOU
 }
 
@@ -74,11 +79,12 @@ for arg in "$@"; do
   case "$arg" in
     --update)  UPDATE=1 ;;
     --no-path) NO_PATH=1 ;;
+    --no-link) NO_LINK=1 ;;
     --force-link) FORCE_LINK=1 ;;
     # Forwarded verbatim. A flag missing from this list used to be dropped in
     # silence, so `install.sh --no-tools` installed the tools anyway.
-    --no-memory|--no-packages|--no-shim|--no-auth-lock|--no-tools|--no-patch|--force)
-      PASS_ARGS="$PASS_ARGS $arg" ;;
+    --no-memory|--no-packages|--no-shim|--no-auth-lock|--no-tools|--no-patch|--force|--force-packages)
+      PASS_ARGS+=("$arg") ;;
     *) echo "unknown option: $arg" >&2; echo "try: --help" >&2; exit 2 ;;
   esac
 done
@@ -141,24 +147,61 @@ mkdir -p "$(dirname "$PREFIX")"
 
 fetch_tarball() {   # $1 = destination directory
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+  SOURCE_TMP="$TMP/source"
+  mkdir -p "$SOURCE_TMP"
   curl -fsSL "https://codeload.github.com/$SLUG/tar.gz/refs/heads/$BRANCH" \
-    | tar -xz -C "$TMP" --strip-components=1 \
+    | tar -xz -C "$SOURCE_TMP" --strip-components=1 \
     || die "could not download $SLUG@$BRANCH — check the network, or that the repository is public"
+  validate_source "$SOURCE_TMP"
+  NEW_MANIFEST="$TMP/source-manifest"
+  ( cd "$SOURCE_TMP" && find . \( -type f -o -type l \) -print | sed 's|^\./||' | LC_ALL=C sort ) > "$NEW_MANIFEST"
   mkdir -p "$1"
+  # Delete only files recorded as source by a previous tarball install. Runtime
+  # state and locally created files were never in this list and are untouched.
+  if [ -f "$1/.elm-pi-source-manifest" ]; then
+    while IFS= read -r rel; do
+      case "$rel" in ""|/*|../*|*/../*) continue ;; esac
+      if ! grep -Fqx "$rel" "$NEW_MANIFEST"; then rm -f "$1/$rel"; fi
+    done < "$1/.elm-pi-source-manifest"
+  fi
   # Copy over the top: .env, agent/ and the installed software are not in the
   # tarball, so an existing install keeps its key, sessions and memory.
-  ( cd "$TMP" && tar -cf - . ) | ( cd "$1" && tar -xf - )
+  ( cd "$SOURCE_TMP" && tar -cf - . ) | ( cd "$1" && tar -xf - )
+  cp "$NEW_MANIFEST" "$1/.elm-pi-source-manifest"
+}
+
+validate_source() { # $1 = candidate source tree
+  local source_dir="$1"
+  bash -n "$source_dir/install.sh" "$source_dir/bootstrap.sh" \
+    "$source_dir/configure.sh" "$source_dir/pi" "$source_dir/pi.orig" \
+    || die "downloaded source failed its shell syntax check"
+  python3 - "$source_dir" <<'PY' || die "downloaded source failed its Python/JSON checks"
+import ast, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+for path in [root / "patch-pi.py", root / "proxy/egress.py", root / "shim/shim.py",
+             root / "scripts/elm_config.py"]:
+    ast.parse(path.read_text(), filename=str(path))
+for path in list((root / "config").glob("*.json")) + list((root / "templates").rglob("*.json")):
+    json.loads(path.read_text())
+PY
+  if [ -x "$source_dir/scripts/check.sh" ]; then
+    ( cd "$source_dir" && ./scripts/check.sh --source-only ) \
+      || die "downloaded source failed its self-checks"
+  fi
 }
 
 if [ -e "$PREFIX/.git" ] && [ "$HAVE_GIT" = "1" ]; then
   echo "    existing git install — pulling $BRANCH"
-  git -C "$PREFIX" fetch --quiet origin "$BRANCH" || die "git fetch failed"
-  if git -C "$PREFIX" merge --ff-only "origin/$BRANCH" --quiet 2>/dev/null; then
-    echo "    now at $(git -C "$PREFIX" rev-parse --short HEAD)"
-  else
-    warn "local changes prevent a fast-forward — leaving $PREFIX as it is"
-    warn "resolve with:  git -C $PREFIX status"
+  if ! git -C "$PREFIX" diff --quiet || ! git -C "$PREFIX" diff --cached --quiet; then
+    die "tracked local changes prevent a safe update; commit or stash them first"
   fi
+  git -C "$PREFIX" fetch --quiet origin "$BRANCH" || die "git fetch failed"
+  CANDIDATE="$(mktemp -d)"; trap 'rm -rf "$CANDIDATE"' EXIT
+  git -C "$PREFIX" archive "origin/$BRANCH" | tar -xf - -C "$CANDIDATE"
+  validate_source "$CANDIDATE"
+  git -C "$PREFIX" merge --ff-only "origin/$BRANCH" --quiet \
+    || die "the install cannot fast-forward to origin/$BRANCH"
+  echo "    now at $(git -C "$PREFIX" rev-parse --short HEAD)"
 elif [ -d "$PREFIX" ] && [ -f "$PREFIX/bootstrap.sh" ]; then
   echo "    existing install found — refreshing the source files"
   fetch_tarball "$PREFIX"
@@ -185,8 +228,8 @@ if [ -d "$PREFIX/node_modules" ] || [ -d "$PREFIX/agent/npm/node_modules" ]; the
 else
   say "running bootstrap (Node, pi, extensions — a few minutes)"
 fi
-BOOT_ARGS="$PASS_ARGS"
-[ "$UPDATE" = "1" ] && BOOT_ARGS="--update$BOOT_ARGS"
+BOOT_ARGS=("${PASS_ARGS[@]}")
+[ "$UPDATE" = "1" ] && BOOT_ARGS=(--update "${BOOT_ARGS[@]}")
 # A re-install adds no flags of its own. It deliberately does not reinstall pi,
 # re-download the bundled binaries, or reinstall the extension packages when
 # they are already present: that is minutes of work to reproduce a state that
@@ -202,10 +245,10 @@ BOOT_ARGS="$PASS_ARGS"
 if [ -t 0 ]; then
   # Invoked as bash -c "$(curl ...)", so stdin is still the terminal and
   # bootstrap can prompt for the ELM key.
-  "$PREFIX/bootstrap.sh" $BOOT_ARGS
+  "$PREFIX/bootstrap.sh" "${BOOT_ARGS[@]}"
 else
   warn "not running on a terminal — bootstrap cannot prompt for your ELM key"
-  "$PREFIX/bootstrap.sh" $BOOT_ARGS --non-interactive
+  "$PREFIX/bootstrap.sh" "${BOOT_ARGS[@]}" --non-interactive
 fi
 
 # --- 4. put pi on the PATH --------------------------------------------------
@@ -214,10 +257,13 @@ fi
 # memory, scripts, and pi-subagents' own bare-`pi` fallback when it spawns
 # children - gets the wrapped, ELM-only one.
 say "linking the launcher"
-mkdir -p "$BINDIR"
 LINK="$BINDIR/pi"
 LINKED=0
-if [ -e "$LINK" ] && [ ! -L "$LINK" ]; then
+if [ "$NO_LINK" = "1" ]; then
+  echo "    skipped (--no-link)"
+elif ! mkdir -p "$BINDIR"; then
+  warn "could not create $BINDIR — launcher was not linked"
+elif [ -e "$LINK" ] && [ ! -L "$LINK" ]; then
   warn "$LINK exists and is not a symlink — leaving it alone"
   warn "run pi as: $PREFIX/pi"
 elif [ -L "$LINK" ] && [ "$(readlink "$LINK")" != "$PREFIX/pi" ] && [ "$FORCE_LINK" != "1" ]; then
@@ -232,7 +278,7 @@ fi
 # This install used to be called elm-pi. Retire that symlink, but only when it is
 # ours: someone else's elm-pi is none of our business.
 OLD_LINK="$BINDIR/elm-pi"
-if [ "$LINKED" = "1" ] && [ -L "$OLD_LINK" ]; then
+if [ "$NO_LINK" != "1" ] && [ "$LINKED" = "1" ] && [ -L "$OLD_LINK" ]; then
   case "$(readlink "$OLD_LINK")" in
     "$PREFIX/pi") rm -f "$OLD_LINK"; echo "    removed the old $OLD_LINK symlink (the command is now pi)" ;;
   esac
@@ -272,6 +318,7 @@ add_path_to() {   # $1 = profile file, $2 = syntax: posix|fish
     printf '\n# added by the elm-pi installer\nfish_add_path %s\n' "$BINDIR" >> "$PROFILE" \
       || { warn "could not write $PROFILE"; return 1; }
   else
+    # shellcheck disable=SC2016 # $PATH must expand when the profile is sourced
     printf '\n# added by the elm-pi installer\nexport PATH="%s:$PATH"\n' "$BINDIR" >> "$PROFILE" \
       || { warn "could not write $PROFILE"; return 1; }
   fi
@@ -308,6 +355,7 @@ else
     && add_path_to "$HOME/.bash_profile" posix
   if [ "$PATH_ADDED" = "0" ] && [ "$PATH_PRESENT" = "0" ]; then
     warn "could not work out which shell profile to edit. Add this line yourself:"
+    # shellcheck disable=SC2016 # this is an instruction, not this process's PATH
     printf '\n      export PATH="%s:$PATH"\n\n' "$BINDIR"
   fi
 fi

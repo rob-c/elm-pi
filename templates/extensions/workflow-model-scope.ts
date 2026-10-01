@@ -29,7 +29,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const RESOLVER_SLOT = Symbol.for("@quintinshaw/pi-dynamic-workflows.preSpawnModelResolver");
 
 /** Providers this install is allowed to reach: ELM direct, and the tool-call shim. */
-const ALLOWED_PREFIXES = ["elm/", "elm-shim/"];
+const ALLOWED_PREFIXES = (
+	process.env.PI_ELM_ALLOWED_PROVIDERS ?? process.env.ELM_ALLOWED_PROVIDERS ?? "elm,elm-shim"
+)
+	.split(/[\s,]+/)
+	.map((provider) => `${provider.trim().toLowerCase()}/`)
+	.filter((provider) => provider !== "/");
 
 type ModelSource = "explicit" | "tier" | "phase" | "default" | "session";
 
@@ -47,7 +52,8 @@ type Decision =
 	| { action: "reject"; reason: string };
 
 function isElmModel(model: string): boolean {
-	return ALLOWED_PREFIXES.some((prefix) => model.startsWith(prefix));
+	const normalised = model.toLowerCase();
+	return ALLOWED_PREFIXES.some((prefix) => normalised.startsWith(prefix));
 }
 
 export function decide(ctx: PreSpawnModelContext): Decision {
@@ -86,13 +92,7 @@ export function decide(ctx: PreSpawnModelContext): Decision {
 	};
 }
 
-export default function (pi: ExtensionAPI) {
+export default function (_pi: ExtensionAPI) {
 	(globalThis as Record<symbol, unknown>)[RESOLVER_SLOT] = (ctx: PreSpawnModelContext) =>
 		decide(ctx);
-
-	// Say so once, so a session that has this policy in force is distinguishable
-	// from one where the slot was overwritten by something loaded later.
-	pi.on("session_start", async (_event, ctx: any) => {
-		ctx.ui?.notify?.("workflow model scope: elm/ and elm-shim/ only", "info");
-	});
 }

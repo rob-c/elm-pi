@@ -19,7 +19,9 @@ answer is a funded subscription — the escape hatch below is deliberately easy.
 
 ## Six layers
 
-Each is independent; each is verified by `./bootstrap.sh` on every install.
+The layers are checked by bootstrap and the repository test suite. They are
+defence in depth; features whose third-party hooks cannot enforce the policy are
+disabled by default.
 
 ### 1. Credential scrub (`pi`)
 
@@ -31,9 +33,11 @@ Deliberately **not** scrubbed: `AWS_*` (except `AWS_BEARER_TOKEN_BEDROCK`) and
 `GITHUB_TOKEN`. The agent's bash tool needs them for real work, and layer 3
 already removes `amazon-bedrock` and `github-copilot` from the catalogue.
 
-### 2. Argument guard (`pi`)
+### 2. Default-deny argument guard (`pi`)
 
-Refuses, with exit code 2:
+The parser allows only providers declared in `config/elm-pi.json`, compares
+case-insensitively like pi itself, honours repeated-option and `--` semantics,
+and refuses everything else with exit code 2:
 
 ```
 pi --provider anthropic ...
@@ -53,7 +57,9 @@ non-allowed provider to zero models — once at extension load (covers
 `--list-models` and other pre-session paths), then again at session start (covers
 providers a pi upgrade or another extension adds).
 
-Measured on this install: **1,357 models → 3.**
+Measured on this install: **1,357 built-in models → the ELM catalogue only.**
+The local Llama shim appears as `elm-shim` when its loopback service is
+available; it is still backed by an ELM-hosted model.
 
 ```
 provider  model                              context  max-out  thinking  images
@@ -69,7 +75,7 @@ request leaves the machine.
 
 ### 3b. Read-only `agent/auth.json`
 
-`bootstrap.sh` sets mode 444 on it, so `/login` cannot store a credential it
+`bootstrap.sh` sets mode 400 on it, so `/login` cannot store a credential it
 obtains. Verified: normal startup and ELM use are unaffected. Not verified: how
 gracefully the `/login` flow reports the failed write. Install with
 `./bootstrap.sh --no-auth-lock`, or `chmod 600 agent/auth.json`, to lift it.
@@ -143,6 +149,20 @@ run to HTML and publish it with `gh gist create`. It is off unless
 `agent/extensions/subagent/config.json` sets `"share": true`, and that file now
 says `"share": false` explicitly rather than relying on the default.
 
+Dynamic Workflows is not loaded by the default package set because its global
+model-policy hook can be overridden by an individual workflow. Its guard is
+still installed for explicit opt-ins, but that is weaker than strict
+`pi-subagents` model scope.
+
+### Private local state
+
+The launcher creates the selected session directory as mode 700 and tightens
+existing transcript and memory files to mode 600. Install and memory directories
+are mode 700; locked `auth.json` is mode 400. This matters on shared login nodes:
+transcripts contain every file and command output seen by the agent.
+`ELM_PI_SHARED_STATE=1` is the explicit opt-out for a deliberately group-shared
+session location. It does not weaken model or network policy.
+
 ### 6. Egress proxy (`proxy/egress.py`)
 
 The layers above shape what pi *offers*. This one checks where it *goes*.
@@ -203,8 +223,8 @@ Mac the answer remains `pf` and an administrator.
 
 | Attempt | Result |
 |---|---|
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` set in the shell | scrubbed; catalogue unchanged at 3 models |
-| `/model` picker, `Ctrl+P` cycling | only the 3 ELM entries exist |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` set in the shell | scrubbed; catalogue remains ELM-only |
+| `/model` picker, `Ctrl+P` cycling | only ELM and the local ELM shim can appear |
 | `/login` with a real subscription | provider has no models; credential write is blocked |
 | `pi --model anthropic/... --api-key ...` | refused by layer 2 (exit 2) |
 | Same, with `PI_ELM_UNLOCK=1` and a key in the environment | `Model not found` — layer 3 holds |
@@ -262,11 +282,11 @@ ELM and nothing else becomes reachable or visible.
 
 ## If a pi upgrade adds providers
 
-`BUILTIN_PROVIDERS` in `elm-only.ts` and `DENIED_PROVIDERS` in `pi` are static
-lists, used for the pre-session pass and the argument guard. The session-start
-pass is dynamic and catches anything they miss, so a new provider is still
-stripped inside a session — only `--list-models` and the argument guard would be
-stale. Regenerate both lists after upgrading pi:
+`builtinProviders` in `config/elm-pi.json` feeds the pre-session catalogue pass.
+The argument guard is default-deny and needs no provider inventory. The
+session-start pass is dynamic and catches anything the inventory misses, but
+`--list-models` would still be stale. Update the one manifest list after upgrading
+pi:
 
 ```bash
 cat > /tmp/list-providers.ts <<'EOF'
@@ -277,9 +297,10 @@ export default function (pi: ExtensionAPI) {
   });
 }
 EOF
-./pi --no-extensions -e /tmp/list-providers.ts --no-session -p hi 2>&1 >/dev/null
+PI_CODING_AGENT_DIR="$PWD/agent" ./pi.orig --no-extensions \
+  -e /tmp/list-providers.ts --no-session -p hi 2>&1 >/dev/null
 ```
 
-`--no-extensions` is what makes this work: it keeps `elm-only.ts` from stripping
-the catalogue before the probe reads it, while the explicit `-e` path still
-loads. Paste the result, minus `elm`, into both lists.
+`pi.orig` is used only for this inventory because the normal launcher always
+reloads `elm-only.ts`, even when `--no-extensions` is requested. Paste the result,
+minus the allowed providers, into `config/elm-pi.json`.

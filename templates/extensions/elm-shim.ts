@@ -26,7 +26,7 @@ const HOST = "127.0.0.1";
 const SHIM =
   process.env.ELM_SHIM_PATH ??
   join(process.env.PI_CODING_AGENT_DIR ?? ".", "..", "shim", "shim.py");
-const MODEL = "meta-llama/Llama-3.3-70B-Instruct";
+const MODEL = process.env.ELM_LLAMA_MODEL_ID ?? "@LLAMA_MODEL@";
 
 const listening = (port: number) =>
   new Promise<boolean>((resolve) => {
@@ -130,7 +130,7 @@ export default async function (pi: ExtensionAPI) {
         // Meta publishes no sampling advice in the model card; these are the
         // values in Llama-3.3-70B-Instruct's own generation_config.json.
         samplingParams: { temperature: 0.6, top_p: 0.9 },
-      },
+      } as any,
     ],
   });
 }

@@ -1,16 +1,16 @@
 {
   "profiles": {
     "frontier": {
-      "primary": { "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8", "thinkingLevel": "high" },
-      "fallback": { "model": "elm-shim/meta-llama/Llama-3.3-70B-Instruct", "thinkingLevel": "off" }
+      "primary": { "model": "elm/@QWEN_MODEL@", "thinkingLevel": "high" },
+      "fallback": { "model": "elm-shim/@LLAMA_MODEL@", "thinkingLevel": "off" }
     },
     "balanced": {
-      "primary": { "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8", "thinkingLevel": "off" },
-      "fallback": { "model": "elm-shim/meta-llama/Llama-3.3-70B-Instruct", "thinkingLevel": "off" }
+      "primary": { "model": "elm/@QWEN_MODEL@", "thinkingLevel": "off" },
+      "fallback": { "model": "elm-shim/@LLAMA_MODEL@", "thinkingLevel": "off" }
     },
     "fast": {
-      "primary": { "model": "elm-shim/meta-llama/Llama-3.3-70B-Instruct", "thinkingLevel": "off" },
-      "fallback": { "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8", "thinkingLevel": "off" }
+      "primary": { "model": "elm-shim/@LLAMA_MODEL@", "thinkingLevel": "off" },
+      "fallback": { "model": "elm/@QWEN_MODEL@", "thinkingLevel": "off" }
     }
   },
   "tasks": {

@@ -2,7 +2,7 @@
 name: qwen
 description: Implementation subagent on ELM's Qwen 3.5 397B. USE PROACTIVELY for any task that needs judgement - implementing a change, distilling several files into an answer, reviewing, verifying another agent's work. MUST BE USED for research, and for anything with an image, diagram or rendered page in it.
 aliases: qwen3, q
-model: elm/Qwen/Qwen3.5-397B-A17B-FP8
+model: elm/@QWEN_MODEL@
 excludeTools: web_search, fetch_content, get_search_content, source_check
 systemPromptMode: replace
 inheritProjectContext: true

@@ -6,7 +6,7 @@
       "apiKey": "$ELM_API_KEY",
       "models": [
         {
-          "id": "Qwen/Qwen3.5-397B-A17B-FP8",
+          "id": "@QWEN_MODEL@",
           "name": "Qwen 3.5 397B (ELM, university-hosted)",
           "reasoning": true,
           "input": [

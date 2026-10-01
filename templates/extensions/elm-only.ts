@@ -24,9 +24,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const ALLOWED = new Set(
-  (process.env.PI_ELM_ALLOWED_PROVIDERS ?? "elm,elm-shim")
-    .split(",")
-    .map((p) => p.trim())
+  (process.env.PI_ELM_ALLOWED_PROVIDERS ?? process.env.ELM_ALLOWED_PROVIDERS ?? "elm,elm-shim")
+    .split(/[\s,]+/)
+    .map((p) => p.trim().toLowerCase())
     .filter(Boolean),
 );
 
@@ -42,22 +42,16 @@ const POLICY =
  * probe in LOCKDOWN.md if a pi upgrade adds providers; anything missed here is
  * still caught by the dynamic pass below.
  */
-const BUILTIN_PROVIDERS = [
-  "amazon-bedrock", "ant-ling", "anthropic", "azure-openai-responses", "baseten",
-  "cerebras", "cloudflare-ai-gateway", "cloudflare-workers-ai", "deepseek",
-  "fireworks", "github-copilot", "google", "google-vertex", "groq", "huggingface",
-  "kimi-coding", "minimax", "minimax-cn", "mistral", "moonshotai", "moonshotai-cn",
-  "nvidia", "openai", "openai-codex", "opencode", "opencode-go", "openrouter",
-  "qwen-token-plan", "qwen-token-plan-cn", "qwen-token-plan-individual", "radius", "together",
-  "vercel-ai-gateway", "xai", "xiaomi", "xiaomi-token-plan-ams",
-  "xiaomi-token-plan-cn", "xiaomi-token-plan-sgp", "zai", "zai-coding-cn",
-];
+const BUILTIN_PROVIDERS = (process.env.ELM_BUILTIN_PROVIDERS ?? "")
+  .split(/[\s,]+/)
+  .map((provider) => provider.trim())
+  .filter(Boolean);
 
 export default function (pi: ExtensionAPI) {
   const stripped = new Set<string>();
 
   const nuke = (provider: string) => {
-    if (ALLOWED.has(provider)) return;
+    if (ALLOWED.has(provider.toLowerCase())) return;
     try {
       // An empty models array REPLACES the provider's catalogue with nothing.
       pi.registerProvider(provider, { models: [] });
@@ -86,7 +80,7 @@ export default function (pi: ExtensionAPI) {
   // (a saved session, an --api-key run, a provider registered after startup),
   // say so loudly rather than quietly billing someone.
   pi.on("model_select", async (event, ctx: any) => {
-    if (ALLOWED.has(event.model.provider)) return;
+    if (ALLOWED.has(event.model.provider.toLowerCase())) return;
     ctx.ui?.notify?.(
       `${event.model.provider}/${event.model.id} is outside this install's ELM-only policy.`,
       "error",

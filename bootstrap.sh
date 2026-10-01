@@ -15,17 +15,31 @@ cd "$HERE"
 
 
 
-NODE_VERSION="${NODE_VERSION:-v24.21.0}"
-
-# Always install latest pi from npm (no version pin)
-# Set PI_VERSION to a specific version only if you need to freeze it
-PI_VERSION="${PI_VERSION:-latest}"
+CONFIG_TOOL="$HERE/scripts/elm_config.py"
+[ -x "$CONFIG_TOOL" ] || chmod +x "$CONFIG_TOOL" 2>/dev/null || true
+NODE_VERSION="${NODE_VERSION:-$(python3 "$CONFIG_TOOL" --root "$HERE" value nodeVersion)}"
+PINNED_PI_VERSION="$(python3 -c 'import json; print(json.load(open("package.json"))["dependencies"]["@earendil-works/pi-coding-agent"])')"
+PI_VERSION="${PI_VERSION:-$PINNED_PI_VERSION}"
+[ "$PI_VERSION" = "$PINNED_PI_VERSION" ] || {
+  echo "ERROR: PI_VERSION overrides are no longer installed without a lockfile." >&2
+  echo "       Update package.json and package-lock.json together instead." >&2
+  exit 2
+}
 
 
 
 
 WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; WITH_MEMORY=1; FORCE=0
-WITH_TOOLS=1; WITH_PATCH=1
+WITH_TOOLS=1; WITH_PATCH=1; FORCE_PACKAGES=0
+TMP=""; TOOLS_TMP=""; CORE_STAGE=""; PKG_STAGE=""
+
+cleanup() {
+  local path
+  for path in "$TMP" "$TOOLS_TMP" "$CORE_STAGE" "$PKG_STAGE"; do
+    [ -z "$path" ] || rm -rf -- "$path"
+  done
+}
+trap cleanup EXIT
 
 usage() {
   cat <<'EOU'
@@ -37,6 +51,7 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
   --non-interactive   take the key from $ELM_API_KEY, never prompt
   --update            refresh pi, packages and extensions; keep your configs
   --force             re-download the tools and reinstall the npm packages
+  --force-packages    reinstall only the locked extension dependency tree
 
   --no-packages       pi only: no sub-agents, memory, web access or anchor edit
   --no-memory         drop pi-hermes-memory: ~1.2s off every launch
@@ -46,7 +61,7 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
   --no-auth-lock      leave agent/auth.json writable, so /login works
   -h, --help          this text
 
-Environment: NODE_VERSION, PI_VERSION, ELM_PI_TOOLS, FD_VERSION, RG_VERSION,
+Environment: NODE_VERSION, ELM_PI_TOOLS, FD_VERSION, RG_VERSION,
 JQ_VERSION, YQ_VERSION, SHELLCHECK_VERSION, ASTGREP_VERSION.
 EOU
 }
@@ -64,6 +79,7 @@ for arg in "$@"; do
     --non-interactive) INTERACTIVE=0 ;;
     --update) UPDATE=1 ;;
     --force) FORCE=1 ;;
+    --force-packages) FORCE_PACKAGES=1 ;;
     --no-auth-lock) AUTH_LOCK=0 ;;
     --no-tools) WITH_TOOLS=0 ;;
     --no-patch) WITH_PATCH=0 ;;
@@ -118,7 +134,7 @@ else
     *) die "unsupported architecture: $(uname -m)" ;;
   esac
   TAR="node-$NODE_VERSION-$OS-$ARCH.tar.gz"
-  TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+  TMP="$(mktemp -d)"
   echo "    downloading $TAR"
   curl -fsSL -o "$TMP/$TAR" "https://nodejs.org/dist/$NODE_VERSION/$TAR"
   curl -fsSL -o "$TMP/SHASUMS256.txt" "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt"
@@ -133,20 +149,8 @@ export PATH="$HERE/.node/bin:$PATH"
 
 # --- 2. pi ------------------------------------------------------------------
 say "pi coding agent"
-cp -f templates/package.json package.json
-# PI_VERSION freezes pi at a version. The template always says "latest", so the
-# pin has to be written into the manifest npm actually reads - otherwise a pin
-# would never install, and the version check below would find a mismatch it
-# could not resolve and reinstall on every single update.
-if [ "$PI_VERSION" != "latest" ]; then
-  PI_VERSION="$PI_VERSION" python3 - <<'PYPIN'
-import json, os
-p = "package.json"
-d = json.load(open(p))
-d["dependencies"]["@earendil-works/pi-coding-agent"] = os.environ["PI_VERSION"]
-json.dump(d, open(p, "w"), indent=2)
-PYPIN
-fi
+[ "$UPDATE" != "1" ] || echo "    applying repository-reviewed dependency locks"
+[ -f package-lock.json ] || die "package-lock.json is missing; installs require the reviewed lockfile"
 
 PI_INSTALLED=""
 if [ -f node_modules/@earendil-works/pi-coding-agent/package.json ]; then
@@ -155,36 +159,43 @@ if [ -f node_modules/@earendil-works/pi-coding-agent/package.json ]; then
     2>/dev/null) || PI_INSTALLED=""
 fi
 
-# Reinstalling pi is the slowest step in this script, and on a re-run it usually
-# arrives at the bytes already on disk. So --update asks the registry what the
-# target resolves to and only reinstalls when that differs from what is
-# installed. --force still reinstalls unconditionally; that is what it is for.
+# Reinstalling pi is the slowest step in this script. The lock digest catches
+# transitive changes even when pi's own version stays the same.
+CORE_LOCK_DIGEST="$(sha256_of package-lock.json)" || die "cannot hash package-lock.json"
+CORE_STAMP="node_modules/.elm-pi-lock.sha256"
 NEED_PI=0
 if [ "$FORCE" = "1" ] || [ -z "$PI_INSTALLED" ]; then
   NEED_PI=1
-elif [ "$UPDATE" = "1" ]; then
-  PI_WANTED="$PI_VERSION"
-  if [ "$PI_WANTED" = "latest" ]; then
-    PI_WANTED=$(npm view "@earendil-works/pi-coding-agent@latest" version 2>/dev/null) || PI_WANTED=""
-  fi
-  if [ -z "$PI_WANTED" ]; then
-    # No answer from the registry is not evidence that the install is current.
-    echo "    could not reach the npm registry - reinstalling rather than assume"
-    NEED_PI=1
-  elif [ "$PI_WANTED" != "$PI_INSTALLED" ]; then
-    echo "    $PI_INSTALLED -> $PI_WANTED"
-    NEED_PI=1
-  fi
+elif [ "$PI_VERSION" != "$PI_INSTALLED" ]; then
+  echo "    $PI_INSTALLED -> $PI_VERSION"
+  NEED_PI=1
+elif [ ! -f "$CORE_STAMP" ] || [ "$(cat "$CORE_STAMP" 2>/dev/null)" != "$CORE_LOCK_DIGEST" ]; then
+  echo "    dependency lock changed"
+  NEED_PI=1
 fi
 
 if [ "$NEED_PI" = "1" ]; then
-  # npm install with "latest" does not update an already-installed package, so
-  # the tree goes first.
-  if [ "$UPDATE" = "1" ]; then rm -f package-lock.json; fi
-  rm -rf node_modules
-  npm install --no-audit --no-fund --loglevel=error
+  CORE_STAGE="$(mktemp -d "$HERE/.elm-pi-stage-core.XXXXXX")"
+  cp package.json package-lock.json "$CORE_STAGE/"
+  ( cd "$CORE_STAGE" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error )
+  "$HERE/scripts/repair-transitives.sh" "$CORE_STAGE/node_modules"
+  if [ "$WITH_PATCH" = "1" ]; then
+    "$HERE/patch-pi.py" --bundle "$CORE_STAGE/node_modules/@earendil-works/pi-coding-agent/dist/bundle" \
+      || die "could not disable /share and /bug in the staged pi release"
+  fi
+  "$HERE/.node/bin/node" "$CORE_STAGE/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" --version >/dev/null \
+    || die "the staged pi release does not start"
+  printf '%s\n' "$CORE_LOCK_DIGEST" > "$CORE_STAGE/node_modules/.elm-pi-lock.sha256"
+  CORE_OLD="$HERE/.elm-pi-old-core.$$"
+  [ ! -d node_modules ] || mv node_modules "$CORE_OLD"
+  if ! mv "$CORE_STAGE/node_modules" node_modules; then
+    [ ! -d "$CORE_OLD" ] || mv "$CORE_OLD" node_modules
+    die "could not activate the staged pi release"
+  fi
+  rm -rf "$CORE_OLD" "$CORE_STAGE"
+  CORE_STAGE=""
 else
-  echo "    pi $PI_INSTALLED is already current (use --force to reinstall)"
+  echo "    pi $PI_INSTALLED matches the reviewed lockfile (use --force to reinstall)"
 fi
 
 
@@ -215,11 +226,16 @@ chmod +x pi pi.orig configure.sh 2>/dev/null || true
 say "agent configuration"
 mkdir -p agent/extensions/subagent agent/extensions/pi-permission-system \
          agent/config/pi-task-models agent/prompts agent/agents
+[ -f "$HERE/lib/state.sh" ] || die "lib/state.sh is missing"
+. "$HERE/lib/state.sh"
+elm_secure_install_state "$HERE"
+python3 "$CONFIG_TOOL" --root "$HERE" init
 install_if_absent() {   # never clobber a config someone has tuned
-  if [ -f "$2" ] && [ "$UPDATE" != "1" ]; then
+  if [ -f "$2" ]; then
     echo "    keeping existing $2"
   else
-    cp -f "$1" "$2"; echo "    wrote $2"
+    python3 "$CONFIG_TOOL" --root "$HERE" render "$1" "$2"
+    echo "    wrote $2"
   fi
 }
 # Code is refreshed, config is kept. Everything below is code or policy this
@@ -228,11 +244,16 @@ install_if_absent() {   # never clobber a config someone has tuned
 # without needing --update. Config you tune (settings.json, models.json,
 # web-search.json, the extension configs) is install_if_absent instead, with
 # only the keys this repo decides reapplied over the top further down.
-for f in elm-only.ts protected-paths.ts todo.ts elm-shim.ts; do
+REQUIRED_EXTENSIONS="$(python3 -c 'import json; print(" ".join(json.load(open("config/elm-pi.json"))["requiredExtensions"]))')"
+for f in $REQUIRED_EXTENSIONS; do
   [ -f "templates/extensions/$f" ] || continue
-  cp -f "templates/extensions/$f" "agent/extensions/$f"
+  python3 "$CONFIG_TOOL" --root "$HERE" render \
+    "templates/extensions/$f" "agent/extensions/$f"
 done
-echo "    refreshed agent/extensions/*.ts (ELM-only policy, write protections, todo, shim)"
+echo "    refreshed required agent extensions (policy, protections, tools, shim)"
+for f in $REQUIRED_EXTENSIONS; do
+  [ -f "agent/extensions/$f" ] || die "required policy extension was not installed: $f"
+done
 install_if_absent templates/extensions/subagent/config.json agent/extensions/subagent/config.json
 # The permission gate's policy. @AGENT_DIR@ marks this install as pi's own
 # infrastructure, so reading its node_modules does not trip the outside-cwd
@@ -265,7 +286,10 @@ fi
 # replaces the builtin `read`, so naming `read` there loses it. See AGENTS.md.
 for f in templates/agents/*.md; do
   [ -e "$f" ] || continue
-  sed "s|@AGENT_DIR@|$HERE/agent|g" "$f" > "agent/agents/$(basename "$f")"
+  AGENT_DEST="agent/agents/$(basename "$f")"
+  python3 "$CONFIG_TOOL" --root "$HERE" render "$f" "$AGENT_DEST"
+  sed -e "s|@AGENT_DIR@|$HERE/agent|g" "$AGENT_DEST" > "$AGENT_DEST.tmp"
+  mv "$AGENT_DEST.tmp" "$AGENT_DEST"
 done
 echo "    refreshed agent/agents/*.md (model pinning, tools, delegation briefs)"
 # pi-auto-compact routes compaction through pi-task-models' "fast" profile.
@@ -275,9 +299,8 @@ echo "    refreshed agent/agents/*.md (model pinning, tools, delegation briefs)"
 install_if_absent templates/config/pi-task-models/config.json agent/config/pi-task-models/config.json
 install_if_absent templates/settings.json              agent/settings.json
 install_if_absent templates/models.json                agent/models.json
-cp -f templates/AGENTS.md      agent/AGENTS.md          # delegation policy
-cp -f templates/prompts/ulw.md agent/prompts/ulw.md     # /ulw ultrawork mode
-echo "    refreshed agent/AGENTS.md and agent/prompts/ulw.md"
+python3 "$CONFIG_TOOL" --root "$HERE" render templates/AGENTS.md agent/AGENTS.md
+echo "    refreshed agent/AGENTS.md"
 install_if_absent templates/web-search.json            agent/web-search.json
 install_if_absent templates/hermes-memory-config.json  agent/hermes-memory-config.json
 [ -f agent/auth.json ] || printf '{}\n' > agent/auth.json
@@ -299,10 +322,10 @@ if [ "$AUTH_LOCK" = "1" ]; then
   # that write fails, so a commercial subscription cannot be attached to this
   # install even by someone who has one. Verified: normal startup and ELM use
   # are unaffected. Undo with: chmod 600 agent/auth.json
-  chmod 444 agent/auth.json
+  elm_set_auth_mode agent/auth.json 0
   echo "    agent/auth.json is read-only (/login cannot store credentials)"
 else
-  chmod 600 agent/auth.json
+  elm_set_auth_mode agent/auth.json 1
   echo "    agent/auth.json is writable (--no-auth-lock)"
 fi
 
@@ -383,7 +406,7 @@ if [ "$WITH_TOOLS" = "1" ]; then
   # download, so a corrupted or tampered entry fails the same way.
   TOOL_CACHE="${ELM_PI_TOOL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/elm-pi/tools}"
 
-  TOOLS_TMP="$(mktemp -d)"; trap 'rm -rf "${TMP:-}" "${TOOLS_TMP:-}"' EXIT
+  TOOLS_TMP="$(mktemp -d)"
 
   install_tool() {   # $1 binary  $2 version  $3 asset  $4 url  $5 sha256 url ("" if none)
     local bin="$1" version="$2" asset="$3" url="$4" shaurl="$5"
@@ -501,6 +524,8 @@ HERE="$HERE" python3 - <<'PYX'
 import json, os, collections
 
 HERE = os.environ["HERE"]
+models_path = os.path.join(HERE, "agent", "model-ids.json")
+model_ids = json.load(open(models_path))
 
 # file -> keys this repo decides. The reason for each is in the file it
 # belongs to; the short version is in the comment beside it.
@@ -535,7 +560,10 @@ OWNED = {
 
 def load(path):
     with open(path) as fh:
-        return json.load(fh, object_pairs_hook=collections.OrderedDict)
+        raw = fh.read()
+    raw = raw.replace("@QWEN_MODEL@", model_ids["qwen"])
+    raw = raw.replace("@LLAMA_MODEL@", model_ids["llama"])
+    return json.loads(raw, object_pairs_hook=collections.OrderedDict)
 
 def brief(value):
     text = json.dumps(value)
@@ -604,17 +632,18 @@ PYX
 if [ "$WITH_PACKAGES" = "1" ]; then
   say "pi packages (sub-agents, memory, web access, anchor editing)"
   mkdir -p agent/npm
-  # Every package is transpiled and imported at each launch. Measured CPU cost
+  # Every loaded package is transpiled and imported at each launch. Measured CPU cost
   # per launch on this install: hermes-memory ~1.8s, subagents+hashline ~1.6s,
   # web-access ~0.2s, against ~1.4s for pi and the local extensions alone.
-  # `pi --fast` skips all of them for one-shot work; --no-memory drops the
-  # most expensive one permanently.
+  # `pi --fast` skips all of them for one-shot work; --no-memory leaves the
+  # reviewed package tree installed but stops loading its most expensive member.
   DROP=""
   [ "$WITH_MEMORY" = "1" ] || DROP="pi-hermes-memory"
   # Two lists, and they are not the same list. templates/packages.json is what
   # npm installs, and carries libraries that are not pi packages at all
   # (better-sqlite3, which pi-hermes-memory needs to build against).
-  # templates/settings.json is what pi loads. Both are filtered by --no-memory.
+  # templates/settings.json is what pi loads. Only the latter is filtered by
+  # --no-memory: keeping one package manifest means npm ci can verify one lock.
   #
   # agent/settings.json's "packages" is derived from the template every run
   # rather than filtered in place. Filtering in place could only ever remove:
@@ -622,13 +651,12 @@ if [ "$WITH_PACKAGES" = "1" ]; then
   # ever after, so a later run installed all four packages into agent/npm and
   # then loaded none of them. Everything else in that file is yours and is left
   # exactly as you left it.
+  [ -f templates/packages-lock.json ] || die "templates/packages-lock.json is missing"
+  cp -f templates/packages.json agent/npm/package.json
+  cp -f templates/packages-lock.json agent/npm/package-lock.json
   DROP="$DROP" python3 - <<'PYX'
 import json, os
 drop = {d for d in os.environ.get("DROP", "").split() if d}
-
-pkg = json.load(open("templates/packages.json"))
-pkg["dependencies"] = {k: v for k, v in pkg["dependencies"].items() if k not in drop}
-json.dump(pkg, open("agent/npm/package.json", "w"), indent=2)
 
 chosen = [p for p in json.load(open("templates/settings.json")).get("packages", [])
           if p.removeprefix("npm:") not in drop]
@@ -645,23 +673,40 @@ if sorted(was) != sorted(chosen):
 PYX
   CHOSEN="$(python3 -c 'import json; print(" ".join(p.removeprefix("npm:") for p in json.load(open("agent/settings.json")).get("packages", [])))')"
 
-  # Reinstall when asked, or when anything chosen is not actually on disk.
+  # Reinstall when the reviewed lock changes, when explicitly forced, or when a
+  # package pi will load is missing. Build in a sibling staging directory and
+  # swap only after npm and the one permitted native build both succeed.
   MISSING=0
   for pkg in $CHOSEN; do
     [ -d "agent/npm/node_modules/$pkg" ] || MISSING=1
   done
-  # When --update or --force is passed, remove node_modules first to ensure npm
-  # actually installs the latest versions. npm install with "latest" won't update
-  # existing packages otherwise.
-  if [ "$UPDATE" = "1" ] || [ "$FORCE" = "1" ]; then
-    rm -rf agent/npm/node_modules
-    ( cd agent/npm && npm install --no-audit --no-fund --loglevel=error )
-    echo "    installed into agent/npm/node_modules"
-  elif [ "$MISSING" = "1" ]; then
-    ( cd agent/npm && npm install --no-audit --no-fund --loglevel=error )
+  PACKAGE_LOCK_DIGEST="$(sha256_of templates/packages-lock.json)" || die "cannot hash the package lock"
+  PACKAGE_STAMP="agent/npm/node_modules/.elm-pi-lock.sha256"
+  if [ "$FORCE" = "1" ] || [ "$FORCE_PACKAGES" = "1" ] || [ "$MISSING" = "1" ] || [ ! -f "$PACKAGE_STAMP" ] \
+     || [ "$(cat "$PACKAGE_STAMP" 2>/dev/null)" != "$PACKAGE_LOCK_DIGEST" ]; then
+    PKG_STAGE="$(mktemp -d "$HERE/.elm-pi-stage-packages.XXXXXX")"
+    cp templates/packages.json "$PKG_STAGE/package.json"
+    cp templates/packages-lock.json "$PKG_STAGE/package-lock.json"
+    ( cd "$PKG_STAGE" && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error )
+    "$HERE/scripts/repair-transitives.sh" "$PKG_STAGE/node_modules"
+    # Package scripts are disabled globally. Hermes' SQLite driver is the single
+    # reviewed native dependency that needs its install/build step.
+    ( cd "$PKG_STAGE" && npm rebuild better-sqlite3 --foreground-scripts --no-audit --no-fund --loglevel=error )
+    for pkg in $CHOSEN; do
+      [ -d "$PKG_STAGE/node_modules/$pkg" ] || die "staged package is missing: $pkg"
+    done
+    printf '%s\n' "$PACKAGE_LOCK_DIGEST" > "$PKG_STAGE/node_modules/.elm-pi-lock.sha256"
+    PKG_OLD="$HERE/.elm-pi-old-packages.$$"
+    [ ! -d agent/npm/node_modules ] || mv agent/npm/node_modules "$PKG_OLD"
+    if ! mv "$PKG_STAGE/node_modules" agent/npm/node_modules; then
+      [ ! -d "$PKG_OLD" ] || mv "$PKG_OLD" agent/npm/node_modules
+      die "could not activate the staged extension packages"
+    fi
+    rm -rf "$PKG_OLD" "$PKG_STAGE"
+    PKG_STAGE=""
     echo "    installed into agent/npm/node_modules"
   else
-    echo "    packages already installed (use --force to reinstall)"
+    echo "    packages match the reviewed lockfile (use --force to reinstall)"
   fi
   # A package pi is told to load but cannot find is a silent no-op at startup:
   # the launcher runs pi offline, so it does not try to fetch it either.
@@ -680,7 +725,7 @@ PY
 fi
 
 # --- 3c. warm the module cache ----------------------------------------------
-# The four packages ship raw TypeScript. pi transpiles them with jiti, which
+# The packages ship raw TypeScript. pi transpiles them with jiti, which
 # caches the result in $TMPDIR/jiti and reuses it on every later launch, so the
 # cost is paid once: measured here, ~21s of CPU cold against ~3.3s warm.
 #
@@ -720,6 +765,10 @@ else
   echo "    shim skipped (agent/extensions/elm-shim.ts removed)"
 fi
 
+# Existing installs may contain state created under the account's ordinary 022
+# umask. Tighten only known private state; do not alter project-file defaults.
+elm_secure_install_state "$HERE"
+
 # --- 5. the key -------------------------------------------------------------
 # ELM keys are issued on request through the ELM web UI, not self-service.
 say "ELM API key"
@@ -754,10 +803,13 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 say "verifying the ELM-only policy"
-LIST="$(PI_FORCE=1 PI_OFFLINE=1 ANTHROPIC_API_KEY=probe-should-be-ignored \
+LIST="$(PI_FORCE=1 PI_OFFLINE=1 ELM_PI_NO_PROXY=1 ANTHROPIC_API_KEY=probe-should-be-ignored \
         OPENAI_API_KEY=probe-should-be-ignored ./pi --list-models </dev/null 2>/dev/null || true)"
 if printf '%s' "$LIST" | grep -qE '^(anthropic|openai|google) '; then
   die "commercial providers are still visible - the credential scrub in ./pi is not working"
+fi
+if ! printf '%s' "$LIST" | grep -qE '^elm(-shim)?[[:space:]]'; then
+  die "the ELM model catalogue is empty - check runtime.env and elm-only.ts"
 fi
 printf '%s\n' "$LIST" | sed 's/^/    /'
 if [ -x agent/bin/pi ] && [ "$(cd "$(dirname "$(readlink agent/bin/pi)")" && pwd)/$(basename "$(readlink agent/bin/pi)")" = "$HERE/pi" ]; then

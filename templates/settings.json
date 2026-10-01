@@ -1,11 +1,11 @@
 {
   "defaultProvider": "elm",
-  "defaultModel": "Qwen/Qwen3.5-397B-A17B-FP8",
+  "defaultModel": "@QWEN_MODEL@",
   "defaultThinkingLevel": "off",
   "theme": "dark",
   "quietStartup": false,
   "modelThinkingLevels": {
-    "elm/Qwen/Qwen3.5-397B-A17B-FP8": "off"
+    "elm/@QWEN_MODEL@": "off"
   },
   "packages": [
     "npm:pi-subagents",
@@ -18,8 +18,7 @@
     "npm:@tmustier/pi-ralph-wiggum",
     "npm:@pify/btw",
     "npm:awesome-pi-themes",
-    "npm:cc-safety-net",
-    "npm:@quintinshaw/pi-dynamic-workflows"
+    "npm:cc-safety-net"
   ],
   "extensions": [
     "${PI_CODING_AGENT_DIR}/extensions"
@@ -37,22 +36,22 @@
   "subagents": {
     "agentOverrides": {
       "delegate": {
-        "model": "elm-shim/meta-llama/Llama-3.3-70B-Instruct"
+        "model": "elm-shim/@LLAMA_MODEL@"
       },
       "oracle": {
-        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
+        "model": "elm/@QWEN_MODEL@"
       },
       "researcher": {
-        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
+        "model": "elm/@QWEN_MODEL@"
       },
       "reviewer": {
-        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
+        "model": "elm/@QWEN_MODEL@"
       },
       "scout": {
-        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
+        "model": "elm/@QWEN_MODEL@"
       },
       "worker": {
-        "model": "elm/Qwen/Qwen3.5-397B-A17B-FP8"
+        "model": "elm/@QWEN_MODEL@"
       }
     },
     "modelScope": {

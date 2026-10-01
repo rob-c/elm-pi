@@ -369,7 +369,6 @@ cat paper.tex | pi -p "find the undefined references"</pre>
     <tr><th>Command</th><th>What it does</th></tr>
     <tr><td><code>/model</code></td><td>switch between the ELM models</td></tr>
     <tr><td><code>/thinking</code></td><td>reasoning &mdash; off by default here, and deliberately so</td></tr>
-    <tr><td><code>/ulw &lt;task&gt;</code></td><td>ultrawork: delegate, verify, keep going until done</td></tr>
     <tr><td><code>/elm-policy</code></td><td>why only ELM models are available</td></tr>
     <tr><td><code>/export</code></td><td>save the session to HTML or JSONL</td></tr>
   </table>
@@ -382,13 +381,14 @@ cat paper.tex | pi -p "find the undefined references"</pre>
     <tr><td><strong>Sub-agents</strong></td><td>64-child fan-out budget, with Llama&nbsp;3.3 workers via a local tool-call shim</td></tr>
     <tr><td><strong>Editing</strong></td><td>anchor-based, which survives long files better than line-number patches</td></tr>
     <tr><td><strong>Memory</strong></td><td>per-project <code>AGENTS.md</code>, plus searchable cross-session memory</td></tr>
-    <tr><td><strong>Web</strong></td><td>DuckDuckGo, then Exa</td></tr>
-    <tr><td><strong>Sessions</strong></td><td>kept in <code>.pi/sessions/</code> inside each project, not one central pile</td></tr>
+    <tr><td><strong>Web</strong></td><td>DuckDuckGo, then Exa; off by default until <code>pi --remote</code></td></tr>
+    <tr><td><strong>Sessions</strong></td><td>per-project, private to your account (directory mode 700; existing files tightened to mode 600)</td></tr>
   </table>
   <p>
     The configuration carries a number of settings that were measured rather than guessed
-    &mdash; thinking off, retry budgets tuned for a shared gateway, a refusal to launch when the
-    machine is already saturated with sub-agents. The reasoning and the numbers are in
+    &mdash; thinking off, retry budgets tuned for a shared gateway, and a warning when the
+    machine is already saturated with sub-agents. Dependencies are exact and locked; updates
+    are validated in staging before activation. The reasoning and the numbers are in
     <a href="https://github.com/rob-c/elm-pi/blob/main/INSTALL.md#measured-behaviour">INSTALL.md</a>.
   </p>
 </section>

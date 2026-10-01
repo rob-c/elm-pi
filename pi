@@ -47,6 +47,7 @@ Useful environment:
   PI_ELM_WEB=1              web tools for one run, without opening the proxy
   ELM_PI_PROXY_ALLOW=a,b    let this run reach these hosts and no others
   ELM_PI_NO_PROXY=1         run unproxied (debugging)
+  ELM_PI_SHARED_STATE=1     preserve existing shared session/memory permissions
   PI_ELM_UNLOCK=1           lift the credential scrub and the argument guard
   PI_FORCE=1                skip the busy-machine warning
   PI_ELM_STARTUP_CHECKS=1   restore pi's own startup network checks
@@ -72,28 +73,25 @@ if [ -f "$HERE/.env" ]; then
   set -a; . "$HERE/.env"; set +a
 fi
 
-# --- install-wide policy defaults -------------------------------------------
-# Written by bootstrap.sh: present only on an install set up with --remote,
-# where it turns the web tools back on and lifts the ELM-only guards. It uses
-# `: "${VAR:=...}"`, so anything already in the environment still wins and a
-# single run can be locked back down with PI_ELM_WEB=0 PI_ELM_UNLOCK=0.
-# Telemetry and the version check are not settable from it - see below.
-if [ -f "$HERE/agent/policy.env" ]; then
-  . "$HERE/agent/policy.env"
-fi
-
 # Disable telemetry by default (can be overridden with PI_TELEMETRY=1)
 export PI_TELEMETRY="${PI_TELEMETRY:-0}"
 
-if [ -z "${ELM_API_KEY:-}" ]; then
-  echo "ELM_API_KEY is not set. Copy $HERE/.env.example to $HERE/.env and add your ELM key." >&2
-  echo "Run $HERE/bootstrap.sh if this install has not been set up yet." >&2
-  exit 1
-fi
-
-
 # keep config, sessions and credentials inside this directory, not ~/.pi
 export PI_CODING_AGENT_DIR="$HERE/agent"
+[ -f "$HERE/agent/runtime.env" ] || {
+  echo "elm-pi runtime configuration is missing. Run $HERE/bootstrap.sh." >&2
+  exit 1
+}
+# shellcheck source=/dev/null
+. "$HERE/agent/runtime.env"
+for helper in policy state; do
+  [ -f "$HERE/lib/$helper.sh" ] || {
+    echo "elm-pi helper is missing: $HERE/lib/$helper.sh. Run $HERE/bootstrap.sh." >&2
+    exit 1
+  }
+  # shellcheck source=/dev/null
+  . "$HERE/lib/$helper.sh"
+done
 
 # --- where jiti keeps its transpile cache -----------------------------------
 # The npm packages ship raw TypeScript and are transpiled at first use: ~21s of
@@ -142,7 +140,7 @@ export PI_RADIUS_GATEWAY="${PI_RADIUS_GATEWAY:-http://127.0.0.1:1}"
 export PI_SUBAGENT_PI_BINARY="${PI_SUBAGENT_PI_BINARY:-$HERE/pi}"
 
 # --- --fast / --llama ------------------------------------------------------
-# Measured on this install: pi core plus the four npm packages costs ~4.4s of CPU
+# Measured on this install: pi core plus the npm package set costs ~4.4s of CPU
 # at every launch, because the packages ship raw TypeScript and are transpiled and
 # imported from hundreds of files each time. pi itself starts in well under a
 # second. --fast loads only the local extensions, so a one-shot question does not
@@ -164,6 +162,17 @@ for a in "$@"; do
   esac
 done
 set -- ${ARGS[@]+"${ARGS[@]}"}
+
+# Catalogue and package-management commands do not contact the ELM inference
+# endpoint. Keep them usable when a key has expired or a fresh install still
+# needs configuring; ordinary sessions continue to fail early with guidance.
+NEEDS_ELM_KEY=1
+case "${1:-}" in update|install|remove|--list-models|--version) NEEDS_ELM_KEY=0 ;; esac
+if [ "$NEEDS_ELM_KEY" = "1" ] && [ -z "${ELM_API_KEY:-}" ]; then
+  echo "ELM_API_KEY is not set. Copy $HERE/.env.example to $HERE/.env and add your ELM key." >&2
+  echo "Run $HERE/bootstrap.sh if this install has not been set up yet." >&2
+  exit 1
+fi
 
 # --- --remote: let this run reach the internet -------------------------------
 # Two things stop pi reaching anything but the gateway: the web tools are off by
@@ -197,7 +206,7 @@ if [ "$REMOTE" = "1" ]; then
 fi
 
 PRE=()
-LLAMA_MODEL="elm-shim/meta-llama/Llama-3.3-70B-Instruct"
+LLAMA_MODEL="elm-shim/$ELM_LLAMA_MODEL_ID"
 WANTS_SHIM=$LLAMA
 case " $* " in *" elm-shim"*|*"elm-shim/"*) WANTS_SHIM=1 ;; esac
 
@@ -209,6 +218,13 @@ if [ "$FAST" = "1" ]; then
   if [ "$WANTS_SHIM" = "1" ] && [ -f "$HERE/agent/extensions/elm-shim.ts" ]; then
     PRE+=(-e "$HERE/agent/extensions/elm-shim.ts")
   fi
+fi
+# A caller may turn off package discovery, but the model policy is an invariant
+# of the locked launcher. Load it explicitly for either spelling, just as
+# --fast does. The helper respects --, where these tokens become prompt text.
+if [ "$FAST" != "1" ] && elm_policy_extensions_disabled "$@"; then
+  [ -f "$HERE/agent/extensions/elm-only.ts" ] && \
+    PRE+=(-e "$HERE/agent/extensions/elm-only.ts")
 fi
 if [ "$LLAMA" = "1" ]; then
   case " $* " in
@@ -240,7 +256,7 @@ if [ "${PI_ELM_WEB:-0}" != "1" ]; then
     # the caller has already said something about tools; do not argue with it
     *" --tools "*|*" -t "*|*" --exclude-tools "*|*" -xt "*) : ;;
     # one flag, one value: the value is a comma-separated list, not a list
-    *) PRE+=(--exclude-tools "web_search,source_check,fetch_content,get_search_content") ;;
+    *) PRE+=(--exclude-tools "$ELM_WEB_TOOLS") ;;
   esac
 fi
 # ---------------------------------------------------------------------------
@@ -260,65 +276,26 @@ fi
 #   PI_ELM_UNLOCK=1 PI_ELM_ALLOWED_PROVIDERS="elm,elm-shim,anthropic" pi ...
 UNLOCK="${PI_ELM_UNLOCK:-0}"
 
-# Provider ids pi ships built in. Regenerate with:
-#   ./pi -p 'x' plus the probe in LOCKDOWN.md, or read dist/bundle/chunks.
-DENIED_PROVIDERS="amazon-bedrock ant-ling anthropic azure-openai-responses baseten \
-cerebras cloudflare-ai-gateway cloudflare-workers-ai deepseek fireworks github-copilot \
-google google-vertex groq huggingface kimi-coding minimax minimax-cn mistral moonshotai \
-moonshotai-cn nvidia openai openai-codex opencode opencode-go openrouter qwen-token-plan \
-qwen-token-plan-cn qwen-token-plan-individual radius together vercel-ai-gateway xai xiaomi \
-xiaomi-token-plan-ams xiaomi-token-plan-cn xiaomi-token-plan-sgp zai zai-coding-cn"
-
 if [ "$UNLOCK" != "1" ]; then
   # 1. credential scrub. Only LLM-provider credentials are removed, and only
   #    from pi's own environment - your shell is untouched. AWS_* and GITHUB_*
   #    are deliberately left alone: the agent's bash tool needs them for real
   #    work, and layer 3 already removes bedrock/copilot from the catalogue.
-  unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_OAUTH_TOKEN ANTHROPIC_BASE_URL \
-        OPENAI_API_KEY OPENAI_BASE_URL OPENAI_ORGANIZATION \
-        AZURE_OPENAI_API_KEY AZURE_OPENAI_BASE_URL AZURE_OPENAI_RESOURCE_NAME \
-        GEMINI_API_KEY GOOGLE_API_KEY GOOGLE_GENERATIVE_AI_API_KEY \
-        AWS_BEARER_TOKEN_BEDROCK \
-        ANT_LING_API_KEY DEEPSEEK_API_KEY NVIDIA_API_KEY GROQ_API_KEY CEREBRAS_API_KEY \
-        XAI_API_KEY FIREWORKS_API_KEY TOGETHER_API_KEY BASETEN_API_KEY OPENROUTER_API_KEY \
-        AI_GATEWAY_API_KEY ZAI_API_KEY ZAI_CODING_CN_API_KEY MISTRAL_API_KEY \
-        MINIMAX_API_KEY MOONSHOT_API_KEY OPENCODE_API_KEY KIMI_API_KEY \
-        CLOUDFLARE_API_KEY CLOUDFLARE_GATEWAY_ID HUGGINGFACE_API_KEY HF_TOKEN \
-        QWEN_TOKEN_PLAN_API_KEY QWEN_TOKEN_PLAN_CN_API_KEY \
-        XIAOMI_API_KEY XIAOMI_TOKEN_PLAN_CN_API_KEY XIAOMI_TOKEN_PLAN_AMS_API_KEY \
-        XIAOMI_TOKEN_PLAN_SGP_API_KEY 2>/dev/null || true
+  for credential_name in $ELM_PROVIDER_CREDENTIALS; do
+    unset "$credential_name" 2>/dev/null || true
+  done
   unset PI_ELM_ALLOWED_PROVIDERS 2>/dev/null || true
 
-  # 2. argument guard
+  # 2. argument guard: default-deny every provider outside the allowlist. This
+  # is deliberately not a list of providers known when this file was written.
   refuse() {
     echo "pi: $1" >&2
     echo "    This install is restricted to the University's self-hosted ELM models." >&2
     echo "    Why, and how to lift it: $HERE/LOCKDOWN.md" >&2
     exit 2
   }
-  denied_prefix() {   # $1 = "provider/model-id" or a bare pattern
-    local head="${1%%/*}"
-    for d in $DENIED_PROVIDERS; do [ "$head" = "$d" ] && return 0; done
-    return 1
-  }
-  prev=""
-  for a in "$@"; do
-    case "$prev" in
-      --provider)
-        denied_prefix "$a" && refuse "provider \"$a\" is not available." ;;
-      --model|-m|--models)
-        # comma-separated patterns; each may carry a provider/ prefix
-        IFS=',' read -r -a pats <<< "$a"
-        for p in ${pats[@]+"${pats[@]}"}; do
-          denied_prefix "${p%%:*}" && refuse "model \"$p\" belongs to a provider that is not available."
-        done ;;
-    esac
-    case "$a" in
-      --api-key) refuse "--api-key is disabled: it would route this session to an external, billable provider." ;;
-      --api-key=*) refuse "--api-key is disabled: it would route this session to an external, billable provider." ;;
-    esac
-    prev="$a"
-  done
+  type elm_policy_check_args >/dev/null 2>&1 || refuse "the argument policy helper is missing."
+  elm_policy_check_args "$@" || refuse "$ELM_POLICY_ERROR"
 fi
 
 # ---------------------------------------------------------------------------
@@ -376,31 +353,27 @@ if [ "${1:-}" = "update" ]; then
         # whatever npm resolved at install time, which is the half-updated
         # state this used to produce.
         echo "pi: updating this install." >&2
-        echo "    1/2 elm-pi and pi, from GitHub (latest main branch)" >&2
-        echo "    2/2 extension packages, via pi update --extensions" >&2
-        echo "    For the extension packages alone: pi update --extensions" >&2
+        echo "    source, pi and extension packages will be replaced only by reviewed, locked versions" >&2
+        echo "    For the locked extension packages alone: pi update --extensions" >&2
         echo "" >&2
         # The launch-time offline default must not follow us into an update.
         unset PI_OFFLINE PI_SKIP_VERSION_CHECK
-        "$HERE/bootstrap.sh" --update --non-interactive || {
-            echo "pi: the elm-pi update failed; extension packages were left alone." >&2
+        ELM_PI_PREFIX="$HERE" ELM_PI_NO_PATH=1 ELM_PI_NO_LINK=1 \
+          "$HERE/install.sh" --update --no-path --no-link || {
+            echo "pi: the elm-pi update failed; the previous dependency tree remains active." >&2
             exit 1
         }
-        echo "" >&2
-        echo "pi: updating extension packages..." >&2
-        [ -x "$HERE/pi.orig" ] || {
-            echo "pi: $HERE/pi.orig is missing - cannot update the extension packages." >&2
-            exit 1
-        }
-        RC=0
-        "$HERE/pi.orig" update --extensions || RC=$?
-        # Updated packages are new source to jiti, so its transpile cache is
-        # cold again and the next launch would rebuild it - ~21s of CPU before
-        # the prompt appears. Pay it here, where waiting is what you asked for.
-        echo "" >&2
-        echo "pi: warming the module cache..." >&2
-        PI_OFFLINE=1 "$HERE/pi.orig" --list-models >/dev/null 2>&1 || true
-        exit "$RC"
+        exit 0
+    fi
+    if [ "$HAS_EXTENSIONS" = "1" ] && [ "$HAS_MODELS" = "0" ]; then
+        echo "pi: reinstalling the repository-pinned extension package set..." >&2
+        unset PI_OFFLINE PI_SKIP_VERSION_CHECK
+        "$HERE/bootstrap.sh" --force-packages --non-interactive
+        exit $?
+    fi
+    if [ "$HAS_EXTENSIONS" = "1" ] && [ "$HAS_MODELS" = "1" ]; then
+        echo "pi: update --extensions and --models must be run separately." >&2
+        exit 2
     fi
 fi
 # ---------------------------------------------------------------------------
@@ -422,6 +395,38 @@ if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/n
     mkdir -p .pi 2>/dev/null && printf '*\n' > .pi/.gitignore 2>/dev/null || true
   fi
 fi
+
+# Session transcripts and memory contain source, prompts and command output.
+# Secure their directories directly rather than setting umask for the process,
+# which would unexpectedly change permissions on project files created by tools.
+SESSION_DIR="$(python3 - "$HERE/agent/settings.json" <<'PY'
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("sessionDir", ".pi/sessions"))
+except Exception:
+    print(".pi/sessions")
+PY
+)"
+[ -z "${PI_CODING_AGENT_SESSION_DIR:-}" ] || SESSION_DIR="$PI_CODING_AGENT_SESSION_DIR"
+session_prev=""
+for session_arg in "$@"; do
+  if [ "$session_prev" = "stop" ]; then continue; fi
+  if [ "$session_prev" = "value" ]; then SESSION_DIR="$session_arg"; session_prev=""; continue; fi
+  case "$session_arg" in
+    --) session_prev="stop" ;;
+    --session-dir) session_prev="value" ;;
+    --session-dir=*) SESSION_DIR="${session_arg#*=}" ;;
+  esac
+done
+type elm_secure_runtime_state >/dev/null 2>&1 || {
+  echo "pi: the state-permission helper is missing; refusing to create readable transcripts." >&2
+  exit 1
+}
+SESSION_DIR="$(elm_normalize_session_dir "$SESSION_DIR" "$PWD")" || {
+  echo "pi: could not resolve the session directory safely." >&2
+  exit 1
+}
+elm_secure_runtime_state "$HERE" "$SESSION_DIR"
 # ---------------------------------------------------------------------------
 
 # --- egress proxy -----------------------------------------------------------
@@ -565,7 +570,7 @@ if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
   # The heartbeat asks the proxy who it is rather than only whether the port
   # accepts, because a port can be held by something that is not ours, and a
   # proxy can hold the port while being unable to answer. One bash subshell a
-  # second, no interpreter and no network, so it is affordable all night at an
+# second, no interpreter and no network, so it is affordable all night at an
   # interval short enough that nothing notices the gap.
   #
   # It follows $$, the same pid the proxy's own watchdog follows, so it goes when
@@ -618,9 +623,13 @@ CORES="$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 8)"
 if [ -r /proc/loadavg ]; then
   LOAD1="$(awk '{print $1}' /proc/loadavg)"
 else
-  LOAD1="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
+  LOAD1="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}' || true)"
 fi
-RUNNERS="$(ps -Ao command 2>/dev/null | grep -c '[p]i-subagents/runner-peer-preload' || true)"
+if command -v pgrep >/dev/null 2>&1; then
+  RUNNERS="$(pgrep -fc 'pi-subagents/runner-peer-preload' 2>/dev/null || true)"
+else
+  RUNNERS=0
+fi
 if [ -n "${LOAD1:-}" ] && [ "${PI_FORCE:-0}" != "1" ] && [ -z "${PI_ELM_CHILD:-}" ]; then
   OVER=$(awk -v l="$LOAD1" -v c="$CORES" 'BEGIN{print (l > c*1.5) ? 1 : 0}')
   if [ "$OVER" = "1" ]; then

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Resolve the real model id from the ELM gateway and update agent/models.json +
-# agent/settings.json IN PLACE, then smoke-test one completion.
+# agent/settings.json in place, after smoke-testing one completion.
 #
 # Unlike a naive rewrite, this merges: your packages, extensions, retry and
 # session settings survive. Only the model id and defaultModel change.
@@ -10,14 +10,22 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ -f "$HERE/.env" ] && { set -a; . "$HERE/.env"; set +a; }
 : "${ELM_API_KEY:?Set ELM_API_KEY in $HERE/.env first}"
+case "$ELM_API_KEY" in
+  *$'\n'*|*$'\r'*) echo "ELM_API_KEY must be a single line" >&2; exit 2 ;;
+esac
 
 BASE="${ELM_BASE_URL:-https://elm.edina.ac.uk/api/v1}"
 MATCH="${1:-qwen}"
+RAW="$(mktemp "$HERE/agent/.models-raw.XXXXXX.json")"
+AUTH_HEADER="$(mktemp "$HERE/agent/.auth-header.XXXXXX")"
+chmod 600 "$RAW" "$AUTH_HEADER"
+printf 'Authorization: Bearer %s\n' "$ELM_API_KEY" > "$AUTH_HEADER"
+trap 'rm -f "$RAW" "$AUTH_HEADER"' EXIT
 
 echo "Querying $BASE/models ..."
-curl -sS -m 30 -H "Authorization: Bearer $ELM_API_KEY" "$BASE/models" > "$HERE/agent/.models-raw.json"
+curl -fsS -m 30 -H "@$AUTH_HEADER" "$BASE/models" > "$RAW"
 
-MODEL_ID=$(MATCH="$MATCH" python3 - "$HERE/agent/.models-raw.json" <<'PY'
+MODEL_ID=$(MATCH="$MATCH" python3 - "$RAW" <<'PY'
 import json,os,sys
 raw=open(sys.argv[1]).read()
 try: d=json.loads(raw)
@@ -42,6 +50,24 @@ PY
 )
 
 echo "Model id: $MODEL_ID"
+
+echo
+echo "Smoke test ..."
+curl -fsS -m 120 -H "@$AUTH_HEADER" -H "Content-Type: application/json" \
+  "$BASE/chat/completions" \
+  -d "$(python3 -c 'import json,sys;print(json.dumps({"model":sys.argv[1],"messages":[{"role":"user","content":"Reply with exactly: OK"}],"max_tokens":256,"reasoning_effort":"none"}))' "$MODEL_ID")" \
+  | python3 -c '
+import json,sys
+raw=sys.stdin.read()
+try: d=json.loads(raw)
+except Exception: sys.exit("  non-JSON reply: "+raw[:300])
+if "error" in d: sys.exit("  error: "+json.dumps(d["error"]))
+print("  reply:", d["choices"][0]["message"].get("content"))
+'
+
+# One state file feeds every generated consumer: the main model, sub-agent
+# overrides, task-model profiles, agent frontmatter and the launcher environment.
+python3 "$HERE/scripts/elm_config.py" --root "$HERE" set-model qwen "$MODEL_ID"
 
 python3 - "$HERE" "$MODEL_ID" "$BASE" "$MATCH" <<'PY'
 import json,sys
@@ -76,20 +102,5 @@ if match.lower() in settings.get("defaultModel","").lower() or not settings.get(
 json.dump(settings,open(sp,"w"),indent=2); open(sp,"a").write("\n")
 print("Updated agent/models.json and agent/settings.json (merged, nothing else changed)")
 PY
-
-echo
-echo "Smoke test ..."
-curl -sS -m 120 -H "Authorization: Bearer $ELM_API_KEY" -H "Content-Type: application/json" \
-  "$BASE/chat/completions" \
-  -d "$(python3 -c 'import json,sys;print(json.dumps({"model":sys.argv[1],"messages":[{"role":"user","content":"Reply with exactly: OK"}],"max_tokens":256,"reasoning_effort":"none"}))' "$MODEL_ID")" \
-  | python3 -c '
-import json,sys
-raw=sys.stdin.read()
-try: d=json.loads(raw)
-except Exception: sys.exit("  non-JSON reply: "+raw[:300])
-if "error" in d: sys.exit("  error: "+json.dumps(d["error"]))
-print("  reply:", d["choices"][0]["message"].get("content"))
-'
-rm -f "$HERE/agent/.models-raw.json"
 echo
 echo "Done. Run ./pi to start the agent."
