@@ -45,7 +45,7 @@ ELM_API_KEY=elm-... /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com
 
 Re-running either is safe: neither overwrites `.env`, sessions, memory, or a
 config you have edited. `pi update` fetches and validates current source, then
-refreshes pi and the packages from repository lockfiles while keeping configs.
+re-resolves and reinstalls pi and the packages while keeping configs.
 
 Installer knobs, if the defaults do not suit:
 
@@ -164,8 +164,8 @@ mkdir -p .node && tar -xzf "/tmp/$TAR" -C .node --strip-components=1
 
 ### 2. pi
 
-`package.json` and `package-lock.json` are the reviewed source of truth. Bootstrap
-runs `npm ci --omit=dev --ignore-scripts` in a sibling staging directory, patches
+`package.json` is the source of truth and asks for `latest`. Bootstrap runs
+`npm install --omit=dev --ignore-scripts` in a sibling staging directory, patches
 and starts the staged CLI, then atomically swaps its `node_modules` into place.
 The prebuilt pi bundle does not need dependency install scripts.
 
@@ -194,9 +194,9 @@ pi install.
 
 ### 4. pi packages
 
-pi resolves `npm:<name>` from `agent/npm/node_modules`. Bootstrap installs the
-exact graph in `templates/packages-lock.json` with `npm ci`, initially with all
-package scripts disabled. It then rebuilds only the reviewed native dependency,
+pi resolves `npm:<name>` from `agent/npm/node_modules`. Bootstrap installs
+`templates/packages.json` with `npm install`, initially with all package scripts
+disabled. It then rebuilds only the reviewed native dependency,
 `better-sqlite3`, in staging before activating the tree.
 
 | Package | |
@@ -500,8 +500,8 @@ the network.
    **8.01s → 3.49s**, both producing the correct edit.
 
 2. **`./bootstrap.sh --no-memory`** stops loading `pi-hermes-memory`, saving ~1.8s
-   of CPU per launch. The package stays in the reviewed locked tree so the install
-   remains reproducible. Per-project `AGENTS.md` is unaffected; cross-session FTS5
+   of CPU per launch. The package is still installed, so turning it back on
+   needs no download. Per-project `AGENTS.md` is unaffected; cross-session FTS5
    search is unavailable until bootstrap is rerun without the flag.
 
 3. **Machine load.** Wall time is CPU time multiplied by whatever else the machine

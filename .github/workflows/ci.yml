@@ -22,14 +22,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install locked development dependencies
-        run: |
-          npm ci --ignore-scripts --no-audit --no-fund
-          ./scripts/repair-transitives.sh node_modules
+      - name: Install development dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
       - name: Run source, unit and type checks
         run: ./scripts/check.sh
-      - name: Audit reviewed lockfiles
-        run: npm run audit:locks
 
   shellcheck:
     runs-on: ubuntu-latest

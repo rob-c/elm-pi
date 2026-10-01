@@ -18,13 +18,9 @@ cd "$HERE"
 CONFIG_TOOL="$HERE/scripts/elm_config.py"
 [ -x "$CONFIG_TOOL" ] || chmod +x "$CONFIG_TOOL" 2>/dev/null || true
 NODE_VERSION="${NODE_VERSION:-$(python3 "$CONFIG_TOOL" --root "$HERE" value nodeVersion)}"
-PINNED_PI_VERSION="$(python3 -c 'import json; print(json.load(open("package.json"))["dependencies"]["@earendil-works/pi-coding-agent"])')"
-PI_VERSION="${PI_VERSION:-$PINNED_PI_VERSION}"
-[ "$PI_VERSION" = "$PINNED_PI_VERSION" ] || {
-  echo "ERROR: PI_VERSION overrides are no longer installed without a lockfile." >&2
-  echo "       Update package.json and package-lock.json together instead." >&2
-  exit 2
-}
+# package.json asks for "latest", so this is a dist tag unless someone pins a
+# version for a run: PI_VERSION=0.86.1 ./bootstrap.sh installs exactly that.
+PI_VERSION="${PI_VERSION:-$(python3 -c 'import json; print(json.load(open("package.json"))["dependencies"]["@earendil-works/pi-coding-agent"])')}"
 
 
 
@@ -149,8 +145,6 @@ export PATH="$HERE/.node/bin:$PATH"
 
 # --- 2. pi ------------------------------------------------------------------
 say "pi coding agent"
-[ "$UPDATE" != "1" ] || echo "    applying repository-reviewed dependency locks"
-[ -f package-lock.json ] || die "package-lock.json is missing; installs require the reviewed lockfile"
 
 PI_INSTALLED=""
 if [ -f node_modules/@earendil-works/pi-coding-agent/package.json ]; then
@@ -159,33 +153,35 @@ if [ -f node_modules/@earendil-works/pi-coding-agent/package.json ]; then
     2>/dev/null) || PI_INSTALLED=""
 fi
 
-# Reinstalling pi is the slowest step in this script. The lock digest catches
-# transitive changes even when pi's own version stays the same.
-CORE_LOCK_DIGEST="$(sha256_of package-lock.json)" || die "cannot hash package-lock.json"
+# Reinstalling pi is the slowest step in this script, so it runs only when
+# something changed. The manifest digest catches an edited dependency list;
+# nothing can catch "latest" moving on the registry, which is what --update
+# and --force are for.
+CORE_MANIFEST_DIGEST="$(sha256_of package.json)" || die "cannot hash package.json"
 CORE_STAMP="node_modules/.elm-pi-lock.sha256"
 NEED_PI=0
-if [ "$FORCE" = "1" ] || [ -z "$PI_INSTALLED" ]; then
+if [ "$FORCE" = "1" ] || [ "$UPDATE" = "1" ] || [ -z "$PI_INSTALLED" ]; then
   NEED_PI=1
-elif [ "$PI_VERSION" != "$PI_INSTALLED" ]; then
+elif [ "$PI_VERSION" != "latest" ] && [ "$PI_VERSION" != "$PI_INSTALLED" ]; then
   echo "    $PI_INSTALLED -> $PI_VERSION"
   NEED_PI=1
-elif [ ! -f "$CORE_STAMP" ] || [ "$(cat "$CORE_STAMP" 2>/dev/null)" != "$CORE_LOCK_DIGEST" ]; then
-  echo "    dependency lock changed"
+elif [ ! -f "$CORE_STAMP" ] || [ "$(cat "$CORE_STAMP" 2>/dev/null)" != "$CORE_MANIFEST_DIGEST" ]; then
+  echo "    dependency list changed"
   NEED_PI=1
 fi
 
 if [ "$NEED_PI" = "1" ]; then
   CORE_STAGE="$(mktemp -d "$HERE/.elm-pi-stage-core.XXXXXX")"
-  cp package.json package-lock.json "$CORE_STAGE/"
-  ( cd "$CORE_STAGE" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error )
-  "$HERE/scripts/repair-transitives.sh" "$CORE_STAGE/node_modules"
+  cp package.json "$CORE_STAGE/"
+  ( cd "$CORE_STAGE" && npm install --omit=dev --ignore-scripts --no-audit --no-fund \
+      --fetch-retries=5 --fetch-retry-maxtimeout=60000 --loglevel=error )
   if [ "$WITH_PATCH" = "1" ]; then
     "$HERE/patch-pi.py" --bundle "$CORE_STAGE/node_modules/@earendil-works/pi-coding-agent/dist/bundle" \
       || die "could not disable /share and /bug in the staged pi release"
   fi
   "$HERE/.node/bin/node" "$CORE_STAGE/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" --version >/dev/null \
     || die "the staged pi release does not start"
-  printf '%s\n' "$CORE_LOCK_DIGEST" > "$CORE_STAGE/node_modules/.elm-pi-lock.sha256"
+  printf '%s\n' "$CORE_MANIFEST_DIGEST" > "$CORE_STAGE/node_modules/.elm-pi-lock.sha256"
   CORE_OLD="$HERE/.elm-pi-old-core.$$"
   [ ! -d node_modules ] || mv node_modules "$CORE_OLD"
   if ! mv "$CORE_STAGE/node_modules" node_modules; then
@@ -643,7 +639,7 @@ if [ "$WITH_PACKAGES" = "1" ]; then
   # npm installs, and carries libraries that are not pi packages at all
   # (better-sqlite3, which pi-hermes-memory needs to build against).
   # templates/settings.json is what pi loads. Only the latter is filtered by
-  # --no-memory: keeping one package manifest means npm ci can verify one lock.
+  # --no-memory: one package manifest installs, the other decides what loads.
   #
   # agent/settings.json's "packages" is derived from the template every run
   # rather than filtered in place. Filtering in place could only ever remove:
@@ -651,9 +647,7 @@ if [ "$WITH_PACKAGES" = "1" ]; then
   # ever after, so a later run installed all four packages into agent/npm and
   # then loaded none of them. Everything else in that file is yours and is left
   # exactly as you left it.
-  [ -f templates/packages-lock.json ] || die "templates/packages-lock.json is missing"
   cp -f templates/packages.json agent/npm/package.json
-  cp -f templates/packages-lock.json agent/npm/package-lock.json
   DROP="$DROP" python3 - <<'PYX'
 import json, os
 drop = {d for d in os.environ.get("DROP", "").split() if d}
@@ -680,22 +674,22 @@ PYX
   for pkg in $CHOSEN; do
     [ -d "agent/npm/node_modules/$pkg" ] || MISSING=1
   done
-  PACKAGE_LOCK_DIGEST="$(sha256_of templates/packages-lock.json)" || die "cannot hash the package lock"
+  PACKAGE_MANIFEST_DIGEST="$(sha256_of templates/packages.json)" || die "cannot hash the package manifest"
   PACKAGE_STAMP="agent/npm/node_modules/.elm-pi-lock.sha256"
-  if [ "$FORCE" = "1" ] || [ "$FORCE_PACKAGES" = "1" ] || [ "$MISSING" = "1" ] || [ ! -f "$PACKAGE_STAMP" ] \
-     || [ "$(cat "$PACKAGE_STAMP" 2>/dev/null)" != "$PACKAGE_LOCK_DIGEST" ]; then
+  if [ "$FORCE" = "1" ] || [ "$UPDATE" = "1" ] || [ "$FORCE_PACKAGES" = "1" ] || [ "$MISSING" = "1" ] \
+     || [ ! -f "$PACKAGE_STAMP" ] \
+     || [ "$(cat "$PACKAGE_STAMP" 2>/dev/null)" != "$PACKAGE_MANIFEST_DIGEST" ]; then
     PKG_STAGE="$(mktemp -d "$HERE/.elm-pi-stage-packages.XXXXXX")"
     cp templates/packages.json "$PKG_STAGE/package.json"
-    cp templates/packages-lock.json "$PKG_STAGE/package-lock.json"
-    ( cd "$PKG_STAGE" && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error )
-    "$HERE/scripts/repair-transitives.sh" "$PKG_STAGE/node_modules"
+    ( cd "$PKG_STAGE" && npm install --ignore-scripts --no-audit --no-fund \
+        --fetch-retries=5 --fetch-retry-maxtimeout=60000 --loglevel=error )
     # Package scripts are disabled globally. Hermes' SQLite driver is the single
     # reviewed native dependency that needs its install/build step.
     ( cd "$PKG_STAGE" && npm rebuild better-sqlite3 --foreground-scripts --no-audit --no-fund --loglevel=error )
     for pkg in $CHOSEN; do
       [ -d "$PKG_STAGE/node_modules/$pkg" ] || die "staged package is missing: $pkg"
     done
-    printf '%s\n' "$PACKAGE_LOCK_DIGEST" > "$PKG_STAGE/node_modules/.elm-pi-lock.sha256"
+    printf '%s\n' "$PACKAGE_MANIFEST_DIGEST" > "$PKG_STAGE/node_modules/.elm-pi-lock.sha256"
     PKG_OLD="$HERE/.elm-pi-old-packages.$$"
     [ ! -d agent/npm/node_modules ] || mv agent/npm/node_modules "$PKG_OLD"
     if ! mv "$PKG_STAGE/node_modules" agent/npm/node_modules; then
@@ -837,15 +831,14 @@ source = open(pkg, encoding="utf-8", errors="replace").read()
 block = re.search(r"const DEFAULT_TOOL_NAMES[^=]*=\s*\{(.*?)\}", source, re.S)
 registers = set(re.findall(r'"([a-z][a-z0-9_]*)"', block.group(1))) if block else set()
 
-launcher = open(os.path.join(here, "pi"), encoding="utf-8").read()
-# Tool-name characters only: `--exclude-tools "` also appears in the case
-# pattern that detects a caller's own --exclude-tools, and a loose class
-# matches `*|*` from that line first.
-listed = re.findall(r'--exclude-tools "([a-z0-9_,-]+)"', launcher)
-excluded = set(listed[0].split(",")) if listed else set()
+# config/elm-pi.json is the source of truth. The launcher passes the list as
+# "$ELM_WEB_TOOLS", so scraping ./pi for a literal list finds nothing and
+# reported a working exclusion as an unreadable one.
+config = json.load(open(os.path.join(here, "config/elm-pi.json"), encoding="utf-8"))
+excluded = set(config.get("webTools") or [])
 
 if not registers or not excluded:
-    print("    web tools: could not read one of the two lists - check ./pi by hand")
+    print("    web tools: could not read one of the two lists - check\n          config/elm-pi.json and pi-web-access by hand")
     sys.exit(1)
 missing = registers - excluded
 if missing:
@@ -859,9 +852,12 @@ if stale:
     print("    web tools: %s excluded but no longer registered - harmless, tidy when convenient"
           % ", ".join(sorted(stale)))
 PYW
-GUARD="$(PI_FORCE=1 ./pi --model anthropic/claude-opus-5 -p x </dev/null 2>&1 || true)"
+# Match the sentence both refusal paths share. lib/policy.sh says "is not
+# available" for --provider and "is outside the allowed providers" for --model,
+# so probing for the first reported a working guard as broken.
+GUARD="$(PI_FORCE=1 ELM_PI_NO_PROXY=1 ./pi --model anthropic/claude-opus-5 -p x </dev/null 2>&1 || true)"
 case "$GUARD" in
-  *"not available"*) echo "    argument guard: --model anthropic/... refused" ;;
+  *"restricted to the University"*) echo "    argument guard: --model anthropic/... refused" ;;
   *) warn "argument guard did not refuse --model anthropic/... - check the launcher" ;;
 esac
 

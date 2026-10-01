@@ -1,6 +1,8 @@
 # secrets
 .env
 # installed software
+package-lock.json
+templates/packages-lock.json
 .node/
 node_modules/
 .elm-pi-source-manifest

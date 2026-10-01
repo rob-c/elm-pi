@@ -19,8 +19,8 @@ CI runs the same checks on Linux and macOS.
 - `config/elm-pi.json`: Node version, model defaults, allowed and built-in
   providers, scrubbed credential variables, web-tool names and required local
   extensions.
-- `package.json` plus `package-lock.json`: pi and development tooling.
-- `templates/packages.json` plus `templates/packages-lock.json`: pi extensions.
+- `package.json`: pi and development tooling.
+- `templates/packages.json`: pi extensions.
 - `templates/`: generated agent code and initial configuration. Model strings use
   `@QWEN_MODEL@` and `@LLAMA_MODEL@`; `scripts/elm_config.py` renders them.
 
@@ -28,36 +28,31 @@ Do not edit generated files under `agent/` as the durable version of a change.
 
 ## Updating npm dependencies
 
-Change an exact version in the appropriate manifest, regenerate its lockfile, and
-run the complete checks. Never use `latest`, caret or tilde ranges in a committed
-manifest.
-
-Core and development tree:
+Both manifests ask for `latest` and no lockfiles are committed, so every install
+resolves whatever the registry currently publishes. Adding a package is one line
+in the appropriate manifest, plus `npm:<name>` in `templates/settings.json` if pi
+should load it as an extension.
 
 ```bash
-PATH="$PWD/.node/bin:$PATH" npm install --package-lock-only --ignore-scripts
+./bootstrap.sh --update      # re-resolve and reinstall both trees
 ```
 
-For the extension tree, copy `templates/packages.json` to a temporary directory
-as `package.json`, run the same lock-only command there, and copy the resulting
-`package-lock.json` to `templates/packages-lock.json`.
+`--update` and `--force` are the only things that move an existing install
+forward: the manifest digest in `node_modules/.elm-pi-lock.sha256` skips the
+reinstall when the dependency list has not changed, and it cannot see `latest`
+moving on the registry.
 
-Runtime installs use `npm ci --ignore-scripts`. The only package script explicitly
-re-enabled is the `better-sqlite3` native rebuild in the staged extension tree.
-After `npm ci`, run `./scripts/repair-transitives.sh node_modules`; bootstrap and
-CI already do this. It replaces only vulnerable copies nested by a dependency's
-published shrinkwrap, using separately integrity-locked direct dependencies.
+Runtime installs use `npm install --ignore-scripts`. The one package script
+explicitly re-enabled is the `better-sqlite3` native rebuild in the staged
+extension tree.
 
-Both manifests also carry reviewed transitive security overrides. The pi package
-publishes its own shrinkwrap, so a plain lockfile regeneration can reintroduce an
-older nested dependency even when the root override is present. The project tests
-enforce the safe versions. After regenerating either lockfile, run the full checks,
-`npm audit`, and a clean `npm ci`; do not accept a lockfile that lowers one of
-those enforced versions.
-
-`npm run audit:locks` checks both runtime lockfiles against npm's advisory
-service. It is intentionally separate from `./scripts/check.sh`, so the normal
-local test suite remains deterministic and usable offline; CI runs both.
+What this trades away, deliberately: a build is no longer reproducible, a bad
+upstream release reaches every install on its next update, and nothing enforces
+a minimum version of a transitive dependency. `npm audit` is no longer run by
+the checks or by CI. If any of that becomes a problem, the mechanism to restore
+is in git history before this change: exact versions in both manifests, committed
+lockfiles, `npm ci`, `scripts/repair-transitives.sh`, `scripts/audit.sh`, and the
+two tests that enforced them.
 
 ## Updating models or policy
 

@@ -74,7 +74,8 @@ agent/bin/          generated: fd rg jq yq shellcheck ast-grep, pinned + checksu
 ```
 
 `agent/` is generated from `templates/`; shared runtime values come from
-`config/elm-pi.json`, and exact npm graphs are committed in lockfiles. The split
+`config/elm-pi.json`, and npm dependencies resolve to `latest` at install
+time rather than being pinned. The split
 is **code versus config**.
 
 Code and policy — `AGENTS.md`, the agent definitions, the local extensions — are
@@ -97,7 +98,8 @@ routing, and any key the list does not name. Change a decision permanently in
 pi, re-download the bundled binaries, or reinstall the extension packages when
 they are present — that is minutes spent reproducing a state that already
 exists. `pi update` fetches and validates the source, builds dependencies in
-staging from the reviewed lockfiles, verifies the patched CLI, and only then
+staging from the current registry versions, verifies the patched CLI, and only
+then
 swaps the runtime into place. A genuinely broken install is a `rm -rf` away from
 a clean one.
 
@@ -115,8 +117,7 @@ pi update                      # validated source + repository-locked runtime
 Nothing updates itself while you are trying to start work: the launcher runs pi
 with `PI_OFFLINE=1`, so no version check, package check or tool download happens
 at launch. `pi update` is the one place updates happen. `pi update --extensions`
-reinstalls the repository-pinned extension set rather than silently moving to
-new npm versions.
+reinstalls the extension set, taking whatever npm currently publishes.
 
 `pi` is a symlink to `~/.local/share/elm-pi/pi`; the launcher resolves symlinks,
 so you can move or re-link it freely. `pi.orig` in the install directory is the

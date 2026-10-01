@@ -629,6 +629,30 @@ await runs.all([
 ]);
 ```
 
+`worktree` is also a config key — `agent/extensions/subagent/config.json`, where
+this install sets it `false`. It is the default for launches that pass no value
+of their own, so flipping it to `true` isolates every workflow child without
+anyone asking. Do not flip it on a machine whose projects are plain
+directories: pi-subagents throws rather than degrading, and there is no fallback
+setting.
+
+**So the precondition is the work, not the flag.** Before a writing fan-out you
+want isolated, make the project a repo and commit, because isolation branches
+from a clean HEAD:
+
+```bash
+git rev-parse --is-inside-work-tree 2>/dev/null \
+  || { git init -q && git add -A && git commit -qm "baseline before a fan-out"; }
+git diff --quiet && git diff --cached --quiet || echo "uncommitted changes: isolation will refuse"
+```
+
+One `git init` in the project directory is the whole difference between
+isolation being unavailable and being available, and it costs nothing else: the
+launcher already writes `.pi/.gitignore` the first time pi starts inside a work
+tree, so the transcripts stay out of it. If you are told to isolate a fan-out
+and the directory is not a repo, do that first and say you did, rather than
+reporting that isolation is unsupported here.
+
 Two things about it worth knowing before you rely on it. Isolation applies to
 **workflow children** — a child inside a `workflowScript` — and a direct
 `subagent({agent, task})` call runs in the shared cwd whatever the config says;
