@@ -175,9 +175,14 @@ class Proxy:
                 return
 
             if method != "CONNECT":
-                # Plain HTTP. Nothing here speaks it - the ELM gateway and the
-                # shim are both HTTPS - so it is refused rather than forwarded.
-                self.deny(client, target, f"plain HTTP {method}")
+                # Plain HTTP, which arrives as an absolute-form request line:
+                #   GET http://host/path HTTP/1.1
+                # The host check is the policy; the method is not. Refusing
+                # these outright meant `curl http://www.ph.ed.ac.uk/...` failed
+                # even under `pi --remote`, where the proxy is meant to record
+                # rather than gate - and it failed as a bare 403, which reads as
+                # the site's doing.
+                self.forward_plain(client, method, target, head, pending)
                 return
 
             host, _, port = target.rpartition(":")
@@ -257,20 +262,75 @@ class Proxy:
             pass  # the heartbeat will simply try again
 
     def deny(self, client, host, detail):
+        """Refuse, and say whose refusal it is.
+
+        The body said so already, and that turned out not to be enough: `curl
+        -I` prints only headers, `curl -o` writes the body into the file, and
+        `curl -s` throws it away. A session that saw nothing but "403 Forbidden"
+        on 31 hosts concluded that CERN, NASA and Wikimedia were blocking
+        hotlinking - picsum.photos and placekitten.com among them - and spent
+        6.2M tokens on the wrong problem. The reason now rides in the headers,
+        where every one of those invocations shows it.
+        """
         self.log("REJECTED", host, detail)
         body = (
-            "This install proxies pi through an allowlist and this host is not on it.\n"
-            "See LOCKDOWN.md. The attempt was logged.\n"
+            "Refused by this pi install's egress proxy, not by the host.\n"
+            f"{host}: {detail}.\n"
+            "Start the session with `pi --remote` to reach hosts outside the\n"
+            "ELM gateway, or see LOCKDOWN.md. The attempt was logged to\n"
+            "agent/egress.log.\n"
         ).encode()
         try:
             client.sendall(
                 b"HTTP/1.1 403 Forbidden\r\n"
                 b"Content-Type: text/plain\r\n"
+                b"Proxy-Agent: elm-pi-egress\r\n"
+                b"X-Elm-Pi-Egress: refused\r\n"
+                b"X-Elm-Pi-Reason: " + detail.encode("latin-1", "replace") + b"\r\n"
+                b"X-Elm-Pi-Remedy: start the session with `pi --remote`\r\n"
                 b"Content-Length: " + str(len(body)).encode() + b"\r\n"
                 b"Connection: close\r\n\r\n" + body
             )
         except OSError:
             pass
+
+    def forward_plain(self, client, method, target, head, pending=b""):
+        """Proxy one plain-HTTP request, subject to the same allowlist.
+
+        Only absolute-form targets can be forwarded: an origin-form line (`GET
+        /path`) names no host, so there is nothing to dial and nothing to check.
+        """
+        if "://" not in target:
+            self.deny(client, target, f"plain HTTP {method} without a host")
+            return
+        scheme, _, rest = target.partition("://")
+        authority, slash, path = rest.partition("/")
+        host, _, port = authority.rpartition(":")
+        if not host:
+            host, port = authority, "80"
+        host = host.strip("[]")
+        if not port.isdigit():
+            host, port = authority.strip("[]"), "80"
+        if not self.allowed(host):
+            self.deny(client, f"{host}:{port}", "not on the allowlist")
+            return
+        if self.open_mode:
+            self.note_open(host)
+
+        # Rewrite the request line to origin-form, which is what an origin
+        # server expects, and leave every header as the client wrote it.
+        line, _, tail = head.partition("\r\n")
+        origin_line = f"{method} /{path} {line.rsplit(' ', 1)[-1]}"
+        request = (origin_line + "\r\n" + tail).encode("latin-1", "replace") + pending
+
+        if self.upstream:
+            up_host, up_port = self.upstream
+            server = socket.create_connection((up_host, up_port), CONNECT_TIMEOUT)
+            server.sendall(head.encode("latin-1") + pending)   # upstream wants it as-sent
+        else:
+            server = socket.create_connection((host, int(port)), CONNECT_TIMEOUT)
+            server.sendall(request)
+        self.splice(client, server, f"{host}:{port}")
 
     def connect_through(self, client, host, port, head, pending=b""):
         if self.upstream:
