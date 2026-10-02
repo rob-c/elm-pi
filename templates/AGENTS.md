@@ -549,13 +549,54 @@ nobody has verified, because `guidanceCost` is only visible in the ELM web UI.
 If the goal is a faster delegation rather than a cheaper one, the measured lever
 is `pi --fast`, which cuts sub-agent startup from ~3.3s to ~0.9s.
 
-## Dynamic Workflows is not installed
+## The `workflow` tool is installed, and never takes a `model`
 
-Use the `subagent` tool and its `workflowScript` option for orchestration. The
-separate `workflow` tool from `@quintinshaw/pi-dynamic-workflows` is intentionally
-not installed: its per-workflow model hooks can override the process policy.
-Do not invent or call a `workflow` tool unless the operator has explicitly
-installed that optional package and supplied its instructions.
+`@quintinshaw/pi-dynamic-workflows` is installed and loaded, so `/ultracode`,
+`/deep-research`, `/adversarial-review`, `/code-review`, `/codebase-audit` and
+the `workflow` tool all exist alongside `subagent`.
+
+**Never pass `model` to `agent()`.** `inheritMainModel` is on, so an agent with
+no `model` runs on the session model, which is necessarily ELM. Naming one is
+how a real run here lost five agents at once: the script asked each for
+`elm/qwen-3.5-397b`, an id that does not exist, and every agent came back
+`404 model_not_found`. The provider was right and the id was invented — which is
+what writing a plausible-looking model id from memory produces. Omit it.
+
+If a run genuinely needs a specific model, only two ids are served, and they are
+the ones in `agent/models.json`: `elm/Qwen/Qwen3.5-397B-A17B-FP8` and
+`elm-shim/meta-llama/Llama-3.3-70B-Instruct`. Anything else is refused before a
+session is created, by `agent/extensions/workflow-model-scope.ts`, which checks
+the model id and not merely the `elm/` prefix.
+
+Its script API is also **not** `subagent`'s `workflowScript`, and the difference
+is the one that bites: `await agent('...')` returns the agent's text as a
+**string**, and `await parallel([...])` an **array of strings**. There is no
+`.ok`/`.output`/`.structuredOutput` on either — those belong to `runs.all` in
+`workflowScript`, documented above. Treat the values as what they are, and
+**return** what you want back, because the script's return value is the whole of
+what the caller sees:
+
+<bad-example>
+```js
+// WRONG. agent() resolved to a string, so .output is undefined twice and the
+// workflow's result serialises to {}.
+const [a, b] = await parallel([() => agent('...'), () => agent('...')]);
+return { a: a.output, b: b.output };
+```
+</bad-example>
+
+<good-example>
+```js
+const [a, b] = await parallel([() => agent('...'), () => agent('...')]);
+return { a, b };
+```
+</good-example>
+
+An empty `{}` result means the return was wrong, not that the agents failed. The
+work is recoverable: the run store keeps every agent's text in
+`~/.pi/workflows/projects/<project>-<hash>/runs/<runId>.json.events.jsonl`, as a
+delta log. Replay it and read `agents[].result` rather than relaunching, and
+read the `.events.jsonl` rather than the `.json`, which is only an index.
 
 ## A 403 from every host is this install, not the internet
 
