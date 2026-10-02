@@ -25,7 +25,7 @@ PI_VERSION="${PI_VERSION:-$(python3 -c 'import json; print(json.load(open("packa
 
 
 
-WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; WITH_MEMORY=1; FORCE=0
+WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; FORCE=0
 WITH_TOOLS=1; WITH_PATCH=1; FORCE_PACKAGES=0
 TMP=""; TOOLS_TMP=""; CORE_STAGE=""; PKG_STAGE=""
 
@@ -50,7 +50,6 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
   --force-packages    reinstall only the locked extension dependency tree
 
   --no-packages       pi only: no sub-agents, memory, web access or anchor edit
-  --no-memory         drop pi-hermes-memory: ~1.2s off every launch
   --no-tools          skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
   --no-shim           skip the Llama tool-call shim
   --no-patch          leave pi's /share and /bug commands in place
@@ -71,7 +70,6 @@ for arg in "$@"; do
   case "$arg" in
     --no-shim) WITH_SHIM=0 ;;
     --no-packages) WITH_PACKAGES=0 ;;
-    --no-memory) WITH_MEMORY=0 ;;
     --non-interactive) INTERACTIVE=0 ;;
     --update) UPDATE=1 ;;
     --force) FORCE=1 ;;
@@ -298,7 +296,6 @@ install_if_absent templates/models.json                agent/models.json
 python3 "$CONFIG_TOOL" --root "$HERE" render templates/AGENTS.md agent/AGENTS.md
 echo "    refreshed agent/AGENTS.md"
 install_if_absent templates/web-search.json            agent/web-search.json
-install_if_absent templates/hermes-memory-config.json  agent/hermes-memory-config.json
 [ -f agent/auth.json ] || printf '{}\n' > agent/auth.json
 
 # agent/bin is pi's managed-binary directory (fd, rg), and pi prepends it to
@@ -626,20 +623,15 @@ if os.path.exists(models_path):
 PYX
 
 if [ "$WITH_PACKAGES" = "1" ]; then
-  say "pi packages (sub-agents, memory, web access, anchor editing)"
+  say "pi packages (sub-agents, web access, anchor editing)"
   mkdir -p agent/npm
-  # Every loaded package is transpiled and imported at each launch. Measured CPU cost
-  # per launch on this install: hermes-memory ~1.8s, subagents+hashline ~1.6s,
-  # web-access ~0.2s, against ~1.4s for pi and the local extensions alone.
-  # `pi --fast` skips all of them for one-shot work; --no-memory leaves the
-  # reviewed package tree installed but stops loading its most expensive member.
-  DROP=""
-  [ "$WITH_MEMORY" = "1" ] || DROP="pi-hermes-memory"
+  # Every loaded package is transpiled and imported at each launch. Measured CPU
+  # cost per launch on this install: subagents+hashline ~1.6s, web-access ~0.2s,
+  # against ~1.4s for pi and the local extensions alone. `pi --fast` skips all of
+  # them for one-shot work.
+  #
   # Two lists, and they are not the same list. templates/packages.json is what
-  # npm installs, and carries libraries that are not pi packages at all
-  # (better-sqlite3, which pi-hermes-memory needs to build against).
-  # templates/settings.json is what pi loads. Only the latter is filtered by
-  # --no-memory: one package manifest installs, the other decides what loads.
+  # npm installs; templates/settings.json is what pi loads.
   #
   # agent/settings.json's "packages" is derived from the template every run
   # rather than filtered in place. Filtering in place could only ever remove:
@@ -648,20 +640,16 @@ if [ "$WITH_PACKAGES" = "1" ]; then
   # then loaded none of them. Everything else in that file is yours and is left
   # exactly as you left it.
   cp -f templates/packages.json agent/npm/package.json
-  DROP="$DROP" python3 - <<'PYX'
-import json, os
-drop = {d for d in os.environ.get("DROP", "").split() if d}
+  python3 - <<'PYX'
+import json
 
-chosen = [p for p in json.load(open("templates/settings.json")).get("packages", [])
-          if p.removeprefix("npm:") not in drop]
+chosen = json.load(open("templates/settings.json")).get("packages", [])
 s = json.load(open("agent/settings.json"))
 was = s.get("packages", [])
 s["packages"] = chosen
 json.dump(s, open("agent/settings.json", "w"), indent=2); open("agent/settings.json", "a").write("\n")
 
 print("    loading: " + (", ".join(p.removeprefix("npm:") for p in chosen) or "none"))
-if drop:
-    print("    dropped: " + ", ".join(sorted(drop)))
 if sorted(was) != sorted(chosen):
     print("    (agent/settings.json listed %d package(s); corrected to match)" % len(was))
 PYX
@@ -683,9 +671,11 @@ PYX
     cp templates/packages.json "$PKG_STAGE/package.json"
     ( cd "$PKG_STAGE" && npm install --ignore-scripts --no-audit --no-fund \
         --fetch-retries=5 --fetch-retry-maxtimeout=60000 --loglevel=error )
-    # Package scripts are disabled globally. Hermes' SQLite driver is the single
-    # reviewed native dependency that needs its install/build step.
-    ( cd "$PKG_STAGE" && npm rebuild better-sqlite3 --foreground-scripts --no-audit --no-fund --loglevel=error )
+    # Package scripts stay disabled, and nothing now needs re-enabling:
+    # better-sqlite3 was the one package whose install step had to run, and
+    # it left with pi-hermes-memory. Transitive packages still ship install
+    # scripts (esbuild, protobufjs, tree-sitter-bash); none of them run, as
+    # before.
     for pkg in $CHOSEN; do
       [ -d "$PKG_STAGE/node_modules/$pkg" ] || die "staged package is missing: $pkg"
     done

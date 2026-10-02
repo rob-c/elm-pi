@@ -98,7 +98,6 @@ Two things people get wrong:
 | `--non-interactive` | take the key from `$ELM_API_KEY`, never prompt |
 | `--update` | apply repository-locked pi and extension trees; keep configs |
 | `--no-packages` | pi only: no sub-agents, memory, web access or anchor editing |
-| `--no-memory` | keep the locked tree but do not load `pi-hermes-memory` |
 | `--no-tools` | do not bundle fd, rg, jq, yq, shellcheck and ast-grep |
 | `--no-shim` | no Llama tool-call shim (Qwen unaffected) |
 | `--no-auth-lock` | leave `agent/auth.json` writable, so `/login` works |
@@ -187,7 +186,6 @@ pi install.
 | `agent/extensions/subagent/config.json` | fan-out budget: 8 concurrent, 64 per run |
 | `agent/bin/pi` | symlink to the launcher, so sub-agent children find `pi` whatever PATH looks like |
 | `agent/web-search.json` | DuckDuckGo then Exa; `unpdf` for PDFs |
-| `agent/hermes-memory-config.json` | cross-session memory, 30-day retention |
 
 `agent/` is generated. Put durable changes in `templates/`, commit them, and run
 `pi update` on each host so the validated source reaches it.
@@ -203,7 +201,6 @@ disabled. It then rebuilds only the reviewed native dependency,
 |---|---|
 | `pi-subagents` | sub-agent fan-out (`subagent`, `bg_wait`, `subagent_supervisor`) |
 | `pi-hashline-edit-pro` | anchor-based editing; the built-in `edit` tool is disabled |
-| `pi-hermes-memory` | cross-session memory with SQLite FTS5 search |
 | `pi-web-access` | web search and fetch |
 
 > pi packages run with full system access. Review before adding more.
@@ -425,9 +422,8 @@ CPU time (user+sys) because that is the number that does not move with machine l
 | pi + local extensions only (what `--fast` loads) | **1.4s** |
 | \+ `pi-subagents`, `pi-hashline-edit-pro` | 3.0s |
 | \+ `pi-web-access` | 3.2s |
-| \+ `pi-hermes-memory` (the default install) | **5.0s** |
 
-So: `pi-hermes-memory` ~1.8s, `pi-subagents` + `pi-hashline-edit-pro` ~1.6s,
+So: `pi-subagents` + `pi-hashline-edit-pro` ~1.6s,
 `pi-web-access` ~0.2s, pi and the local extensions ~1.4s.
 
 `@tmustier/pi-ralph-wiggum` adds `ralph_start` and `ralph_done`, and a `/ralph`
@@ -488,7 +484,7 @@ the network.
 
 1. **`pi --fast`** for one-shot work. Loads only the local extensions — the
    ELM-only policy, protected paths and `todo` — and keeps pi's built-in `edit`
-   tool. No sub-agents, cross-session memory, web search or anchor editing.
+   tool. No sub-agents, web search or anchor editing.
 
    | | wall | CPU |
    |---|---|---|
@@ -499,10 +495,11 @@ the network.
    End to end on a real edit task (read `calc.py`, fix the bug, write it back):
    **8.01s → 3.49s**, both producing the correct edit.
 
-2. **`./bootstrap.sh --no-memory`** stops loading `pi-hermes-memory`, saving ~1.8s
-   of CPU per launch. The package is still installed, so turning it back on
-   needs no download. Per-project `AGENTS.md` is unaffected; cross-session FTS5
-   search is unavailable until bootstrap is rerun without the flag.
+2. **`./bootstrap.sh --no-packages`** drops the npm set entirely rather than
+   skipping it per run, for an install that only ever answers one-shot
+   questions. `pi-hermes-memory` used to be the single biggest item here and
+   the `--no-memory` flag existed to drop it; both are gone, so the remaining
+   set costs ~1.6s rather than ~3.4s.
 
 3. **Machine load.** Wall time is CPU time multiplied by whatever else the machine
    is doing. The same launch measured 4.7s wall at load 8 and 32-47s wall at load
@@ -543,8 +540,8 @@ So the cost is now paid where waiting is expected rather than where it is not:
   aggressive `/tmp`, not worth it on a laptop.
 
 Per-package cost, re-measured warm (`pi --list-models`, CPU, same machine):
-pi and the local extensions 0.84s, `pi-hermes-memory` +1.24s, `pi-subagents`
-+0.65s, `pi-hashline-edit-pro` +0.23s, `pi-web-access` +0.16s. `--no-memory`
+pi and the local extensions 0.84s, `pi-subagents` +0.65s,
+`pi-hashline-edit-pro` +0.23s, `pi-web-access` +0.16s. `--fast`
 remains the single biggest saving available, and `--fast` skips all four.
 
 **Three things that do not help**, all measured rather than assumed:
@@ -560,9 +557,10 @@ remains the single biggest saving available, and `--fast` skips all four.
   default anyway, for the interactive launch it does change — see above.
 
 Bundling the packages with esbuild was considered and rejected: `pi-subagents`
-spawns child processes by path and `pi-hermes-memory` loads a native SQLite
-binding, so bundling changes third-party semantics for a win the `--fast` path
-already delivers.
+spawns child processes by path, so bundling changes third-party semantics for a
+win the `--fast` path already delivers. It was a stronger objection when
+`pi-hermes-memory` was installed and loaded a native SQLite binding; that
+package is gone, and with it the only native dependency in the set.
 
 ### Qwen is faster than Llama here — Llama is not a speed optimisation
 

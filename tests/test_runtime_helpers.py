@@ -58,7 +58,7 @@ class PermissionTests(unittest.TestCase):
             root = Path(directory)
             install = root / "install"
             session = root / "project/.pi/sessions"
-            memory = install / "agent/pi-hermes-memory"
+            memory = install / "agent/projects-memory"
             memory.mkdir(parents=True)
             session.mkdir(parents=True)
             auth = install / "agent/auth.json"
@@ -119,7 +119,7 @@ elm_secure_runtime_state "{install}" "{session}"
     def test_install_hardening_honors_shared_state(self):
         with tempfile.TemporaryDirectory() as directory:
             install = Path(directory)
-            memory = install / "agent/pi-hermes-memory"
+            memory = install / "agent/projects-memory"
             memory.mkdir(parents=True)
             data = memory / "sessions.db"
             data.write_text("test\n")

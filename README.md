@@ -47,7 +47,7 @@ every step: **[INSTALL.md](INSTALL.md)**. Web version of this page:
 | **Model** | `Qwen/Qwen3.5-397B-A17B-FP8` — 262K context, tool calling, vision |
 | **Sub-agents** | 64-child fan-out budget; cheap Llama 3.3 workers via a local tool-call shim |
 | **Editing** | Anchor-based (`pi-hashline-edit-pro`) — the built-in `edit` tool is off |
-| **Memory** | Per-project `AGENTS.md`, plus `pi-hermes-memory` for cross-session search |
+| **Memory** | Per-project `AGENTS.md`. No memory tool: `pi-hermes-memory` is not installed |
 | **Web** | `pi-web-access` (DuckDuckGo, then Exa) |
 | **Sessions** | `.pi/sessions/` inside each project, not one central 1.9 GB pile |
 | **Models offered** | ELM only. 41 non-ELM provider catalogues stripped |
@@ -127,7 +127,7 @@ wrapper's fault?".
 
 | Flag | |
 |---|---|
-| `--fast` | skip the npm package set: ~1.2s of CPU at launch instead of ~4.4s. No sub-agents, cross-session memory, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
+| `--fast` | skip the npm package set: ~1.2s of CPU at launch instead of ~4.4s. No sub-agents, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
 | `--llama` | Llama 3.3 70B via the local shim. A fallback, **not** a speed-up — Qwen is faster here. |
 
 | Command | |

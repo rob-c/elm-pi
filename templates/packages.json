@@ -10,10 +10,8 @@
     "@quintinshaw/pi-dynamic-workflows": "latest",
     "@tmustier/pi-ralph-wiggum": "latest",
     "awesome-pi-themes": "latest",
-    "better-sqlite3": "latest",
     "cc-safety-net": "latest",
     "pi-hashline-edit-pro": "latest",
-    "pi-hermes-memory": "latest",
     "pi-subagents": "latest",
     "pi-web-access": "latest"
   }

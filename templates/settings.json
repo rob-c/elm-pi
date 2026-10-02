@@ -9,7 +9,6 @@
   },
   "packages": [
     "npm:pi-subagents",
-    "npm:pi-hermes-memory",
     "npm:pi-web-access",
     "npm:pi-hashline-edit-pro",
     "npm:@gotgenes/pi-permission-system",

@@ -62,7 +62,6 @@ elm_secure_install_state() {
   [ "${ELM_PI_SHARED_STATE:-0}" = "1" ] && return 0
 
   chmod 700 "$install_dir/agent" 2>/dev/null || true
-  elm_secure_tree "$install_dir/agent/pi-hermes-memory"
   elm_secure_tree "$install_dir/agent/projects-memory"
   elm_secure_file "$install_dir/agent/egress.log"
 }
