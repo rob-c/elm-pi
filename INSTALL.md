@@ -704,22 +704,28 @@ needs deciding *what* to do goes to Qwen.
 
 ## Dynamic Workflows, and the one control it lacks
 
-`@quintinshaw/pi-dynamic-workflows` is **not enabled by default**. It offers
-`/ultracode`, `/deep-research`, `/adversarial-review`, `/code-review`,
-`/codebase-audit` and a `/workflows` TUI, but its model-policy hook can be
-overridden by individual workflow scripts. That is weaker than this install's
-strict ELM-only promise, so the package remains opt-in until upstream offers an
-unoverrideable model scope.
+`@quintinshaw/pi-dynamic-workflows` is **installed and loaded**, which is what
+provides `/ultracode`, `/deep-research`, `/adversarial-review`, `/code-review`,
+`/codebase-audit` and the `/workflows` TUI.
+
+It is enabled knowingly, not safely. Its model-policy hook can be overridden by
+an individual workflow script, which is weaker than the strict ELM-only promise
+the rest of this install keeps; the package was held out of the default set for
+exactly that reason, and was then enabled deliberately. What remains true is
+that `agent/extensions/workflow-model-scope.ts` is a **required** extension:
+bootstrap refuses to finish without it, and a test asserts it stays in
+`requiredExtensions`. The guard is therefore always present — it is simply not
+unoverrideable.
 
 What it has no equivalent of is `modelScope`. pi-subagents takes
 `enforce: true, strict: true, allow: ["elm/*", "elm-shim/*", "inherit"]` from
 settings and no child can leave those providers. Dynamic Workflows can route through
 tiers in `~/.pi/workflows/model-tiers.json`, whose documented examples are
 `openai-codex/gpt-5.4-mini` and `openai-codex/gpt-5.5`. The installer still deploys
-`agent/extensions/workflow-model-scope.ts` as a guard for explicit local opt-ins;
-it refuses models outside the configured ELM providers.
+`agent/extensions/workflow-model-scope.ts` as the guard, and it refuses models
+outside the configured ELM providers.
 
-Measured during evaluation before it was removed from the default package set:
+Measured on this install:
 
 - A workflow agent pinned to `openai-codex/gpt-5.4` is refused before any session
   is created. The run store records `MODEL_SPAWN_REJECTED` and the policy's own

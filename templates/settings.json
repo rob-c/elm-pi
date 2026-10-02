@@ -18,7 +18,8 @@
     "npm:@pify/btw",
     "npm:awesome-pi-themes",
     "npm:cc-safety-net",
-    "npm:@juicesharp/rpiv-ask-user-question"
+    "npm:@juicesharp/rpiv-ask-user-question",
+    "npm:@quintinshaw/pi-dynamic-workflows"
   ],
   "extensions": [
     "${PI_CODING_AGENT_DIR}/extensions"

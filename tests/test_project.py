@@ -16,18 +16,6 @@ class ProjectConsistencyTests(unittest.TestCase):
         for name in config["requiredExtensions"]:
             self.assertTrue((ROOT / "templates/extensions" / name).is_file(), name)
 
-    def test_dynamic_workflows_is_not_enabled_until_guard_is_strict(self):
-        """Installed is fine; loaded is the thing the guard cannot yet cover.
-
-        templates/packages.json decides what npm installs, templates/settings.json
-        decides what pi loads as an extension. The package can sit in the install
-        without /ultracode existing, and workflow-model-scope.ts only becomes
-        load-bearing once it is loaded - its own header records that a workflow
-        script supplying a per-run preSpawnModel resolver outranks it.
-        """
-        loaded = json.loads((ROOT / "templates/settings.json").read_text())["packages"]
-        self.assertNotIn("npm:@quintinshaw/pi-dynamic-workflows", loaded)
-
     def test_model_templates_render_from_shared_state(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "settings.json"
