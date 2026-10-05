@@ -16,6 +16,7 @@
 #     PI_ELM_UNLOCK=1 pi ...
 # See LOCKDOWN.md.
 set -euo pipefail
+unset CDPATH
 
 SELF="${BASH_SOURCE[0]}"
 while [ -L "$SELF" ]; do
@@ -28,9 +29,49 @@ HERE="$(cd "$(dirname "$SELF")" && pwd)"
 export PATH="$HERE/.node/bin:$PATH"
 
 CLI="$HERE/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"
-if [ ! -f "$CLI" ]; then
+NODE="$HERE/.node/bin/node"
+if [ ! -f "$CLI" ] || [ ! -x "$NODE" ]; then
   echo "pi is not installed here. Run $HERE/bootstrap.sh first." >&2
   exit 1
 fi
 
-exec node "$CLI" "$@"
+# --- a clean start for node --------------------------------------------------
+# The bundled node by path, never one from nvm/volta/conda on PATH, and started
+# without anything in the environment that changes how node or pi's loader
+# behave:
+#   NODE_*      NODE_OPTIONS can --require code into pi, NODE_PATH adds module
+#               directories, NODE_TLS_REJECT_UNAUTHORIZED=0 turns off certificate
+#               checks, NODE_ICU_DATA/NODE_PRESERVE_SYMLINKS/... change behaviour.
+#               NODE_EXTRA_CA_CERTS stays: a site's TLS proxy needs it.
+#   JITI_*      jiti loads the extensions; JITI_ALIAS alone can point any import
+#               anywhere.
+#   DEBUG, NODE_DEBUG, DEBUG_AUTH, LOG_TOKENS   turn on logging that writes
+#               request headers - the ELM key - to the terminal.
+#   PI_PACKAGE_DIR, PI_MANAGED_INSTALL_ROOT, PI_INSTALLER_API_BASE   point pi at
+#               another copy of itself, or another update server.
+# These do not come back for pi's children either.
+#
+# LD_*, DYLD_* and OPENSSL_* are different: the dynamic linker and OpenSSL read
+# them once, at process start, so a conda lib directory in LD_LIBRARY_PATH can
+# break node itself - but the researcher's own commands, run by the agent's
+# bash tool, need them. They are parked as ELM_PI_STASH__<NAME> and
+# lib/node-guard.mjs puts them back once node is running.
+#
+# node-guard.mjs also stops packages loading from outside this install.
+for name in $(compgen -e); do
+  case "$name" in
+    NODE_EXTRA_CA_CERTS|ELM_PI_STASH__*) ;;
+    LD_*|DYLD_*|OPENSSL_*)
+      export "ELM_PI_STASH__$name=${!name}"
+      unset "$name" ;;
+    NODE_*|JITI_*) unset "$name" ;;
+  esac
+done
+unset DEBUG DEBUG_AUTH LOG_TOKENS PI_PACKAGE_DIR PI_MANAGED_INSTALL_ROOT PI_INSTALLER_API_BASE 2>/dev/null || true
+
+GUARD="$HERE/lib/node-guard.mjs"
+if [ ! -f "$GUARD" ]; then
+  echo "pi: $GUARD is missing. Run $HERE/bootstrap.sh." >&2
+  exit 1
+fi
+exec "$NODE" --import "$GUARD" "$CLI" "$@"

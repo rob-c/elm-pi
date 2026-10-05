@@ -7,8 +7,14 @@
 #
 # Usage: ./configure.sh [model-id-substring]      (default: qwen)
 set -euo pipefail
+unset CDPATH
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-[ -f "$HERE/.env" ] && { set -a; . "$HERE/.env"; set +a; }
+# shellcheck source=lib/sandbox.sh
+. "$HERE/lib/sandbox.sh"
+elm_install_env "$HERE"
+# Read as data, not sourced: only ELM_*=value lines. See elm_load_dotenv.
+elm_load_dotenv "$HERE/.env"
+elm_select_python "$HERE" || { echo "configure.sh: $ELM_PY_ERROR" >&2; exit 1; }
 : "${ELM_API_KEY:?Set ELM_API_KEY in $HERE/.env first}"
 case "$ELM_API_KEY" in
   *$'\n'*|*$'\r'*) echo "ELM_API_KEY must be a single line" >&2; exit 2 ;;
@@ -23,9 +29,9 @@ printf 'Authorization: Bearer %s\n' "$ELM_API_KEY" > "$AUTH_HEADER"
 trap 'rm -f "$RAW" "$AUTH_HEADER"' EXIT
 
 echo "Querying $BASE/models ..."
-curl -fsS -m 30 -H "@$AUTH_HEADER" "$BASE/models" > "$RAW"
+curl -q -fsS -m 30 -H "@$AUTH_HEADER" "$BASE/models" > "$RAW"
 
-MODEL_ID=$(MATCH="$MATCH" python3 - "$RAW" <<'PY'
+MODEL_ID=$(MATCH="$MATCH" elm_py - "$RAW" <<'PY'
 import json,os,sys
 raw=open(sys.argv[1]).read()
 try: d=json.loads(raw)
@@ -53,10 +59,10 @@ echo "Model id: $MODEL_ID"
 
 echo
 echo "Smoke test ..."
-curl -fsS -m 120 -H "@$AUTH_HEADER" -H "Content-Type: application/json" \
+curl -q -fsS -m 120 -H "@$AUTH_HEADER" -H "Content-Type: application/json" \
   "$BASE/chat/completions" \
-  -d "$(python3 -c 'import json,sys;print(json.dumps({"model":sys.argv[1],"messages":[{"role":"user","content":"Reply with exactly: OK"}],"max_tokens":256,"reasoning_effort":"none"}))' "$MODEL_ID")" \
-  | python3 -c '
+  -d "$(elm_py -c 'import json,sys;print(json.dumps({"model":sys.argv[1],"messages":[{"role":"user","content":"Reply with exactly: OK"}],"max_tokens":256,"reasoning_effort":"none"}))' "$MODEL_ID")" \
+  | elm_py -c '
 import json,sys
 raw=sys.stdin.read()
 try: d=json.loads(raw)
@@ -67,9 +73,9 @@ print("  reply:", d["choices"][0]["message"].get("content"))
 
 # One state file feeds every generated consumer: the main model, sub-agent
 # overrides, task-model profiles, agent frontmatter and the launcher environment.
-python3 "$HERE/scripts/elm_config.py" --root "$HERE" set-model qwen "$MODEL_ID"
+elm_py "$HERE/scripts/elm_config.py" --root "$HERE" set-model qwen "$MODEL_ID"
 
-python3 - "$HERE" "$MODEL_ID" "$BASE" "$MATCH" <<'PY'
+elm_py - "$HERE" "$MODEL_ID" "$BASE" "$MATCH" <<'PY'
 import json,sys
 here,model,base,match=sys.argv[1:5]
 

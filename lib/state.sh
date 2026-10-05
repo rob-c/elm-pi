@@ -36,7 +36,10 @@ elm_secure_session_dir() {
 # use file:// URLs; CLI, environment and settings paths may use ~. Relative
 # paths are rooted at the launcher's working directory.
 elm_normalize_session_dir() {
-  python3 - "$1" "${2:-$PWD}" <<'PY'
+  local cwd="${2:-$PWD}"
+  # Isolated, and run from / so a json.py or os.py in the project directory
+  # cannot shadow the stdlib (stdin scripts put the cwd first on sys.path).
+  ( cd / && "${ELM_PI_PYTHON:-python3}" -E -S - "$1" "$cwd" ) <<'PY'
 import os
 import sys
 from urllib.parse import unquote, urlsplit

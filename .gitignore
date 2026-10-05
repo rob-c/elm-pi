@@ -4,6 +4,8 @@
 package-lock.json
 templates/packages-lock.json
 .node/
+.npm-cache/
+.python/
 node_modules/
 .elm-pi-source-manifest
 .elm-pi-stage-*/

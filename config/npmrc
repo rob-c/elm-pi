@@ -1,0 +1,14 @@
+# npm configuration for this install, and the only one it reads: lib/sandbox.sh
+# points npm's user config here and its global config at /dev/null, so nothing
+# in ~/.npmrc, /etc/npmrc or an npm_config_* variable reaches an install.
+# To add a site's cafile or proxy, copy this file and set
+# ELM_PI_NPM_USERCONFIG=/path/to/the/copy.
+registry=https://registry.npmjs.org/
+# Packages are installed with their lifecycle scripts disabled; pi runs from a
+# prebuilt bundle and the extensions ship TypeScript that jiti transpiles.
+ignore-scripts=true
+audit=false
+fund=false
+update-notifier=false
+strict-ssl=true
+engine-strict=false

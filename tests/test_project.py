@@ -1,6 +1,7 @@
 import json
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,7 +22,7 @@ class ProjectConsistencyTests(unittest.TestCase):
             destination = Path(directory) / "settings.json"
             subprocess.run(
                 [
-                    "python3",
+                    sys.executable,
                     str(ROOT / "scripts/elm_config.py"),
                     "--root",
                     str(ROOT),

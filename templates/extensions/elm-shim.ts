@@ -88,7 +88,9 @@ async function ensureShim(): Promise<boolean> {
     await new Promise((r) => setTimeout(r, 200));  // wait up to ~3s for the port
   }
   if (!existsSync(SHIM)) return false;
-  const child = spawn("python3", [SHIM], {
+  // The interpreter bootstrap.sh chose (exported by the launcher), isolated
+  // from PYTHONPATH and site-packages: never whatever conda put first on PATH.
+  const child = spawn(process.env.ELM_PI_PYTHON || "python3", ["-E", "-S", SHIM], {
     detached: true,
     stdio: "ignore",
     env: { ...process.env, SHIM_PORT: String(PORT) },

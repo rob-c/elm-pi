@@ -94,7 +94,8 @@
     "XIAOMI_API_KEY",
     "XIAOMI_TOKEN_PLAN_CN_API_KEY",
     "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
-    "XIAOMI_TOKEN_PLAN_SGP_API_KEY"
+    "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
+    "LLAMA_BASE_URL"
   ],
   "webTools": [
     "web_search",

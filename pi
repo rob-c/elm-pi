@@ -2,6 +2,7 @@
 # pi, wired to Edinburgh ELM and locked to university-hosted models.
 # Self-contained: bundled Node, local config dir, nothing installed system-wide.
 set -euo pipefail
+unset CDPATH
 
 # Resolve through symlinks: the installer puts ~/.local/bin/elm-pi -> here, and
 # "$(dirname "$0")" on a symlink points at the link, not the install.
@@ -69,12 +70,11 @@ done
 
 
 
-if [ -f "$HERE/.env" ]; then
-  set -a; . "$HERE/.env"; set +a
-fi
-
-# Disable telemetry by default (can be overridden with PI_TELEMETRY=1)
-export PI_TELEMETRY="${PI_TELEMETRY:-0}"
+# Telemetry is off, and not a knob: it reports the install to pi.dev.
+export PI_TELEMETRY=0
+# Nothing on this list belongs in a locked install: where /share points, and
+# pi's switch for unreleased features.
+unset PI_SHARE_VIEWER_URL PI_EXPERIMENTAL 2>/dev/null || true
 
 # keep config, sessions and credentials inside this directory, not ~/.pi
 export PI_CODING_AGENT_DIR="$HERE/agent"
@@ -84,7 +84,7 @@ export PI_CODING_AGENT_DIR="$HERE/agent"
 }
 # shellcheck source=/dev/null
 . "$HERE/agent/runtime.env"
-for helper in policy state; do
+for helper in policy state sandbox; do
   [ -f "$HERE/lib/$helper.sh" ] || {
     echo "elm-pi helper is missing: $HERE/lib/$helper.sh. Run $HERE/bootstrap.sh." >&2
     exit 1
@@ -92,6 +92,43 @@ for helper in policy state; do
   # shellcheck source=/dev/null
   . "$HERE/lib/$helper.sh"
 done
+
+# The key, read as data rather than sourced as shell: see elm_load_dotenv.
+elm_load_dotenv "$HERE/.env"
+
+# Relative PATH entries out: with "." on PATH, a repository's own ./git or ./fd
+# runs whenever pi looks up that command in it. The rest of PATH - conda
+# included - is the researcher's, and the agent's shell needs it.
+PATH="$(elm_clean_path "$PATH" relative-only)"
+export PATH
+
+# Packages come from this install only. lib/node-guard.mjs refuses Node's own
+# loads from anywhere else; jiti, which loads the extensions, resolves by
+# itself and walks every ancestor of the install, so a ~/node_modules would
+# supply packages to it. Refuse to start rather than run with one in reach.
+if [ "${ELM_PI_ALLOW_EXTERNAL_MODULES:-0}" != "1" ]; then
+  EXTERNAL_MODULES="$(elm_external_module_dirs "$HERE")"
+  if [ -n "$EXTERNAL_MODULES" ]; then
+    echo "pi: packages outside this install would be loaded into pi from:" >&2
+    printf '%s\n' "$EXTERNAL_MODULES" | sed 's/^/      /' >&2
+    echo "    Usually left by an \`npm install\` run in the wrong directory. Move or" >&2
+    echo "    delete it, or run once with ELM_PI_ALLOW_EXTERNAL_MODULES=1." >&2
+    exit 1
+  fi
+fi
+
+# --- this install's Python, never the shell's --------------------------------
+# The proxy, the shim and the launcher's own helpers run on the interpreter
+# bootstrap.sh chose and recorded - not whatever conda or a venv put first on
+# PATH - and always as `python -E -S`, so PYTHONPATH and site-packages cannot
+# reach them. Exported for the elm-shim extension. The rest of the environment
+# is left alone on purpose: the agent's bash tool needs the researcher's conda.
+# shellcheck disable=SC2034 # read by elm_py, in lib/sandbox.sh
+ELM_PI_ROOT="$HERE"
+elm_select_python "$HERE" fast || {
+  echo "pi: $ELM_PY_ERROR" >&2
+  exit 1
+}
 
 # --- where jiti keeps its transpile cache -----------------------------------
 # The npm packages ship raw TypeScript and are transpiled at first use: ~21s of
@@ -111,6 +148,12 @@ if [ "${ELM_PI_OWN_TMP:-0}" = "1" ]; then
   export TMPDIR="$HERE/agent/tmp"
   mkdir -p "$TMPDIR"
 fi
+# Either way the directory must be this account's alone: jiti executes what it
+# finds in $TMPDIR/jiti. See elm_private_tmpdir.
+elm_private_tmpdir || {
+  echo "pi: $ELM_PY_ERROR" >&2
+  exit 1
+}
 # the elm-shim extension starts this proxy so Llama can call tools
 export ELM_SHIM_PATH="${ELM_SHIM_PATH:-$HERE/shim/shim.py}"
 
@@ -322,7 +365,10 @@ fi
 # A package subcommand (update/install/remove) needs the network by definition,
 # so it is exempt.
 case "${1:-}" in
-  update|install|remove) ;;
+  update) ;;
+  # pi runs npm for these. Same confinement as bootstrap.sh: config/npmrc, the
+  # install's own cache and prefix, no ~/.npmrc and no npm_config_* variables.
+  install|remove) elm_npm_env "$HERE" ;;
   *)
     if [ "${PI_ELM_STARTUP_CHECKS:-0}" != "1" ]; then
       export PI_OFFLINE="${PI_OFFLINE:-1}"
@@ -399,7 +445,7 @@ fi
 # Session transcripts and memory contain source, prompts and command output.
 # Secure their directories directly rather than setting umask for the process,
 # which would unexpectedly change permissions on project files created by tools.
-SESSION_DIR="$(python3 - "$HERE/agent/settings.json" <<'PY'
+SESSION_DIR="$(elm_py - "$HERE/agent/settings.json" <<'PY'
 import json, sys
 try:
     print(json.load(open(sys.argv[1])).get("sessionDir", ".pi/sessions"))
@@ -457,8 +503,7 @@ if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
     echo "    To run without the filter for one command: ELM_PI_NO_PROXY=1 pi ..." >&2
     exit 1
   }
-  PYBIN="$(command -v python3 2>/dev/null || true)"
-  [ -n "$PYBIN" ] || refuse_unproxied "python3 is needed for the egress proxy and was not found."
+  PYBIN="$ELM_PI_PYTHON"
   [ -f "$HERE/proxy/egress.py" ] || refuse_unproxied "proxy/egress.py is missing from this install."
 
   # One source of truth for the gateway: the same value the shim uses.
@@ -531,7 +576,7 @@ if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
   rm -f "$PORT_FILE"
 
   start_proxy() {   # $1 = port to bind, 0 for "pick one"
-    "$PYBIN" "$HERE/proxy/egress.py" \
+    "$PYBIN" -E -S "$HERE/proxy/egress.py" \
         --allow "$PROXY_ALLOW" \
         --port "$1" \
         --port-file "$PORT_FILE" \

@@ -18,6 +18,10 @@
 #   ELM_PI_NO_PATH=1         do not touch any shell profile
 #   ELM_PI_NO_LINK=1         do not create or replace the launcher symlink
 #   ELM_PI_FORCE_LINK=1      replace an existing ~/.local/bin/pi symlink
+#   ELM_PI_PYTHON=/path      the Python 3.8+ to use (default: the system one;
+#                            conda, virtualenv and pyenv are never picked, and
+#                            with no usable one a standalone CPython is installed)
+#   ELM_PI_BUNDLED_PYTHON=1  always use the standalone CPython
 #
 #   --no-path                do not add ~/.local/bin to PATH in a shell profile
 #   --force-link             replace an existing ~/.local/bin/pi symlink
@@ -26,6 +30,30 @@
 # else, so it cannot drift from what is parsed or from what bootstrap.sh takes.
 #
 set -euo pipefail
+# Nothing this writes is writable by others, whatever the account's umask.
+umask 022
+
+# --- 0. none of this account's toolchain ------------------------------------
+# A first pass, before lib/sandbox.sh exists on disk: bootstrap.sh applies the
+# full version. The prefix list is a copy of the one in lib/sandbox.sh and
+# tests/test_sandbox.py fails if they drift. In short: an activated conda env,
+# PYTHONPATH, NODE_OPTIONS, npm_config_*, GIT_DIR and friends are dropped, the
+# system tools come first on PATH, and git and curl ignore ~/.gitconfig and
+# ~/.curlrc. The account's PATH is kept for linking pi onto it in step 4.
+ELM_SCRUB_PREFIXES="PYTHON CONDA _CE_ MAMBA VIRTUAL_ENV PIP_ PYENV npm_config_ NPM_CONFIG_ NODE_ NVM_ VOLTA_ FNM_ ASDF_ COREPACK_ YARN_ PNPM_ BUN_ GIT_"
+ELM_SCRUB_NAMES="BASH_ENV ENV CDPATH TAR_OPTIONS GZIP UNZIP UNZIPOPT GREP_OPTIONS CURL_HOME LD_PRELOAD LD_LIBRARY_PATH"
+ELM_SCRUB_KEEP="NODE_EXTRA_CA_CERTS"
+for _name in $(compgen -e); do
+  case " $ELM_SCRUB_KEEP " in *" $_name "*) continue ;; esac
+  for _prefix in $ELM_SCRUB_PREFIXES; do
+    case "$_name" in "$_prefix"*) unset "$_name" 2>/dev/null || true; break ;; esac
+  done
+done
+for _name in $ELM_SCRUB_NAMES; do unset "$_name" 2>/dev/null || true; done
+ELM_PI_USER_PATH="$PATH"
+PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export PATH
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 
 REPO="${ELM_PI_REPO:-https://github.com/rob-c/elm-pi.git}"
 BRANCH="${ELM_PI_BRANCH:-main}"
@@ -65,7 +93,11 @@ Passed through to bootstrap.sh:
 
 Environment: ELM_PI_PREFIX, ELM_PI_BINDIR, ELM_PI_REPO, ELM_PI_BRANCH,
 ELM_PI_DOCS, ELM_PI_UPDATE, ELM_PI_NO_PATH, ELM_PI_NO_LINK,
-ELM_PI_FORCE_LINK, ELM_API_KEY.
+ELM_PI_FORCE_LINK, ELM_PI_PYTHON, ELM_PI_BUNDLED_PYTHON, ELM_API_KEY.
+
+Your shell's conda/venv/pyenv Python, nvm/volta Node, ~/.npmrc, ~/.npm,
+~/.gitconfig, ~/.curlrc and PYTHON*/NODE_*/npm_config_*/GIT_* variables are
+ignored by the install.
 EOU
 }
 
@@ -111,8 +143,10 @@ case "$(uname -m)" in
 esac
 echo "    $OS / $ARCH"
 
+# python3 is chosen later, from the downloaded lib/sandbox.sh: the one on PATH
+# is often conda's, and which one runs is not decided by PATH.
 missing=""
-for t in curl tar python3; do
+for t in curl tar; do
   command -v "$t" >/dev/null 2>&1 || missing="$missing $t"
 done
 if [ -n "$missing" ]; then
@@ -125,9 +159,13 @@ if [ -n "$missing" ]; then
   esac
   die "install the tools above, then re-run this command"
 fi
-echo "    curl, tar, python3 present"
+echo "    curl, tar present"
 
-if command -v git >/dev/null 2>&1; then
+if [ "$OS" = "macOS" ] && [ "$(command -v git 2>/dev/null)" = "/usr/bin/git" ] \
+   && ! xcode-select -p >/dev/null 2>&1; then
+  # The stub that opens the Command Line Tools dialog, not a git.
+  HAVE_GIT=0; warn "git is not installed (no Command Line Tools) — installing from a source tarball"
+elif command -v git >/dev/null 2>&1; then
   HAVE_GIT=1; echo "    git present — updates will be a one-line git pull"
 else
   HAVE_GIT=0; warn "git not found — installing from a source tarball instead"
@@ -149,7 +187,7 @@ fetch_tarball() {   # $1 = destination directory
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
   SOURCE_TMP="$TMP/source"
   mkdir -p "$SOURCE_TMP"
-  curl -fsSL "https://codeload.github.com/$SLUG/tar.gz/refs/heads/$BRANCH" \
+  curl -q -fsSL "https://codeload.github.com/$SLUG/tar.gz/refs/heads/$BRANCH" \
     | tar -xz -C "$SOURCE_TMP" --strip-components=1 \
     || die "could not download $SLUG@$BRANCH — check the network, or that the repository is public"
   validate_source "$SOURCE_TMP"
@@ -174,8 +212,17 @@ validate_source() { # $1 = candidate source tree
   local source_dir="$1"
   bash -n "$source_dir/install.sh" "$source_dir/bootstrap.sh" \
     "$source_dir/configure.sh" "$source_dir/pi" "$source_dir/pi.orig" \
+    "$source_dir/lib/sandbox.sh" \
     || die "downloaded source failed its shell syntax check"
-  python3 - "$source_dir" <<'PY' || die "downloaded source failed its Python/JSON checks"
+  # The interpreter is picked by the source being installed, so the rules for
+  # it ship with the release. Exported: bootstrap.sh and check.sh inherit it.
+  # shellcheck source=lib/sandbox.sh
+  . "$source_dir/lib/sandbox.sh"
+  # May download the standalone CPython into $PREFIX/.python, which is where
+  # bootstrap.sh then finds it.
+  elm_ensure_python "$PREFIX" || die "$ELM_PY_ERROR"
+  echo "    checking the source with $ELM_PI_PYTHON"
+  ELM_PI_ROOT="$source_dir" elm_py - "$source_dir" <<'PY' || die "downloaded source failed its Python/JSON checks"
 import ast, json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 for path in [root / "patch-pi.py", root / "proxy/egress.py", root / "shim/shim.py",
@@ -185,7 +232,7 @@ for path in list((root / "config").glob("*.json")) + list((root / "templates").r
     json.loads(path.read_text())
 PY
   if [ -x "$source_dir/scripts/check.sh" ]; then
-    ( cd "$source_dir" && ./scripts/check.sh --source-only ) \
+    ( cd "$source_dir" && ./scripts/check.sh --source-only </dev/null ) \
       || die "downloaded source failed its self-checks"
   fi
 }
@@ -292,9 +339,10 @@ fi
 
 # Say so plainly if another pi will win on PATH: ours is only first once BINDIR
 # is, and a globally installed pi in /usr/local/bin is a common way to lose.
-OTHER_PI="$(command -v pi 2>/dev/null || true)"
+# The account's own PATH, not the one this script narrowed for itself.
+OTHER_PI="$(PATH="$ELM_PI_USER_PATH" command -v pi 2>/dev/null || true)"
 if [ "$LINKED" = "1" ] && [ -n "$OTHER_PI" ] && [ "$OTHER_PI" != "$LINK" ]; then
-  case ":${PATH}:" in
+  case ":${ELM_PI_USER_PATH}:" in
     *":$BINDIR:"*)
       warn "another pi is earlier on your PATH: $OTHER_PI"
       warn "that one will keep winning — remove it, or move $BINDIR ahead of it" ;;
@@ -308,7 +356,7 @@ fi
 # marked and idempotent, re-running never duplicates it, and --no-path (or
 # ELM_PI_NO_PATH=1) skips the whole step.
 ON_PATH=0
-case ":${PATH}:" in *":$BINDIR:"*) ON_PATH=1 ;; esac
+case ":${ELM_PI_USER_PATH}:" in *":$BINDIR:"*) ON_PATH=1 ;; esac
 
 PATH_ADDED=0
 PATH_PRESENT=0

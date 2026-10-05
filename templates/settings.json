@@ -1,4 +1,5 @@
 {
+  "defaultProjectTrust": "never",
   "defaultProvider": "elm",
   "defaultModel": "@QWEN_MODEL@",
   "defaultThinkingLevel": "off",

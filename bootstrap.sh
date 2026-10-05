@@ -8,22 +8,11 @@
 # you have edited. Nothing is installed system-wide; delete this directory and
 # the install is gone.
 set -euo pipefail
+unset CDPATH
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
-
-
-
-
 CONFIG_TOOL="$HERE/scripts/elm_config.py"
-[ -x "$CONFIG_TOOL" ] || chmod +x "$CONFIG_TOOL" 2>/dev/null || true
-NODE_VERSION="${NODE_VERSION:-$(python3 "$CONFIG_TOOL" --root "$HERE" value nodeVersion)}"
-# package.json asks for "latest", so this is a dist tag unless someone pins a
-# version for a run: PI_VERSION=0.86.1 ./bootstrap.sh installs exactly that.
-PI_VERSION="${PI_VERSION:-$(python3 -c 'import json; print(json.load(open("package.json"))["dependencies"]["@earendil-works/pi-coding-agent"])')}"
-
-
-
 
 WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; FORCE=0
 WITH_TOOLS=1; WITH_PATCH=1; FORCE_PACKAGES=0
@@ -56,8 +45,12 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
   --no-auth-lock      leave agent/auth.json writable, so /login works
   -h, --help          this text
 
-Environment: NODE_VERSION, ELM_PI_TOOLS, FD_VERSION, RG_VERSION,
-JQ_VERSION, YQ_VERSION, SHELLCHECK_VERSION, ASTGREP_VERSION.
+Environment: ELM_PI_PYTHON, ELM_PI_BUNDLED_PYTHON, ELM_PI_NODE_VERSION, ELM_PI_NPM_USERCONFIG,
+PI_VERSION, ELM_PI_TOOLS, FD_VERSION, RG_VERSION, JQ_VERSION, YQ_VERSION,
+SHELLCHECK_VERSION, ASTGREP_VERSION.
+
+Your shell's conda/venv/pyenv Python, nvm/volta Node, ~/.npmrc, ~/.npm and
+PYTHON*/NODE_*/npm_config_* variables are ignored: see lib/sandbox.sh.
 EOU
 }
 
@@ -85,6 +78,42 @@ done
 say()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m    %s\033[0m\n' "$*"; }
 die()  { printf '\033[31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
+
+# --- 0. this install, not this account --------------------------------------
+# From here on nothing of the account's own toolchain is used: no conda or
+# virtualenv Python, no nvm/volta/Homebrew Node or npm, no ~/.npmrc or ~/.npm,
+# no PYTHON*/NODE_*/npm_config_*/GIT_* variables. lib/sandbox.sh has the list
+# and the reasons.
+[ -f "$HERE/lib/sandbox.sh" ] || die "lib/sandbox.sh is missing"
+# shellcheck source=lib/sandbox.sh
+. "$HERE/lib/sandbox.sh"
+elm_install_env "$HERE"
+say "Python"
+elm_ensure_python "$HERE" || die "$ELM_PY_ERROR"
+echo "    $ELM_PI_PYTHON ($(elm_py -c 'import platform; print(platform.python_version())'))"
+USER_PY="$(PATH="$ELM_PI_USER_PATH" command -v python3 2>/dev/null || true)"
+if [ -n "$USER_PY" ] && [ "$USER_PY" != "$ELM_PI_PYTHON" ]; then
+  echo "    (not $USER_PY from your PATH: elm-pi always runs its own choice, isolated)"
+fi
+
+# Before anything runs pi: jiti searches every ancestor of the install for
+# packages, so a node_modules above it would be loaded into pi - by the cache
+# warm-up and the checks below as much as by the launcher, which refuses to
+# start while one exists.
+EXTERNAL_MODULES="$(elm_external_module_dirs "$HERE")"
+if [ -n "$EXTERNAL_MODULES" ] && [ "${ELM_PI_ALLOW_EXTERNAL_MODULES:-0}" != "1" ]; then
+  warn "node_modules outside this install, in a directory above it:"
+  printf '%s\n' "$EXTERNAL_MODULES" | sed 's/^/      /'
+  die "packages there would be loaded into pi. Move or delete them (usually an \`npm install\` run in the wrong place), or set ELM_PI_ALLOW_EXTERNAL_MODULES=1"
+fi
+
+# Not NODE_VERSION: official Node container images and some CI runners export
+# that for their own Node, without the leading v, and it used to be read here.
+NODE_VERSION="${ELM_PI_NODE_VERSION:-$(elm_py "$CONFIG_TOOL" --root "$HERE" value nodeVersion)}"
+case "$NODE_VERSION" in v[0-9]*.[0-9]*.[0-9]*) ;; *) die "Node version \"$NODE_VERSION\" is not of the form v24.1.0" ;; esac
+# package.json asks for "latest", so this is a dist tag unless someone pins a
+# version for a run: PI_VERSION=0.86.1 ./bootstrap.sh installs exactly that.
+PI_VERSION="${PI_VERSION:-$(elm_py -c 'import json; print(json.load(open("package.json"))["dependencies"]["@earendil-works/pi-coding-agent"])')}"
 
 # macOS ships shasum, most Linux distros ship sha256sum. Pick before piping:
 # a missing binary inside a pipeline still exits 0 through awk.
@@ -130,8 +159,8 @@ else
   TAR="node-$NODE_VERSION-$OS-$ARCH.tar.gz"
   TMP="$(mktemp -d)"
   echo "    downloading $TAR"
-  curl -fsSL -o "$TMP/$TAR" "https://nodejs.org/dist/$NODE_VERSION/$TAR"
-  curl -fsSL -o "$TMP/SHASUMS256.txt" "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt"
+  curl -q -fsSL -o "$TMP/$TAR" "https://nodejs.org/dist/$NODE_VERSION/$TAR"
+  curl -q -fsSL -o "$TMP/SHASUMS256.txt" "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt"
   want=$(grep " $TAR\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')
   got=$(sha256_of "$TMP/$TAR") || die "cannot verify $TAR without a sha256 tool"
   [ -n "$want" ] && [ "$want" = "$got" ] || die "checksum mismatch for $TAR"
@@ -139,14 +168,18 @@ else
   tar -xzf "$TMP/$TAR" -C .node --strip-components=1
   echo "    installed $(.node/bin/node --version)"
 fi
-export PATH="$HERE/.node/bin:$PATH"
+# elm_install_env already put .node/bin first; prove it rather than assume it.
+[ "$(command -v node)" = "$HERE/.node/bin/node" ] || die "node resolves to $(command -v node), not the bundled $HERE/.node/bin/node"
+[ -f "$HERE/.node/lib/node_modules/npm/bin/npm-cli.js" ] || die "the bundled npm is missing from .node - delete .node and re-run"
+NPM_PROBLEM="$(elm_npm_verify "$HERE")" || die "npm is not isolated to this install: $NPM_PROBLEM"
+echo "    npm: config/npmrc, cache .npm-cache, global prefix .node (nothing from ~/.npmrc or ~/.npm)"
 
 # --- 2. pi ------------------------------------------------------------------
 say "pi coding agent"
 
 PI_INSTALLED=""
 if [ -f node_modules/@earendil-works/pi-coding-agent/package.json ]; then
-  PI_INSTALLED=$(node -p \
+  PI_INSTALLED=$("$HERE/.node/bin/node" -p \
     'require("./node_modules/@earendil-works/pi-coding-agent/package.json").version' \
     2>/dev/null) || PI_INSTALLED=""
 fi
@@ -171,10 +204,10 @@ fi
 if [ "$NEED_PI" = "1" ]; then
   CORE_STAGE="$(mktemp -d "$HERE/.elm-pi-stage-core.XXXXXX")"
   cp package.json "$CORE_STAGE/"
-  ( cd "$CORE_STAGE" && npm install --omit=dev --ignore-scripts --no-audit --no-fund \
+  ( cd "$CORE_STAGE" && elm_npm install --omit=dev --ignore-scripts --no-audit --no-fund \
       --fetch-retries=5 --fetch-retry-maxtimeout=60000 --loglevel=error )
   if [ "$WITH_PATCH" = "1" ]; then
-    "$HERE/patch-pi.py" --bundle "$CORE_STAGE/node_modules/@earendil-works/pi-coding-agent/dist/bundle" \
+    elm_py "$HERE/patch-pi.py" --bundle "$CORE_STAGE/node_modules/@earendil-works/pi-coding-agent/dist/bundle" \
       || die "could not disable /share and /bug in the staged pi release"
   fi
   "$HERE/.node/bin/node" "$CORE_STAGE/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" --version >/dev/null \
@@ -195,7 +228,7 @@ fi
 
 
 
-echo "    $(node node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js --version 2>/dev/null || echo installed)"
+echo "    $("$HERE/.node/bin/node" node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js --version 2>/dev/null || echo installed)"
 # /share publishes the session as a GitHub gist and /bug POSTs the whole
 # transcript to radius.pi.dev. pi has no way to disable a built-in command, so
 # they are patched out of the release here, on every install and every update.
@@ -206,7 +239,7 @@ echo "    $(node node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js
 # Re-derive the anchors in patch-pi.py, or re-run with --no-patch if you have
 # decided you want those commands.
 if [ "$WITH_PATCH" = "1" ]; then
-  ./patch-pi.py || die "could not disable /share and /bug - see patch-pi.py"
+  elm_py "$HERE/patch-pi.py" || die "could not disable /share and /bug - see patch-pi.py"
 else
   warn "--no-patch: /share and /bug are live; both upload the whole session off-site"
 fi
@@ -223,12 +256,15 @@ mkdir -p agent/extensions/subagent agent/extensions/pi-permission-system \
 [ -f "$HERE/lib/state.sh" ] || die "lib/state.sh is missing"
 . "$HERE/lib/state.sh"
 elm_secure_install_state "$HERE"
-python3 "$CONFIG_TOOL" --root "$HERE" init
+# The launcher starts this interpreter rather than searching again on every
+# launch; lib/sandbox.sh re-validates it on the next install.
+printf '%s\n' "$ELM_PI_PYTHON" > agent/python-path
+elm_py "$CONFIG_TOOL" --root "$HERE" init
 install_if_absent() {   # never clobber a config someone has tuned
   if [ -f "$2" ]; then
     echo "    keeping existing $2"
   else
-    python3 "$CONFIG_TOOL" --root "$HERE" render "$1" "$2"
+    elm_py "$CONFIG_TOOL" --root "$HERE" render "$1" "$2"
     echo "    wrote $2"
   fi
 }
@@ -238,10 +274,10 @@ install_if_absent() {   # never clobber a config someone has tuned
 # without needing --update. Config you tune (settings.json, models.json,
 # web-search.json, the extension configs) is install_if_absent instead, with
 # only the keys this repo decides reapplied over the top further down.
-REQUIRED_EXTENSIONS="$(python3 -c 'import json; print(" ".join(json.load(open("config/elm-pi.json"))["requiredExtensions"]))')"
+REQUIRED_EXTENSIONS="$(elm_py -c 'import json; print(" ".join(json.load(open("config/elm-pi.json"))["requiredExtensions"]))')"
 for f in $REQUIRED_EXTENSIONS; do
   [ -f "templates/extensions/$f" ] || continue
-  python3 "$CONFIG_TOOL" --root "$HERE" render \
+  elm_py "$CONFIG_TOOL" --root "$HERE" render \
     "templates/extensions/$f" "agent/extensions/$f"
 done
 echo "    refreshed required agent extensions (policy, protections, tools, shim)"
@@ -281,7 +317,7 @@ fi
 for f in templates/agents/*.md; do
   [ -e "$f" ] || continue
   AGENT_DEST="agent/agents/$(basename "$f")"
-  python3 "$CONFIG_TOOL" --root "$HERE" render "$f" "$AGENT_DEST"
+  elm_py "$CONFIG_TOOL" --root "$HERE" render "$f" "$AGENT_DEST"
   sed -e "s|@AGENT_DIR@|$HERE/agent|g" "$AGENT_DEST" > "$AGENT_DEST.tmp"
   mv "$AGENT_DEST.tmp" "$AGENT_DEST"
 done
@@ -293,7 +329,7 @@ echo "    refreshed agent/agents/*.md (model pinning, tools, delegation briefs)"
 install_if_absent templates/config/pi-task-models/config.json agent/config/pi-task-models/config.json
 install_if_absent templates/settings.json              agent/settings.json
 install_if_absent templates/models.json                agent/models.json
-python3 "$CONFIG_TOOL" --root "$HERE" render templates/AGENTS.md agent/AGENTS.md
+elm_py "$CONFIG_TOOL" --root "$HERE" render templates/AGENTS.md agent/AGENTS.md
 echo "    refreshed agent/AGENTS.md"
 install_if_absent templates/web-search.json            agent/web-search.json
 [ -f agent/auth.json ] || printf '{}\n' > agent/auth.json
@@ -423,7 +459,7 @@ if [ "$WITH_TOOLS" = "1" ]; then
       from_cache=1
     else
       echo "    downloading $asset"
-      if ! curl -fsSL -o "$TOOLS_TMP/$asset" "$url"; then
+      if ! curl -q -fsSL -o "$TOOLS_TMP/$asset" "$url"; then
         warn "could not download $asset - $bin not installed"
         return 0
       fi
@@ -433,7 +469,7 @@ if [ "$WITH_TOOLS" = "1" ]; then
     # checksum, and installs with a warning when there is none to be had.
     want="$(awk -v a="$bin/$version/$asset" '$2 == a {print $1}' templates/tools.sha256 2>/dev/null | head -1)"
     if [ -z "$want" ] && [ -n "$shaurl" ]; then
-      want="$(curl -fsSL "$shaurl" 2>/dev/null \
+      want="$(curl -q -fsSL "$shaurl" 2>/dev/null \
               | awk -v a="$asset" '$2 == a {print $1; exit} NF == 1 {print $1; exit}')"
     fi
     got="$(sha256_of "$TOOLS_TMP/$asset")" || die "cannot verify $asset without a sha256 tool"
@@ -513,7 +549,7 @@ fi
 # concurrency, search routing, your own additions - is left exactly as it is.
 # To change a decision permanently, change templates/, not agent/.
 say "installer-owned settings"
-HERE="$HERE" python3 - <<'PYX'
+HERE="$HERE" elm_py - <<'PYX'
 import json, os, collections
 
 HERE = os.environ["HERE"]
@@ -530,6 +566,8 @@ OWNED = {
         "sessionDir",            # per-project .pi/sessions, not one central pile
         "defaultThinkingLevel",  # off: measured ~400x slower here for no gain
         "retry",                 # gateway retry policy
+        "defaultProjectTrust",   # never: a repo's .pi/ cannot load code or
+                                 # override settings unless /trust says so
     ),
     "extensions/subagent/config.json": (
         "share",                 # false: `gh gist create` publishes a run
@@ -640,7 +678,7 @@ if [ "$WITH_PACKAGES" = "1" ]; then
   # then loaded none of them. Everything else in that file is yours and is left
   # exactly as you left it.
   cp -f templates/packages.json agent/npm/package.json
-  python3 - <<'PYX'
+  elm_py - <<'PYX'
 import json
 
 chosen = json.load(open("templates/settings.json")).get("packages", [])
@@ -649,11 +687,12 @@ was = s.get("packages", [])
 s["packages"] = chosen
 json.dump(s, open("agent/settings.json", "w"), indent=2); open("agent/settings.json", "a").write("\n")
 
-print("    loading: " + (", ".join(p.removeprefix("npm:") for p in chosen) or "none"))
+# p[4:], not removeprefix: that is 3.9+, and macOS 11's /usr/bin/python3 is 3.8.
+print("    loading: " + (", ".join(p[4:] if p.startswith("npm:") else p for p in chosen) or "none"))
 if sorted(was) != sorted(chosen):
     print("    (agent/settings.json listed %d package(s); corrected to match)" % len(was))
 PYX
-  CHOSEN="$(python3 -c 'import json; print(" ".join(p.removeprefix("npm:") for p in json.load(open("agent/settings.json")).get("packages", [])))')"
+  CHOSEN="$(elm_py -c 'import json; print(" ".join(p[4:] if p.startswith("npm:") else p for p in json.load(open("agent/settings.json")).get("packages", [])))')"
 
   # Reinstall when the reviewed lock changes, when explicitly forced, or when a
   # package pi will load is missing. Build in a sibling staging directory and
@@ -669,7 +708,7 @@ PYX
      || [ "$(cat "$PACKAGE_STAMP" 2>/dev/null)" != "$PACKAGE_MANIFEST_DIGEST" ]; then
     PKG_STAGE="$(mktemp -d "$HERE/.elm-pi-stage-packages.XXXXXX")"
     cp templates/packages.json "$PKG_STAGE/package.json"
-    ( cd "$PKG_STAGE" && npm install --ignore-scripts --no-audit --no-fund \
+    ( cd "$PKG_STAGE" && elm_npm install --ignore-scripts --no-audit --no-fund \
         --fetch-retries=5 --fetch-retry-maxtimeout=60000 --loglevel=error )
     # Package scripts stay disabled, and nothing now needs re-enabling:
     # better-sqlite3 was the one package whose install step had to run, and
@@ -700,13 +739,19 @@ PYX
   done
 
 else
-  python3 - <<'PY'
+  elm_py - <<'PY'
 import json
 s=json.load(open("agent/settings.json")); s["packages"]=[]
 json.dump(s,open("agent/settings.json","w"),indent=2); open("agent/settings.json","a").write("\n")
 print("    packages disabled in agent/settings.json")
 PY
 fi
+
+# --- 3b2. nobody else writes to this install ---------------------------------
+# Whatever umask the account had when any of this was unpacked, code here ends
+# up writable by its owner only - shared deliberately (ELM_PI_SHARED_STATE=1):
+# owner and group.
+elm_tighten_install_perms "$HERE"
 
 # --- 3c. warm the module cache ----------------------------------------------
 # The packages ship raw TypeScript. pi transpiles them with jiti, which
@@ -724,7 +769,10 @@ fi
 if [ "$WITH_PACKAGES" = "1" ] && [ -d agent/npm/node_modules ]; then
   say "warming the module cache"
   echo "    transpiling the packages once so the first launch does not have to"
-  JITI_CACHE_DIR="${TMPDIR:-/tmp}"; JITI_CACHE_DIR="${JITI_CACHE_DIR%/}/jiti"
+  # The same private directory the launcher will use, or the warm cache would
+  # land somewhere pi never looks.
+  elm_private_tmpdir || die "$ELM_PY_ERROR"
+  JITI_CACHE_DIR="${TMPDIR%/}/jiti"
   if PI_CODING_AGENT_DIR="$HERE/agent" PI_OFFLINE=1 PI_FORCE=1 \
      ./pi.orig --list-models >/dev/null 2>&1; then
     echo "    done - cached in $JITI_CACHE_DIR"
@@ -739,11 +787,7 @@ fi
 # calling on top of it, which is what makes cheap Llama sub-agents possible.
 if [ "$WITH_SHIM" = "1" ]; then
   say "Llama tool-call shim"
-  if command -v python3 >/dev/null 2>&1; then
-    echo "    $(python3 --version) at $(command -v python3) - shim will start on demand (127.0.0.1:8811)"
-  else
-    warn "python3 not found: Llama sub-agents are unavailable - and see the warning below"
-  fi
+  echo "    $ELM_PI_PYTHON - shim will start on demand (127.0.0.1:8811)"
 else
   rm -f agent/extensions/elm-shim.ts
   echo "    shim skipped (agent/extensions/elm-shim.ts removed)"
@@ -779,13 +823,6 @@ if grep -q '^ELM_API_KEY=.\+' .env 2>/dev/null; then
 fi
 
 # --- 7. verify the lockdown -------------------------------------------------
-# python3 stopped being optional when the egress proxy went in: the launcher
-# refuses to start without it rather than running unfiltered.
-if ! command -v python3 >/dev/null 2>&1; then
-  warn "python3 is NOT installed. pi will refuse to start: the egress proxy needs it."
-  warn "Install python3, or run with ELM_PI_NO_PROXY=1 to accept unfiltered network access."
-fi
-
 say "verifying the ELM-only policy"
 LIST="$(PI_FORCE=1 PI_OFFLINE=1 ELM_PI_NO_PROXY=1 ANTHROPIC_API_KEY=probe-should-be-ignored \
         OPENAI_API_KEY=probe-should-be-ignored ./pi --list-models </dev/null 2>/dev/null || true)"
@@ -802,13 +839,29 @@ else
   warn "agent/bin/pi is missing or points elsewhere - sub-agents may fail to start"
 fi
 if [ "$WITH_PATCH" = "1" ]; then
-  ./patch-pi.py --check || warn "/share and /bug are NOT disabled in this install"
+  elm_py "$HERE/patch-pi.py" --check || warn "/share and /bug are NOT disabled in this install"
+fi
+# The module guard is only worth having if it fires. Plant a package outside
+# the install and ask the guarded node for it, through require and import.
+GUARD_PROBE="$(mktemp -d)"
+mkdir -p "$GUARD_PROBE/node_modules/elm-pi-guard-probe"
+printf 'module.exports = "loaded";\n' > "$GUARD_PROBE/node_modules/elm-pi-guard-probe/index.js"
+GUARD_OUT="$(cd "$GUARD_PROBE" && "$HERE/.node/bin/node" --import "$HERE/lib/node-guard.mjs" -e '
+let blocked = 0;
+try { require("elm-pi-guard-probe"); } catch (e) { if (/elm-pi: refusing/.test(e.message)) blocked++; }
+import("elm-pi-guard-probe").catch((e) => { if (/elm-pi: refusing/.test(e.message)) blocked++; })
+  .then(() => console.log(blocked));' 2>&1 || true)"
+rm -rf "$GUARD_PROBE"
+if [ "$GUARD_OUT" = "2" ]; then
+  echo "    module guard: packages outside the install are refused (require and import)"
+else
+  warn "module guard did not refuse a package outside the install ($GUARD_OUT)"
 fi
 # The launcher hides pi-web-access's tools by naming them in --exclude-tools, and
 # pi ignores an exclusion for a tool that does not exist - so a version that adds
 # a fifth tool would leave it live in the default mode, silently. Compare the two
 # lists rather than trusting that they still agree.
-HERE="$HERE" python3 - <<'PYW' || warn "could not check the web-tool exclusion list"
+HERE="$HERE" elm_py - <<'PYW' || warn "could not check the web-tool exclusion list"
 import json, os, re, sys
 
 here = os.environ["HERE"]
