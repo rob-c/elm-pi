@@ -4,7 +4,7 @@
 # inherits it and users reasonably expect ordinary project files to stay 0644.
 
 elm_secure_file() {
-  [ -e "$1" ] && chmod 600 "$1" 2>/dev/null || true
+  if [ -e "$1" ]; then chmod 600 "$1" 2>/dev/null || true; fi
 }
 
 elm_set_auth_mode() {

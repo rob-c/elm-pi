@@ -438,7 +438,7 @@ fi
 # files the researcher maintains. Only ever created inside a work tree.
 if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if [ ! -f .pi/.gitignore ]; then
-    mkdir -p .pi 2>/dev/null && printf '*\n' > .pi/.gitignore 2>/dev/null || true
+    if mkdir -p .pi 2>/dev/null; then printf '*\n' > .pi/.gitignore 2>/dev/null || true; fi
   fi
 fi
 

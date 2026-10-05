@@ -163,7 +163,7 @@ else
   curl -q -fsSL -o "$TMP/SHASUMS256.txt" "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt"
   want=$(grep " $TAR\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')
   got=$(sha256_of "$TMP/$TAR") || die "cannot verify $TAR without a sha256 tool"
-  [ -n "$want" ] && [ "$want" = "$got" ] || die "checksum mismatch for $TAR"
+  if [ -z "$want" ] || [ "$want" != "$got" ]; then die "checksum mismatch for $TAR"; fi
   rm -rf .node && mkdir -p .node
   tar -xzf "$TMP/$TAR" -C .node --strip-components=1
   echo "    installed $(.node/bin/node --version)"
@@ -846,11 +846,11 @@ fi
 GUARD_PROBE="$(mktemp -d)"
 mkdir -p "$GUARD_PROBE/node_modules/elm-pi-guard-probe"
 printf 'module.exports = "loaded";\n' > "$GUARD_PROBE/node_modules/elm-pi-guard-probe/index.js"
-GUARD_OUT="$(cd "$GUARD_PROBE" && "$HERE/.node/bin/node" --import "$HERE/lib/node-guard.mjs" -e '
+GUARD_OUT="$(cd "$GUARD_PROBE" || exit 1; "$HERE/.node/bin/node" --import "$HERE/lib/node-guard.mjs" -e '
 let blocked = 0;
 try { require("elm-pi-guard-probe"); } catch (e) { if (/elm-pi: refusing/.test(e.message)) blocked++; }
 import("elm-pi-guard-probe").catch((e) => { if (/elm-pi: refusing/.test(e.message)) blocked++; })
-  .then(() => console.log(blocked));' 2>&1 || true)"
+  .then(() => console.log(blocked));' 2>&1)" || true
 rm -rf "$GUARD_PROBE"
 if [ "$GUARD_OUT" = "2" ]; then
   echo "    module guard: packages outside the install are refused (require and import)"
