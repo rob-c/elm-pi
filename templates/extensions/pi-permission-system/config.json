@@ -18,6 +18,8 @@
       "@INSTALL_DIR@/**": "allow",
       "~/.pi/workflows": "allow",
       "~/.pi/workflows/**": "allow",
+      "@AGENT_DIR@/workflows": "allow",
+      "@AGENT_DIR@/workflows/**": "allow",
       "/tmp": "allow",
       "/tmp/**": "allow",
       "/private/tmp": "allow",

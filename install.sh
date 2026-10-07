@@ -83,7 +83,6 @@ Installer flags:
 
 Passed through to bootstrap.sh:
   --no-packages       pi only: no sub-agents, memory, web access or anchor edit
-  --no-memory         drop pi-hermes-memory: ~1.2s off every launch
   --no-tools          skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
   --no-shim           no Llama tool-call shim
   --no-patch          leave pi's /share and /bug commands in place
@@ -115,7 +114,7 @@ for arg in "$@"; do
     --force-link) FORCE_LINK=1 ;;
     # Forwarded verbatim. A flag missing from this list used to be dropped in
     # silence, so `install.sh --no-tools` installed the tools anyway.
-    --no-memory|--no-packages|--no-shim|--no-auth-lock|--no-tools|--no-patch|--force|--force-packages)
+    --no-packages|--no-shim|--no-auth-lock|--no-tools|--no-patch|--force|--force-packages)
       PASS_ARGS+=("$arg") ;;
     *) echo "unknown option: $arg" >&2; echo "try: --help" >&2; exit 2 ;;
   esac
@@ -226,7 +225,7 @@ validate_source() { # $1 = candidate source tree
 import ast, json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 for path in [root / "patch-pi.py", root / "proxy/egress.py", root / "shim/shim.py",
-             root / "scripts/elm_config.py"]:
+             root / "scripts/elm_config.py", root / "scripts/verify_install.py"]:
     ast.parse(path.read_text(), filename=str(path))
 for path in list((root / "config").glob("*.json")) + list((root / "templates").rglob("*.json")):
     json.loads(path.read_text())

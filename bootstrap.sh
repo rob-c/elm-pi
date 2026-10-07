@@ -38,7 +38,7 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
   --force             re-download the tools and reinstall the npm packages
   --force-packages    reinstall only the locked extension dependency tree
 
-  --no-packages       pi only: no sub-agents, memory, web access or anchor edit
+  --no-packages       pi only: no sub-agents, web access or anchor edit
   --no-tools          skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
   --no-shim           skip the Llama tool-call shim
   --no-patch          leave pi's /share and /bug commands in place
@@ -322,14 +322,44 @@ for f in templates/agents/*.md; do
   mv "$AGENT_DEST.tmp" "$AGENT_DEST"
 done
 echo "    refreshed agent/agents/*.md (model pinning, tools, delegation briefs)"
-# pi-auto-compact routes compaction through pi-task-models' "fast" profile.
+# pi-auto-compact routes compaction through pi-task-models' "balanced" profile.
 # Qwen primary, Llama fallback: compaction is lossy - a bad summary loses
 # session context permanently - so the capable model does it and the small one
 # only catches a rate limit.
 install_if_absent templates/config/pi-task-models/config.json agent/config/pi-task-models/config.json
+mkdir -p agent/config/pi-auto-compact
+install_if_absent templates/config/pi-auto-compact/config.json agent/config/pi-auto-compact/config.json
 install_if_absent templates/settings.json              agent/settings.json
 install_if_absent templates/models.json                agent/models.json
 elm_py "$CONFIG_TOOL" --root "$HERE" render templates/AGENTS.md agent/AGENTS.md
+# Who the users are and how to work with them (peers, Python 3/C++, evidence
+# over assumption, ask about unknowns, report with units and uncertainty).
+# pi appends it to its system prompt, ahead of AGENTS.md; sub-agents get it too.
+elm_py "$CONFIG_TOOL" --root "$HERE" render templates/APPEND_SYSTEM.md agent/APPEND_SYSTEM.md
+# Skills: pi lists each one's name and description in the system prompt and
+# loads the body only when a task calls for it, so the orchestration detail and
+# the physics methods cost nothing until used. Refreshed every run like the
+# extensions. agent/skills/.elm-pi-managed lists the ones this repo owns, so a
+# skill removed from templates/ is removed here too and one you added yourself
+# is never touched.
+mkdir -p agent/skills
+SKILLS_MANIFEST=agent/skills/.elm-pi-managed
+if [ -f "$SKILLS_MANIFEST" ]; then
+  while IFS= read -r old_skill; do
+    case "$old_skill" in ""|*/*|.*) continue ;; esac
+    [ -d "templates/skills/$old_skill" ] || rm -rf "agent/skills/$old_skill"
+  done < "$SKILLS_MANIFEST"
+fi
+: > "$SKILLS_MANIFEST"
+for skill_dir in templates/skills/*/; do
+  skill="$(basename "$skill_dir")"
+  [ -f "$skill_dir/SKILL.md" ] || continue
+  rm -rf "agent/skills/$skill" && mkdir -p "agent/skills/$skill"
+  cp -R "$skill_dir". "agent/skills/$skill/"
+  elm_py "$CONFIG_TOOL" --root "$HERE" render "$skill_dir/SKILL.md" "agent/skills/$skill/SKILL.md"
+  printf '%s\n' "$skill" >> "$SKILLS_MANIFEST"
+done
+echo "    refreshed agent/skills ($(wc -l < "$SKILLS_MANIFEST" | tr -d ' ') skills)"
 echo "    refreshed agent/AGENTS.md"
 install_if_absent templates/web-search.json            agent/web-search.json
 [ -f agent/auth.json ] || printf '{}\n' > agent/auth.json
@@ -345,6 +375,9 @@ install_if_absent templates/web-search.json            agent/web-search.json
 # enough on its own.
 mkdir -p agent/bin
 ln -sfn "$HERE/pi" agent/bin/pi
+# workflow-check: the pi-dynamic-workflows parser as a command, so the agent can
+# find a syntax error by line before sending a script to the `workflow` tool.
+ln -sfn "$HERE/scripts/workflow-check" agent/bin/workflow-check
 echo "    agent/bin/pi -> $HERE/pi (sub-agent children)"
 if [ "$AUTH_LOCK" = "1" ]; then
   # /login writes the credential it obtains to agent/auth.json. Read-only means
@@ -575,6 +608,9 @@ OWNED = {
         "worktreeProvider",
         "worktreeBaseDir",
         "maxSubagentSpawnsPerRun",
+        "disabledFeatures",      # agent-management: the model cannot enable,
+                                 # create or edit agents (e.g. the disabled
+                                 # commercial-CLI builtins) through the tool
     ),
     "extensions/pi-permission-system/config.json": (
         "permission",            # the gate: outside-cwd, secrets, bash
@@ -583,6 +619,12 @@ OWNED = {
     "config/pi-task-models/config.json": (
         "profiles",              # frontier/balanced/fast -> Qwen+think, Qwen, Llama
         "tasks",                 # compaction routed to balanced
+    ),
+    "config/pi-auto-compact/config.json": (
+        "autoCompactThreshold",  # 50, not the package's 70: context rot sets in
+                                 # long before a 262k window is full, and the
+                                 # pinned-instructions extension keeps the
+                                 # user's standing instructions out of summaries
     ),
     "web-search.json": (
         "pdf",                   # provider unpdf: keeps PDFs off Datalab/Gemini
@@ -636,8 +678,11 @@ if os.path.exists(models_path):
     models = load(models_path)
     elm = models.get("providers", {}).get("elm", {})
     models_dirty = False
-    # Qwen's own precise-coding sampling profile, verified accepted by the
-    # gateway. configure.sh preserves samplingParams, so it is only ever wrong
+    # The Qwen3.5 model card's Instruct (non-thinking) profile - this install
+    # runs with thinking off - presence_penalty=1.5 included: every non-thinking
+    # profile on the Qwen3.5 cards sets it, against repetition loops. The card's
+    # one profile without it is thinking-mode precise coding. Verified accepted
+    # by the gateway. configure.sh preserves samplingParams, so it is only ever wrong
     # if someone edited it; reapply it and say so.
     tmpl_models = load(os.path.join(HERE, "templates", "models.json"))
     want_sampling = tmpl_models["providers"]["elm"]["models"][0].get("samplingParams")
@@ -659,6 +704,88 @@ if os.path.exists(models_path):
     else:
         print("    agent/models.json matches")
 PYX
+
+# --- workflow settings (pi-dynamic-workflows) --------------------------------
+# The package reads one settings.json, and where it lives moved in 3.14.0: from
+# ~/.pi/workflows to $PI_CODING_AGENT_DIR/workflows, without migrating. The
+# packages track "latest", so both are written and the keys below are reapplied
+# every run. Other keys in either file are left alone.
+#   inheritMainModel              true: an agent with no model runs on the
+#                                 session model, which is ELM
+#   keywordTriggerEnabled         false: otherwise any message containing the
+#                                 word "workflow" forces a fan-out
+#   providerMiddlewareExtensions  workflow children load no extensions at all
+#                                 by default - no permission gate, no protected
+#                                 paths, no safety net. These are loaded into them.
+# pi-hashline-edit-pro reads agent/hashline/config.json (the launcher exports
+# PI_HASHLINE_DIR). requirePath makes every anchor edit name its file, which is
+# what lets protected-paths.ts check it; copy and move are off because a move's
+# destination comes from an anchor, not from the path it names.
+mkdir -p agent/hashline
+HERE="$HERE" elm_py - <<'PYHL'
+import json, os
+here = os.environ["HERE"]
+want = json.load(open(os.path.join(here, "templates/hashline/config.json")))
+path = os.path.join(here, "agent/hashline/config.json")
+try:
+    live = json.load(open(path))
+except (OSError, ValueError):
+    live = {}
+changed = sorted(k for k, v in want.items() if live.get(k) != v)
+live.update(want)
+with open(path, "w") as fh:
+    json.dump(live, fh, indent=2); fh.write("\n")
+print("    agent/hashline/config.json: " + ("set " + ", ".join(changed) if changed else "matches"))
+PYHL
+
+say "workflow settings"
+HERE="$HERE" elm_py - <<'PYWF'
+import json, os
+
+here = os.environ["HERE"]
+want = json.load(open(os.path.join(here, "templates/workflows/settings.json")))
+for path in (os.path.join(os.path.expanduser("~"), ".pi", "workflows", "settings.json"),
+             os.path.join(here, "agent", "workflows", "settings.json")):
+    try:
+        live = json.load(open(path))
+    except (OSError, ValueError):
+        live = {}
+    changed = {k: v for k, v in want.items() if live.get(k) != v}
+    if changed:
+        live.update(want)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            json.dump(live, fh, indent=2)
+            fh.write("\n")
+        print(f"    {path}: set {', '.join(sorted(changed))}")
+    else:
+        print(f"    {path} matches")
+PYWF
+
+# Build the extension package tree in a sibling staging directory and swap it in
+# only once npm has finished and every listed package is present.
+install_packages() {
+  local pkg old
+  PKG_STAGE="$(mktemp -d "$HERE/.elm-pi-stage-packages.XXXXXX")"
+  cp agent/npm/package.json "$PKG_STAGE/package.json"
+  ( cd "$PKG_STAGE" && elm_npm install --ignore-scripts --no-audit --no-fund \
+      --fetch-retries=5 --fetch-retry-maxtimeout=60000 --loglevel=error )
+  # Package scripts stay disabled. Transitive packages still ship install
+  # scripts (esbuild, protobufjs, tree-sitter-bash); none of them run.
+  for pkg in $CHOSEN; do
+    [ -d "$PKG_STAGE/node_modules/$pkg" ] || die "staged package is missing: $pkg"
+  done
+  printf '%s\n' "$PACKAGE_MANIFEST_DIGEST" > "$PKG_STAGE/node_modules/.elm-pi-lock.sha256"
+  old="$HERE/.elm-pi-old-packages.$$"
+  [ ! -d agent/npm/node_modules ] || mv agent/npm/node_modules "$old"
+  if ! mv "$PKG_STAGE/node_modules" agent/npm/node_modules; then
+    [ ! -d "$old" ] || mv "$old" agent/npm/node_modules
+    die "could not activate the staged extension packages"
+  fi
+  rm -rf "$old" "$PKG_STAGE"
+  PKG_STAGE=""
+  echo "    installed into agent/npm/node_modules"
+}
 
 if [ "$WITH_PACKAGES" = "1" ]; then
   say "pi packages (sub-agents, web access, anchor editing)"
@@ -694,50 +821,32 @@ if sorted(was) != sorted(chosen):
 PYX
   CHOSEN="$(elm_py -c 'import json; print(" ".join(p[4:] if p.startswith("npm:") else p for p in json.load(open("agent/settings.json")).get("packages", [])))')"
 
-  # Reinstall when the reviewed lock changes, when explicitly forced, or when a
-  # package pi will load is missing. Build in a sibling staging directory and
-  # swap only after npm and the one permitted native build both succeed.
-  MISSING=0
-  for pkg in $CHOSEN; do
-    [ -d "agent/npm/node_modules/$pkg" ] || MISSING=1
-  done
+  # Packages are reinstalled when the reviewed manifest changes, when forced, and
+  # whenever what is on disk does not match what pi is told to load: every run
+  # checks each listed package and every extension and skill its pi manifest
+  # declares (scripts/verify_install.py). A broken or half-installed tree is
+  # repaired here rather than discovered as a silently missing tool later.
   PACKAGE_MANIFEST_DIGEST="$(sha256_of templates/packages.json)" || die "cannot hash the package manifest"
   PACKAGE_STAMP="agent/npm/node_modules/.elm-pi-lock.sha256"
-  if [ "$FORCE" = "1" ] || [ "$UPDATE" = "1" ] || [ "$FORCE_PACKAGES" = "1" ] || [ "$MISSING" = "1" ] \
+  NEED_PACKAGES=0
+  if [ "$FORCE" = "1" ] || [ "$UPDATE" = "1" ] || [ "$FORCE_PACKAGES" = "1" ] \
      || [ ! -f "$PACKAGE_STAMP" ] \
      || [ "$(cat "$PACKAGE_STAMP" 2>/dev/null)" != "$PACKAGE_MANIFEST_DIGEST" ]; then
-    PKG_STAGE="$(mktemp -d "$HERE/.elm-pi-stage-packages.XXXXXX")"
-    cp templates/packages.json "$PKG_STAGE/package.json"
-    ( cd "$PKG_STAGE" && elm_npm install --ignore-scripts --no-audit --no-fund \
-        --fetch-retries=5 --fetch-retry-maxtimeout=60000 --loglevel=error )
-    # Package scripts stay disabled, and nothing now needs re-enabling:
-    # better-sqlite3 was the one package whose install step had to run, and
-    # it left with pi-hermes-memory. Transitive packages still ship install
-    # scripts (esbuild, protobufjs, tree-sitter-bash); none of them run, as
-    # before.
-    for pkg in $CHOSEN; do
-      [ -d "$PKG_STAGE/node_modules/$pkg" ] || die "staged package is missing: $pkg"
-    done
-    printf '%s\n' "$PACKAGE_MANIFEST_DIGEST" > "$PKG_STAGE/node_modules/.elm-pi-lock.sha256"
-    PKG_OLD="$HERE/.elm-pi-old-packages.$$"
-    [ ! -d agent/npm/node_modules ] || mv agent/npm/node_modules "$PKG_OLD"
-    if ! mv "$PKG_STAGE/node_modules" agent/npm/node_modules; then
-      [ ! -d "$PKG_OLD" ] || mv "$PKG_OLD" agent/npm/node_modules
-      die "could not activate the staged extension packages"
-    fi
-    rm -rf "$PKG_OLD" "$PKG_STAGE"
-    PKG_STAGE=""
-    echo "    installed into agent/npm/node_modules"
-  else
-    echo "    packages match the reviewed lockfile (use --force to reinstall)"
+    NEED_PACKAGES=1
+  elif ! elm_py "$HERE/scripts/verify_install.py" --root "$HERE" --packages-only >/dev/null; then
+    echo "    installed packages do not match agent/settings.json - reinstalling:"
+    elm_py "$HERE/scripts/verify_install.py" --root "$HERE" --packages-only || true
+    NEED_PACKAGES=1
   fi
-  # A package pi is told to load but cannot find is a silent no-op at startup:
-  # the launcher runs pi offline, so it does not try to fetch it either.
-  for pkg in $CHOSEN; do
-    [ -d "agent/npm/node_modules/$pkg" ] || \
-      warn "$pkg is listed in agent/settings.json but missing from agent/npm/node_modules"
-  done
-
+  if [ "$NEED_PACKAGES" = "1" ]; then
+    install_packages
+  else
+    echo "    packages match the reviewed manifest and are complete (use --force to reinstall)"
+  fi
+  # Still incomplete after a fresh install means npm resolved something that
+  # does not contain what it declares: stop rather than run without it.
+  elm_py "$HERE/scripts/verify_install.py" --root "$HERE" --packages-only \
+    || die "extension packages are incomplete even after reinstalling (above); re-run with --force"
 else
   elm_py - <<'PY'
 import json
@@ -773,13 +882,47 @@ if [ "$WITH_PACKAGES" = "1" ] && [ -d agent/npm/node_modules ]; then
   # land somewhere pi never looks.
   elm_private_tmpdir || die "$ELM_PY_ERROR"
   JITI_CACHE_DIR="${TMPDIR%/}/jiti"
-  if PI_CODING_AGENT_DIR="$HERE/agent" PI_OFFLINE=1 PI_FORCE=1 \
-     ./pi.orig --list-models >/dev/null 2>&1; then
-    echo "    done - cached in $JITI_CACHE_DIR"
+  # This is also the load check. scripts/check-extensions.mjs loads every
+  # extension with pi's own resource loader, exactly as a session does, which
+  # fills the transpile cache and reports each one that fails ("Failed to load
+  # extension"). `pi --list-models`, used here before, returns before pi
+  # reports load errors, so a package that was on disk but did not load passed.
+  # A failure is repaired by reinstalling the packages once; if it still fails,
+  # the install stops with the error.
+  warm_up() {
+    ELM_PI_INSTALL_DIR="$HERE" PI_CODING_AGENT_DIR="$HERE/agent" PI_OFFLINE=1 \
+      "$HERE/.node/bin/node" "$HERE/scripts/check-extensions.mjs" > "$WARM_LOG" 2>&1
+  }
+  WARM_LOG="$(mktemp)"
+  WARM_OK=0; warm_up && WARM_OK=1
+  if grep -q "Failed to load extension" "$WARM_LOG"; then
+    warn "pi could not load an extension - reinstalling the packages once:"
+    grep "Failed to load extension" "$WARM_LOG" | sed 's/^/      /' | head -5
+    PACKAGE_MANIFEST_DIGEST="$(sha256_of templates/packages.json)" || die "cannot hash the package manifest"
+    install_packages
+    WARM_OK=0; warm_up && WARM_OK=1
+    if grep -q "Failed to load extension" "$WARM_LOG"; then
+      grep "Failed to load extension" "$WARM_LOG" | sed 's/^/      /' | head -5
+      rm -f "$WARM_LOG"
+      die "extensions still fail to load after reinstalling (above)"
+    fi
+  fi
+  if [ "$WARM_OK" = "1" ]; then
+    echo "    $(tail -1 "$WARM_LOG" | sed 's/^ *//') - cached in $JITI_CACHE_DIR"
   else
     warn "warm-up failed; the first launch will transpile instead (slow, not fatal)"
   fi
+  rm -f "$WARM_LOG"
 fi
+
+# --- 3d. everything pi is told to load is present -----------------------------
+# Packages, required local extensions and skills, checked on
+# every run. Anything missing here is not something a reinstall of the npm
+# packages fixes, so it stops the install with the list.
+say "checking the installed extensions, skills and tools"
+elm_py "$HERE/scripts/verify_install.py" --root "$HERE" \
+  || die "the install is incomplete (above)"
+echo "    all packages, extensions, skills and tools present"
 
 # --- 4. Llama tool-call shim ------------------------------------------------
 # ELM's vLLM instance for Llama 3.3 was started without a tool-call parser, so
@@ -865,14 +1008,20 @@ HERE="$HERE" elm_py - <<'PYW' || warn "could not check the web-tool exclusion li
 import json, os, re, sys
 
 here = os.environ["HERE"]
-pkg = os.path.join(here, "agent/npm/node_modules/pi-web-access/index.ts")
-if not os.path.exists(pkg):
+pkg = os.path.join(here, "agent/npm/node_modules/pi-web-access")
+if not os.path.isdir(pkg):
     print("    web tools: pi-web-access is not installed, nothing to exclude")
     sys.exit(0)
 
-source = open(pkg, encoding="utf-8", errors="replace").read()
+# Every top-level source file, not index.ts alone: 0.37 moved the names into
+# web-tool-core.ts and added a loader tool, web_enable, that switches the others
+# on - which a check reading index.ts could not see.
+source = "\n".join(
+    open(os.path.join(pkg, name), encoding="utf-8", errors="replace").read()
+    for name in sorted(os.listdir(pkg)) if name.endswith(".ts"))
 block = re.search(r"const DEFAULT_TOOL_NAMES[^=]*=\s*\{(.*?)\}", source, re.S)
 registers = set(re.findall(r'"([a-z][a-z0-9_]*)"', block.group(1))) if block else set()
+registers |= set(re.findall(r'const LOADER_NAME\s*=\s*"([a-z][a-z0-9_]*)"', source))
 
 # config/elm-pi.json is the source of truth. The launcher passes the list as
 # "$ELM_WEB_TOOLS", so scraping ./pi for a literal list finds nothing and

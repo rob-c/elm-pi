@@ -15,12 +15,17 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-/** Every tool in this install that can change a file. */
+/** Every tool in this install that can change a file. copy and move are
+ * switched off in agent/hashline/config.json, and named here anyway so that
+ * turning them back on does not open a gap. */
 const WRITING_TOOLS = new Set([
 	"write",
 	"edit",
 	"replace",
+	"replace_match",
 	"insert",
+	"copy",
+	"move",
 	"undo_last_change",
 ]);
 
@@ -64,7 +69,17 @@ export default function (pi: ExtensionAPI) {
 		const path = candidates.find((value) => typeof value === "string" && value) as
 			| string
 			| undefined;
-		if (!path) return undefined;
+		if (!path) {
+			// pi-hashline-edit-pro resolves the file from the anchor when no path
+			// is given, so a path-free edit is invisible to this check. This install
+			// sets its requirePath option; refuse rather than wave one through if
+			// that setting is ever lost.
+			if (event.toolName === "write" || event.toolName === "edit") return undefined;
+			return {
+				block: true,
+				reason: `${event.toolName} must name the file it changes ("path"), so protected paths can be checked`,
+			};
+		}
 
 		const reason = blockedReason(path);
 		if (!reason) return undefined;

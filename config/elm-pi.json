@@ -101,13 +101,16 @@
     "web_search",
     "source_check",
     "fetch_content",
-    "get_search_content"
+    "get_search_content",
+    "web_enable"
   ],
   "requiredExtensions": [
     "elm-only.ts",
     "protected-paths.ts",
     "todo.ts",
     "elm-shim.ts",
-    "workflow-model-scope.ts"
+    "workflow-model-scope.ts",
+    "pinned-instructions.ts",
+    "skill-router.ts"
   ]
 }

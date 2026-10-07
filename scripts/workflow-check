@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Syntax-check a pi-dynamic-workflows script with the package's own parser.
+# Linked into agent/bin by bootstrap.sh; see workflow-check.mjs.
+set -euo pipefail
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  LINKDIR="$(cd "$(dirname "$SELF")" && pwd)"
+  SELF="$(readlink "$SELF")"
+  case "$SELF" in /*) ;; *) SELF="$LINKDIR/$SELF" ;; esac
+done
+HERE="$(cd "$(dirname "$SELF")/.." && pwd)"
+ELM_PI_INSTALL_DIR="$HERE" exec "$HERE/.node/bin/node" "$HERE/scripts/workflow-check.mjs" "$@"

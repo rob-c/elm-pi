@@ -1,0 +1,11 @@
+{
+  "inheritMainModel": true,
+  "keywordTriggerEnabled": false,
+  "providerMiddlewareExtensions": [
+    "elm-only",
+    "protected-paths",
+    "@gotgenes/pi-permission-system",
+    "cc-safety-net",
+    "pinned-instructions"
+  ]
+}

@@ -70,6 +70,17 @@ const ELM_MODEL_IDS = new Set(
 	].map((id) => id.trim().toLowerCase()),
 );
 
+/** The id has to belong to the provider too: elm serves only Qwen, and Llama is
+ * reachable only through the elm-shim provider, which adds tool calling. The two
+ * crossed pairs passed when ids and providers were checked separately -
+ * elm/<llama> goes to ELM's Llama without a tool parser and fails with 400. */
+const SERVED_SPECS = new Set(
+	[
+		`elm/${process.env.ELM_QWEN_MODEL_ID ?? "@QWEN_MODEL@"}`,
+		`elm-shim/${process.env.ELM_LLAMA_MODEL_ID ?? "@LLAMA_MODEL@"}`,
+	].map((spec) => spec.trim().toLowerCase()),
+);
+
 /** Providers whose model ids this install can check. A widened allowlist (the
  * documented PI_ELM_UNLOCK escape hatch) names providers whose catalogues this
  * extension knows nothing about, so those are judged on the prefix alone. */
@@ -104,8 +115,8 @@ export function decide(ctx: PreSpawnModelContext): Decision {
 	if (prefix) {
 		// Right provider. Now the id, for the providers whose catalogue is known.
 		if (!CHECKED_PROVIDERS.has(prefix)) return { action: "unchanged" };
-		if (ELM_MODEL_IDS.has(modelId(model, prefix))) return { action: "unchanged" };
-		const served = [...ELM_MODEL_IDS].join(", ");
+		if (SERVED_SPECS.has(`${prefix}${modelId(model, prefix)}`)) return { action: "unchanged" };
+		const served = [...SERVED_SPECS].join(", ");
 		return {
 			action: "reject",
 			reason:

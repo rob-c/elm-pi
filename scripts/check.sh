@@ -12,7 +12,7 @@ SOURCE_ONLY=0
 [ "${1:-}" = "--source-only" ] && SOURCE_ONLY=1
 
 bash -n install.sh bootstrap.sh configure.sh pi pi.orig shim/run.sh lib/*.sh scripts/*.sh
-elm_py -c 'import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in ["patch-pi.py", "proxy/egress.py", "shim/shim.py", "scripts/elm_config.py"]]'
+elm_py -c 'import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in ["patch-pi.py", "proxy/egress.py", "shim/shim.py", "scripts/elm_config.py", "scripts/verify_install.py"]]'
 elm_py -m unittest discover -s tests -v
 
 if command -v shellcheck >/dev/null 2>&1; then

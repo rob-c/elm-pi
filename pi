@@ -34,8 +34,9 @@ elm-pi: pi wired to the University's ELM gateway. Models are ELM-only - see
 LOCKDOWN.md for what that blocks and how to lift it.
 
 Flags added by this launcher:
-  --fast              load only the local extensions: no sub-agents, memory,
-                      web access or anchor editing. ~1s to start instead of ~3s
+  --fast              load only the local extensions and the permission gate:
+                      no sub-agents, web access or anchor editing. ~1s to start
+                      instead of ~3s
   --llama             run on Llama 3.3 70B through the tool-call shim
   --remote            allow this run to reach the internet: the web tools come
                       back on and the egress proxy records every destination
@@ -154,6 +155,11 @@ elm_private_tmpdir || {
   echo "pi: $ELM_PY_ERROR" >&2
   exit 1
 }
+# pi-hashline-edit-pro keeps its settings and anchor store here rather than in
+# ~/.config, so every install is configured by bootstrap.sh (requirePath on, so
+# protected-paths.ts can see which file an edit targets; copy/move off).
+export PI_HASHLINE_DIR="$HERE/agent/hashline"
+
 # the elm-shim extension starts this proxy so Llama can call tools
 export ELM_SHIM_PATH="${ELM_SHIM_PATH:-$HERE/shim/shim.py}"
 
@@ -187,13 +193,13 @@ export PI_SUBAGENT_PI_BINARY="${PI_SUBAGENT_PI_BINARY:-$HERE/pi}"
 # at every launch, because the packages ship raw TypeScript and are transpiled and
 # imported from hundreds of files each time. pi itself starts in well under a
 # second. --fast loads only the local extensions, so a one-shot question does not
-# pay for sub-agents, cross-session memory and web access it will never use.
+# pay for sub-agents and web access it will never use.
 #
-#   pi --fast -p "what does this regex do?"     quick, no sub-agents/memory/web
+#   pi --fast -p "what does this regex do?"     quick, no sub-agents/web
 #   pi --llama -p "..."                          run on Llama 3.3 via the shim
 #
 # --fast keeps the ELM-only policy (elm-only.ts is always loaded) and pi's
-# built-in edit tool; it drops anchor editing, subagent/bg_wait, hermes memory
+# built-in edit tool; it drops anchor editing, subagent/bg_wait
 # and web search. Use a plain `pi` for real multi-step work.
 FAST=0; LLAMA=0; REMOTE=0; ARGS=()
 for a in "$@"; do
@@ -255,9 +261,14 @@ case " $* " in *" elm-shim"*|*"elm-shim/"*) WANTS_SHIM=1 ;; esac
 
 if [ "$FAST" = "1" ]; then
   PRE+=(--no-extensions)
-  for e in elm-only protected-paths todo; do
+  for e in elm-only protected-paths todo pinned-instructions skill-router; do
     [ -f "$HERE/agent/extensions/$e.ts" ] && PRE+=(-e "$HERE/agent/extensions/$e.ts")
   done
+  # The permission gate ships as a package, so --no-extensions dropped it and
+  # --fast ran with no outside-cwd or bash prompts at all. It is policy, not
+  # convenience: load it explicitly, as the model policy is.
+  GATE="$HERE/agent/npm/node_modules/@gotgenes/pi-permission-system/src/index.ts"
+  [ -f "$GATE" ] && PRE+=(-e "$GATE")
   if [ "$WANTS_SHIM" = "1" ] && [ -f "$HERE/agent/extensions/elm-shim.ts" ]; then
     PRE+=(-e "$HERE/agent/extensions/elm-shim.ts")
   fi
