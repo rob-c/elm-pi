@@ -133,7 +133,7 @@ export function decide(ctx: PreSpawnModelContext): Decision {
 	// refusing says what happened and where to fix it.
 	const where =
 		ctx.modelSource === "tier"
-			? `the "${ctx.tier ?? "?"}" tier in ~/.pi/workflows/model-tiers.json`
+			? `the "${ctx.tier ?? "?"}" tier in ${process.env.PI_CODING_AGENT_DIR ?? "the agent directory"}/workflows/model-tiers.json`
 			: ctx.modelSource === "phase"
 				? "a workflow phase or meta model"
 				: ctx.modelSource === "explicit"

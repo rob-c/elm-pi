@@ -78,7 +78,7 @@ return { report: `${a}\n\n${b}` };
 is always the case in print mode (`pi -p`), pass `background: false`. For a run
 that is already in the background, `workflow_control({ action: "status", runId })`
 reports its state, and its returned value is in
-`~/.pi/workflows/projects/*/runs/<runId>.json.result-*` once it completes.
+`$PI_CODING_AGENT_DIR/workflows/projects/*/runs/<runId>.json.result-*` once it completes.
 **Never run a completed workflow again to get its result**; read that file.
 
 The message delivered back shows only a

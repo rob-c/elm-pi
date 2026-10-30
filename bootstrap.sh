@@ -16,11 +16,26 @@ CONFIG_TOOL="$HERE/scripts/elm_config.py"
 
 WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; FORCE=0
 WITH_TOOLS=1; WITH_PATCH=1; FORCE_PACKAGES=0
-TMP=""; TOOLS_TMP=""; CORE_STAGE=""; PKG_STAGE=""
+TMP=""; TOOLS_TMP=""; CORE_STAGE=""; PKG_STAGE=""; VERIFY_ERR=""
+# The pi release and the extension tree this run replaced. They are kept until
+# the run has finished and verified, and put back if it fails, so an update
+# whose pi cannot load this install's config leaves the previous working pair
+# in place rather than a broken one. Files this run rewrote under agent/ are
+# not rolled back.
+CORE_OLD=""; PKG_OLD=""
+
+restore() {   # $1 = the kept tree, $2 = where it goes back
+  [ -n "$1" ] && [ -d "$1" ] || return 0
+  rm -rf -- "$2" && mv -- "$1" "$2" && printf '    put back the previous %s\n' "${2#"$HERE"/}" >&2
+}
 
 cleanup() {
-  local path
-  for path in "$TMP" "$TOOLS_TMP" "$CORE_STAGE" "$PKG_STAGE"; do
+  local status=$? path
+  if [ "$status" != 0 ]; then
+    restore "$CORE_OLD" "$HERE/node_modules"
+    restore "$PKG_OLD" "$HERE/agent/npm/node_modules"
+  fi
+  for path in "$TMP" "$TOOLS_TMP" "$CORE_STAGE" "$PKG_STAGE" "$CORE_OLD" "$PKG_OLD" "$VERIFY_ERR"; do
     [ -z "$path" ] || rm -rf -- "$path"
   done
 }
@@ -111,9 +126,10 @@ fi
 # that for their own Node, without the leading v, and it used to be read here.
 NODE_VERSION="${ELM_PI_NODE_VERSION:-$(elm_py "$CONFIG_TOOL" --root "$HERE" value nodeVersion)}"
 case "$NODE_VERSION" in v[0-9]*.[0-9]*.[0-9]*) ;; *) die "Node version \"$NODE_VERSION\" is not of the form v24.1.0" ;; esac
-# package.json asks for "latest", so this is a dist tag unless someone pins a
-# version for a run: PI_VERSION=0.86.1 ./bootstrap.sh installs exactly that.
-PI_VERSION="${PI_VERSION:-$(elm_py -c 'import json; print(json.load(open("package.json"))["dependencies"]["@earendil-works/pi-coding-agent"])')}"
+# PI_VERSION=1.4.0 ./bootstrap.sh installs exactly that pi, over both
+# config/versions.json and --update (see stage_manifest). Unset, the version
+# comes from those.
+PI_VERSION="${PI_VERSION:-}"
 
 # macOS ships shasum, most Linux distros ship sha256sum. Pick before piping:
 # a missing binary inside a pipeline still exits 0 through awk.
@@ -184,6 +200,37 @@ if [ -f node_modules/@earendil-works/pi-coding-agent/package.json ]; then
     2>/dev/null) || PI_INSTALLED=""
 fi
 
+# The versions this repo last ran its checks against are in config/versions.json,
+# and every install takes them except --update - which is what `pi update` runs,
+# and takes whatever npm calls latest. PI_VERSION overrides pi itself for one
+# run. Nothing is reinstalled to apply them: a run that would not otherwise
+# rebuild a tree leaves it on whatever it has.
+stage_manifest() {   # $1 = manifest, $2 = staging dir, $3 = section of versions.json
+  elm_py - "$HERE/$1" "$2/package.json" "$3" "$UPDATE" "$PI_VERSION" "$HERE/config/versions.json" <<'PYM'
+import json, os, sys
+
+src, dest, section, update, pi_version, versions = sys.argv[1:7]
+manifest = json.load(open(src))
+deps = manifest.get("dependencies", {})
+pins = {}
+if update != "1" and os.path.exists(versions):
+    pins = json.load(open(versions)).get(section, {})
+if pi_version and section == "core":
+    pins["@earendil-works/pi-coding-agent"] = pi_version
+pinned = sorted(name for name in deps if name in pins)
+for name in pinned:
+    deps[name] = pins[name]
+with open(dest, "w") as fh:
+    json.dump(manifest, fh, indent=2)
+if not pinned:
+    print("    versions: the latest of each" + (", as --update asks" if update == "1" else ""))
+elif len(pinned) == len(deps):
+    print("    versions: all %d at the tested versions" % len(deps))
+else:
+    print("    versions: %d of %d at the tested versions, the rest latest" % (len(pinned), len(deps)))
+PYM
+}
+
 # Reinstalling pi is the slowest step in this script, so it runs only when
 # something changed. The manifest digest catches an edited dependency list;
 # nothing can catch "latest" moving on the registry, which is what --update
@@ -193,7 +240,7 @@ CORE_STAMP="node_modules/.elm-pi-lock.sha256"
 NEED_PI=0
 if [ "$FORCE" = "1" ] || [ "$UPDATE" = "1" ] || [ -z "$PI_INSTALLED" ]; then
   NEED_PI=1
-elif [ "$PI_VERSION" != "latest" ] && [ "$PI_VERSION" != "$PI_INSTALLED" ]; then
+elif [ -n "$PI_VERSION" ] && [ "$PI_VERSION" != "$PI_INSTALLED" ]; then
   echo "    $PI_INSTALLED -> $PI_VERSION"
   NEED_PI=1
 elif [ ! -f "$CORE_STAMP" ] || [ "$(cat "$CORE_STAMP" 2>/dev/null)" != "$CORE_MANIFEST_DIGEST" ]; then
@@ -203,7 +250,7 @@ fi
 
 if [ "$NEED_PI" = "1" ]; then
   CORE_STAGE="$(mktemp -d "$HERE/.elm-pi-stage-core.XXXXXX")"
-  cp package.json "$CORE_STAGE/"
+  stage_manifest package.json "$CORE_STAGE" core
   ( cd "$CORE_STAGE" && elm_npm install --omit=dev --ignore-scripts --no-audit --no-fund \
       --fetch-retries=5 --fetch-retry-maxtimeout=60000 --loglevel=error )
   if [ "$WITH_PATCH" = "1" ]; then
@@ -219,10 +266,10 @@ if [ "$NEED_PI" = "1" ]; then
     [ ! -d "$CORE_OLD" ] || mv "$CORE_OLD" node_modules
     die "could not activate the staged pi release"
   fi
-  rm -rf "$CORE_OLD" "$CORE_STAGE"
+  rm -rf "$CORE_STAGE"
   CORE_STAGE=""
 else
-  echo "    pi $PI_INSTALLED matches the reviewed lockfile (use --force to reinstall)"
+  echo "    pi $PI_INSTALLED, dependency list unchanged (pi update moves to the latest release)"
 fi
 
 
@@ -678,19 +725,29 @@ if os.path.exists(models_path):
     models = load(models_path)
     elm = models.get("providers", {}).get("elm", {})
     models_dirty = False
-    # The Qwen3.5 model card's Instruct (non-thinking) profile - this install
-    # runs with thinking off - presence_penalty=1.5 included: every non-thinking
-    # profile on the Qwen3.5 cards sets it, against repetition loops. The card's
-    # one profile without it is thinking-mode precise coding. Verified accepted
-    # by the gateway. configure.sh preserves samplingParams, so it is only ever wrong
-    # if someone edited it; reapply it and say so.
+    # Three per-model keys are this repo's decisions, reapplied to the live Qwen
+    # entry on every run because configure.sh preserves them:
+    #   samplingParams                 the Qwen3.5 card's Instruct (non-thinking)
+    #                                  profile - this install runs with thinking
+    #                                  off - presence_penalty=1.5 included, against
+    #                                  repetition loops. Verified accepted by the gateway.
+    #   samplingParamsByThinkingLevel  the card's thinking-mode profile (0.6/0.95,
+    #                                  presence_penalty 0) for when /thinking turns it on
+    #   compat                         how the gateway takes the thinking switch. pi
+    #                                  1.4.0 stopped accepting "reasoning_effort" as a
+    #                                  thinkingFormat and dropped the whole elm
+    #                                  provider over it, so an install updated without
+    #                                  this would lose Qwen.
     tmpl_models = load(os.path.join(HERE, "templates", "models.json"))
-    want_sampling = tmpl_models["providers"]["elm"]["models"][0].get("samplingParams")
+    tmpl_qwen = tmpl_models["providers"]["elm"]["models"][0]
     for m in elm.get("models", []):
-        if "qwen" in m.get("id", "").lower() and want_sampling and m.get("samplingParams") != want_sampling:
-            print(f"    agent/models.json: samplingParams {json.dumps(m.get('samplingParams'))} -> {json.dumps(want_sampling)}")
-            m["samplingParams"] = want_sampling
-            models_dirty = True
+        if "qwen" not in m.get("id", "").lower():
+            continue
+        for key in ("samplingParams", "samplingParamsByThinkingLevel", "compat"):
+            if key in tmpl_qwen and m.get(key) != tmpl_qwen[key]:
+                print(f"    agent/models.json: {key} {json.dumps(m.get(key))} -> {json.dumps(tmpl_qwen[key])}")
+                m[key] = tmpl_qwen[key]
+                models_dirty = True
 
     strays = [m for m in elm.get("models", []) if "llama" in m.get("id", "").lower()]
     if strays or models_dirty:
@@ -706,10 +763,11 @@ if os.path.exists(models_path):
 PYX
 
 # --- workflow settings (pi-dynamic-workflows) --------------------------------
-# The package reads one settings.json, and where it lives moved in 3.14.0: from
-# ~/.pi/workflows to $PI_CODING_AGENT_DIR/workflows, without migrating. The
-# packages track "latest", so both are written and the keys below are reapplied
-# every run. Other keys in either file are left alone.
+# The package reads agent/workflows/settings.json: since 3.14.0 it follows
+# $PI_CODING_AGENT_DIR, which the launcher sets. Before that it read
+# ~/.pi/workflows, and this wrote there too - into the account's own pi, which
+# is not this install's to change. The keys below are reapplied every run;
+# other keys in the file are left alone.
 #   inheritMainModel              true: an agent with no model runs on the
 #                                 session model, which is ELM
 #   keywordTriggerEnabled         false: otherwise any message containing the
@@ -744,8 +802,7 @@ import json, os
 
 here = os.environ["HERE"]
 want = json.load(open(os.path.join(here, "templates/workflows/settings.json")))
-for path in (os.path.join(os.path.expanduser("~"), ".pi", "workflows", "settings.json"),
-             os.path.join(here, "agent", "workflows", "settings.json")):
+for path in (os.path.join(here, "agent", "workflows", "settings.json"),):
     try:
         live = json.load(open(path))
     except (OSError, ValueError):
@@ -765,9 +822,9 @@ PYWF
 # Build the extension package tree in a sibling staging directory and swap it in
 # only once npm has finished and every listed package is present.
 install_packages() {
-  local pkg old
+  local pkg
   PKG_STAGE="$(mktemp -d "$HERE/.elm-pi-stage-packages.XXXXXX")"
-  cp agent/npm/package.json "$PKG_STAGE/package.json"
+  stage_manifest agent/npm/package.json "$PKG_STAGE" packages
   ( cd "$PKG_STAGE" && elm_npm install --ignore-scripts --no-audit --no-fund \
       --fetch-retries=5 --fetch-retry-maxtimeout=60000 --loglevel=error )
   # Package scripts stay disabled. Transitive packages still ship install
@@ -776,13 +833,13 @@ install_packages() {
     [ -d "$PKG_STAGE/node_modules/$pkg" ] || die "staged package is missing: $pkg"
   done
   printf '%s\n' "$PACKAGE_MANIFEST_DIGEST" > "$PKG_STAGE/node_modules/.elm-pi-lock.sha256"
-  old="$HERE/.elm-pi-old-packages.$$"
-  [ ! -d agent/npm/node_modules ] || mv agent/npm/node_modules "$old"
+  PKG_OLD="$HERE/.elm-pi-old-packages.$$"
+  [ ! -d agent/npm/node_modules ] || mv agent/npm/node_modules "$PKG_OLD"
   if ! mv "$PKG_STAGE/node_modules" agent/npm/node_modules; then
-    [ ! -d "$old" ] || mv "$old" agent/npm/node_modules
+    [ ! -d "$PKG_OLD" ] || mv "$PKG_OLD" agent/npm/node_modules
     die "could not activate the staged extension packages"
   fi
-  rm -rf "$old" "$PKG_STAGE"
+  rm -rf "$PKG_STAGE"
   PKG_STAGE=""
   echo "    installed into agent/npm/node_modules"
 }
@@ -982,15 +1039,41 @@ fi
 
 # --- 7. verify the lockdown -------------------------------------------------
 say "verifying the ELM-only policy"
+VERIFY_ERR="$(mktemp "$HERE/.elm-pi-verify.XXXXXX")"
 LIST="$(PI_FORCE=1 PI_OFFLINE=1 ELM_PI_NO_PROXY=1 ANTHROPIC_API_KEY=probe-should-be-ignored \
-        OPENAI_API_KEY=probe-should-be-ignored ./pi --list-models </dev/null 2>/dev/null || true)"
+        OPENAI_API_KEY=probe-should-be-ignored ./pi --list-models </dev/null 2>"$VERIFY_ERR" || true)"
 if printf '%s' "$LIST" | grep -qE '^(anthropic|openai|google) '; then
   die "commercial providers are still visible - the credential scrub in ./pi is not working"
 fi
-if ! printf '%s' "$LIST" | grep -qE '^elm(-shim)?[[:space:]]'; then
-  die "the ELM model catalogue is empty - check runtime.env and elm-only.ts"
+# Qwen by its id, not "any elm row": pi drops a provider whose models.json entry
+# it rejects, and when 1.4.0 rejected Qwen's, elm-shim alone still matched the
+# old pattern and the install passed with its main model gone. pi says why only
+# on stderr, which this used to discard.
+QWEN_ID="$(elm_py "$CONFIG_TOOL" --root "$HERE" value qwen)"
+if ! printf '%s\n' "$LIST" | awk -v id="$QWEN_ID" '$1 == "elm" && $2 == id { found = 1 } END { exit !found }'; then
+  sed 's/^/    /' "$VERIFY_ERR" >&2
+  die "pi did not load elm/$QWEN_ID (pi's own messages above) - check agent/models.json, runtime.env and elm-only.ts"
+fi
+if grep -q 'errors loading models.json' "$VERIFY_ERR"; then
+  sed 's/^/    /' "$VERIFY_ERR" >&2
+  die "pi reported errors in agent/models.json (above)"
 fi
 printf '%s\n' "$LIST" | sed 's/^/    /'
+# The same files against the schemas this pi release ships. A value pi stopped
+# accepting fails the run, and the trap puts the previous pi back. A theme it
+# rejects only costs a warning at every launch, so that is a warning here too.
+if elm_py "$HERE/scripts/check_config.py" --root "$HERE" --config; then
+  echo "    config: agent/models.json and agent/settings.json match pi $("$HERE/.node/bin/node" -p 'require("./node_modules/@earendil-works/pi-coding-agent/package.json").version')'s schemas"
+else
+  die "agent/models.json or agent/settings.json has values this pi rejects (above)"
+fi
+if [ "$WITH_PACKAGES" = "1" ]; then
+  if elm_py "$HERE/scripts/check_config.py" --root "$HERE" --themes; then
+    echo "    themes: every theme the packages load is valid"
+  else
+    warn "pi will skip the themes above with a warning at every launch - exclude them in templates/settings.json"
+  fi
+fi
 if [ -x agent/bin/pi ] && [ "$(cd "$(dirname "$(readlink agent/bin/pi)")" && pwd)/$(basename "$(readlink agent/bin/pi)")" = "$HERE/pi" ]; then
   echo "    sub-agent launcher: agent/bin/pi resolves to the launcher"
 else
@@ -1067,6 +1150,36 @@ case "$GUARD" in
   *"restricted to the University"*) echo "    argument guard: --model anthropic/... refused" ;;
   *) warn "argument guard did not refuse --model anthropic/... - check the launcher" ;;
 esac
+
+# Recorded only now, after every check above has passed: the exact versions
+# this install is running, in config/versions.json's format. After a
+# `pi update` that works, copying this over config/versions.json is how the
+# tested set moves forward (CONTRIBUTING.md).
+elm_py - "$HERE" <<'PYV'
+import json, os, sys
+
+here = sys.argv[1]
+def installed(tree, manifest):
+    found = {}
+    for name in json.load(open(os.path.join(here, manifest))).get("dependencies", {}):
+        meta = os.path.join(here, tree, name, "package.json")
+        if os.path.exists(meta):
+            found[name] = json.load(open(meta))["version"]
+    return found
+record = {"core": installed("node_modules", "package.json"),
+          "packages": installed("agent/npm/node_modules", "templates/packages.json")}
+with open(os.path.join(here, "agent/installed-versions.json"), "w") as fh:
+    json.dump(record, fh, indent=2)
+    fh.write("\n")
+tested = {}
+if os.path.exists(os.path.join(here, "config/versions.json")):
+    tested = json.load(open(os.path.join(here, "config/versions.json")))
+newer = [f"{name} {version}" for section in record for name, version in record[section].items()
+         if tested.get(section, {}).get(name) not in (None, version)]
+print("    versions: agent/installed-versions.json")
+if newer:
+    print("      differs from config/versions.json: " + ", ".join(newer))
+PYV
 
 say "done"
 cat <<EOM

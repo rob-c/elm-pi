@@ -1,10 +1,12 @@
 {
+  "$schema": "https://pi.dev/schemas/settings.schema.json",
   "defaultProjectTrust": "never",
   "defaultProvider": "elm",
   "defaultModel": "@QWEN_MODEL@",
   "defaultThinkingLevel": "off",
   "theme": "dark",
-  "quietStartup": false,
+  "quietStartup": "header",
+  "tuiMode": "regular",
   "modelThinkingLevels": {
     "elm/@QWEN_MODEL@": "off"
   },
@@ -26,7 +28,9 @@
     "npm:@quintinshaw/pi-dynamic-workflows"
   ],
   "extensions": [
-    "${PI_CODING_AGENT_DIR}/extensions"
+    "${PI_CODING_AGENT_DIR}/extensions",
+    "-builtin:mcp",
+    "-builtin:llama.cpp"
   ],
   "retry": {
     "enabled": true,

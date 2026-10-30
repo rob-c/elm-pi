@@ -163,9 +163,12 @@ mkdir -p .node && tar -xzf "/tmp/$TAR" -C .node --strip-components=1
 
 ### 2. pi
 
-`package.json` is the source of truth and asks for `latest`. Bootstrap runs
-`npm install --omit=dev --ignore-scripts` in a sibling staging directory, patches
-and starts the staged CLI, then atomically swaps its `node_modules` into place.
+`package.json` asks for `latest`; `config/versions.json` holds the version this
+repo last tested, which every install but `--update` takes (see CONTRIBUTING.md).
+Bootstrap runs `npm install --omit=dev --ignore-scripts` in a sibling staging
+directory, patches and starts the staged CLI, then swaps its `node_modules` into
+place. The tree it replaced is kept until the end of the run and put back if
+anything after the swap fails.
 The prebuilt pi bundle does not need dependency install scripts.
 
 ### 3. `agent/` from `templates/`
@@ -720,7 +723,7 @@ unoverrideable.
 What it has no equivalent of is `modelScope`. pi-subagents takes
 `enforce: true, strict: true, allow: ["elm/*", "elm-shim/*", "inherit"]` from
 settings and no child can leave those providers. Dynamic Workflows can route through
-tiers in `~/.pi/workflows/model-tiers.json`, whose documented examples are
+tiers in `agent/workflows/model-tiers.json`, whose documented examples are
 `openai-codex/gpt-5.4-mini` and `openai-codex/gpt-5.5`. The installer still deploys
 `agent/extensions/workflow-model-scope.ts` as the guard, and it refuses models
 outside the configured ELM providers.
@@ -731,7 +734,7 @@ Measured on this install:
   is created. The run store records `MODEL_SPAWN_REJECTED` and the policy's own
   text, "This install is restricted to university-hosted models", against a total
   spend of about 3 tokens.
-- With `inheritMainModel: true` in `~/.pi/workflows/settings.json`, untagged
+- With `inheritMainModel: true` in `agent/workflows/settings.json`, untagged
   agents inherit the session model. A two-agent workflow recorded
   `elm/Qwen/Qwen3.5-397B-A17B-FP8` for every model reference in its run store and
   nothing else.

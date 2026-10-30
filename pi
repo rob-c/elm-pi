@@ -410,8 +410,9 @@ if [ "${1:-}" = "update" ]; then
         # whatever npm resolved at install time, which is the half-updated
         # state this used to produce.
         echo "pi: updating this install." >&2
-        echo "    source, pi and extension packages will be replaced only by reviewed, locked versions" >&2
-        echo "    For the locked extension packages alone: pi update --extensions" >&2
+        echo "    source, then pi and the extension packages at their latest versions;" >&2
+        echo "    if the new versions fail the install's checks, the current ones are put back." >&2
+        echo "    To reinstall the extensions at the tested versions instead: pi update --extensions" >&2
         echo "" >&2
         # The launch-time offline default must not follow us into an update.
         unset PI_OFFLINE PI_SKIP_VERSION_CHECK

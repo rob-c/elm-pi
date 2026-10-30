@@ -67,6 +67,10 @@ export default function (pi: ExtensionAPI) {
 	const read = new Set<string>();
 
 	pi.on("before_agent_start", (event) => {
+		// Since pi 1.2 this also fires for runs an extension starts - a sub-agent
+		// result, a Ralph iteration - which carry a message and no prompt. Routing
+		// is decided by what the user asked, so those runs keep the section as is.
+		if (event.messageType !== "user") return;
 		const matched = ROUTES.filter(([name, pattern]) => pattern.test(event.prompt) && existsSync(skillPath(name)))
 			.slice(0, MAX_ROUTED)
 			.filter(([name]) => !read.has(name));

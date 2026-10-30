@@ -74,8 +74,9 @@ agent/bin/          generated: fd rg jq yq shellcheck ast-grep, pinned + checksu
 ```
 
 `agent/` is generated from `templates/`; shared runtime values come from
-`config/elm-pi.json`, and npm dependencies resolve to `latest` at install
-time rather than being pinned. The split
+`config/elm-pi.json`. npm dependencies install at the versions this repo last
+tested, `config/versions.json`; `pi update` takes the latest and keeps them only
+if they pass the install's checks. The split
 is **code versus config**.
 
 Code and policy — `AGENTS.md`, the agent definitions, the local extensions — are
@@ -99,8 +100,9 @@ pi, re-download the bundled binaries, or reinstall the extension packages when
 they are present — that is minutes spent reproducing a state that already
 exists. `pi update` fetches and validates the source, builds dependencies in
 staging from the current registry versions, verifies the patched CLI, and only
-then
-swaps the runtime into place. A genuinely broken install is a `rm -rf` away from
+then swaps the runtime into place. If the new pi then cannot load the config -
+Qwen missing from `--list-models`, or a value its schemas reject - the previous
+pi and extensions are put back. A genuinely broken install is a `rm -rf` away from
 a clean one.
 
 ## Daily use

@@ -39,6 +39,7 @@ chunk files are content-hash-named, so nothing here may hardcode a filename.
     ./patch-pi.py --bundle PATH   patch a staged bundle before activation
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -51,7 +52,8 @@ REFUSAL = (
 )
 THROW = "throw new Error('elm-pi: session uploads are disabled on this install');"
 
-# (name, anchor, replacement, sentinel). Every anchor must appear exactly once
+# (name, anchor, replacement, sentinel). An anchor is a string or a compiled
+# pattern. Every anchor must appear exactly once
 # across the bundle, and every replacement must be recognisable on a second run
 # so that applying twice is a no-op.
 #
@@ -76,15 +78,19 @@ EDITS = [
         'this.showError("%s");return}' % REFUSAL,
         None,
     ),
+    # The two list entries are matched whatever their description says: the
+    # wording is what pi changes (1.4.0 rewrote /share's), and a fixed string
+    # turned each rewording into a failed install. The sentinel still catches
+    # an entry that has moved or changed shape.
     (
         "autocomplete: /share",
-        '{name:"share",description:"Share session via a Radius artifact or a GitHub gist"},',
+        re.compile(r'\{name:"share",description:"[^"]*"\},'),
         "",
         'name:"share"',
     ),
     (
         "autocomplete: /bug",
-        '{name:"bug",description:"Report a bug to the Pi developers",argumentHint:"<description>"},',
+        re.compile(r'\{name:"bug",description:"[^"]*",argumentHint:"[^"]*"\},'),
         "",
         'name:"bug"',
     ),
@@ -107,6 +113,16 @@ EDITS = [
         None,
     ),
 ]
+
+
+def count(anchor, source):
+    return len(anchor.findall(source)) if isinstance(anchor, re.Pattern) else source.count(anchor)
+
+
+def substitute(anchor, replacement, source):
+    if isinstance(anchor, re.Pattern):
+        return anchor.sub(replacement, source, count=1)
+    return source.replace(anchor, replacement, 1)
 
 
 def main():
@@ -143,7 +159,7 @@ def main():
         if replacement:
             done = any(replacement in s for s in sources.values())
         else:
-            done = not any(anchor in s for s in sources.values())
+            done = not any(count(anchor, s) for s in sources.values())
             if done and sentinel and any(sentinel in s for s in sources.values()):
                 # The exact entry is gone but the command still is not. A
                 # reworded description reads as "already patched" to the check
@@ -157,14 +173,14 @@ def main():
             already.append(name)
             continue
 
-        total = sum(s.count(anchor) for s in sources.values())
+        total = sum(count(anchor, s) for s in sources.values())
 
         if total == 1:
             if check_only:
                 failed.append(f"{name}: not applied")
             else:
-                f = next(f for f, s in sources.items() if anchor in s)
-                sources[f] = sources[f].replace(anchor, replacement, 1)
+                f = next(f for f, s in sources.items() if count(anchor, s))
+                sources[f] = substitute(anchor, replacement, sources[f])
                 changed.append(name)
         elif total > 1:
             failed.append(f"{name}: anchor matched {total} times, expected 1")

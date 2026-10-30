@@ -1,0 +1,19 @@
+{
+  "core": {
+    "@earendil-works/pi-coding-agent": "1.4.0"
+  },
+  "packages": {
+    "@gotgenes/pi-permission-system": "42.0.0",
+    "@henryqw/pi-auto-compact": "5.2.8",
+    "@henryqw/pi-task-models": "9.2.0",
+    "@juicesharp/rpiv-ask-user-question": "2.15.0",
+    "@pify/btw": "0.6.0",
+    "@quintinshaw/pi-dynamic-workflows": "3.15.0",
+    "@tmustier/pi-ralph-wiggum": "0.2.4",
+    "awesome-pi-themes": "1.2.19",
+    "cc-safety-net": "2.7.0",
+    "pi-hashline-edit-pro": "7.1.1",
+    "pi-subagents": "0.84.0",
+    "pi-web-access": "0.46.0"
+  }
+}

@@ -284,23 +284,41 @@ ELM and nothing else becomes reachable or visible.
 
 `builtinProviders` in `config/elm-pi.json` feeds the pre-session catalogue pass.
 The argument guard is default-deny and needs no provider inventory. The
-session-start pass is dynamic and catches anything the inventory misses, but
-`--list-models` would still be stale. Update the one manifest list after upgrading
-pi:
+session-start pass is dynamic and catches anything the inventory misses -
+providers with chat models, and providers an extension registered, including
+classifier-only ones such as `typesafe` - but `--list-models` would still be
+stale.
 
-```bash
-cat > /tmp/list-providers.ts <<'EOF'
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-export default function (pi: ExtensionAPI) {
-  pi.on("session_start", async (_e, ctx: any) => {
-    console.error([...new Set(ctx.modelRegistry.getAll().map((m: any) => m.provider))].sort().join("\n"));
-  });
-}
-EOF
-PI_CODING_AGENT_DIR="$PWD/agent" ./pi.orig --no-extensions \
-  -e /tmp/list-providers.ts --no-session -p hi 2>&1 >/dev/null
-```
+The inventory is checked rather than remembered: `tests/test_project.py` reads
+the providers pi-ai itself registers (`dist/providers/all.js`) and fails if one
+is missing from `builtinProviders`, or if the list names one pi no longer has.
+pi 1.0.3 renamed `azure-openai-responses` to `azure` and 0.99 added `typesafe`;
+the list carried the old name and missed the new one until that test existed.
+After upgrading pi, `npm test` says what to change.
 
-`pi.orig` is used only for this inventory because the normal launcher always
-reloads `elm-only.ts`, even when `--no-extensions` is requested. Paste the result,
-minus the allowed providers, into `config/elm-pi.json`.
+## pi's built-in extensions
+
+pi 0.99 added four extensions that load by default, ahead of anything in
+`agent/extensions`: `builtin:mcp`, `builtin:llama.cpp`, `builtin:codemode` and
+`builtin:tool-search`. `templates/settings.json` turns two of them off, and the
+installer reapplies that on every run (`extensions` is an installer-owned key):
+
+- **`-builtin:mcp`.** An MCP server is either a command pi starts or a remote
+  endpoint it calls, configured in `mcp.json` - a third route to tools and to
+  the network, beside the bash tool and the npm packages, that none of the
+  layers above were written for. The egress proxy reaches only programs that
+  honour `HTTPS_PROXY`. Off, rather than reviewed server by server.
+- **`-builtin:llama.cpp`.** It registers a provider for a local llama.cpp
+  server. Local models cost the allocation nothing, but they are outside the
+  ELM-only scope this install is built around, and elm-only.ts would strip the
+  provider at session start anyway.
+
+`codemode` and `tool-search` stay loaded but inactive: neither tool is offered
+to the model unless `defaultTools` or `--tools` names it, and this install sets
+neither. Codemode runs model-written JavaScript that calls the other tools
+through `ctx.executeTool`. Whether the permission gate and `protected-paths.ts`
+see those nested calls has **not** been checked here - do that before turning
+codemode on.
+
+To restore one for a single project, `+builtin:mcp` in that project's
+`.pi/settings.json`; pi applies it only once the project is trusted.

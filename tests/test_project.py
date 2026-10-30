@@ -195,5 +195,111 @@ class ProjectConsistencyTests(unittest.TestCase):
         self.assertEqual(set(), routed - skills)          # never routes to a missing skill
         self.assertEqual(skills, routed)                  # and every skill is reachable
 
+
+PI = ROOT / "node_modules/@earendil-works/pi-coding-agent"
+PI_PROVIDERS = ROOT / "node_modules/@earendil-works/pi-ai/dist/providers/all.js"
+
+
+class PiReleaseTests(unittest.TestCase):
+    """What a pi upgrade can break without failing to install."""
+
+    def test_qwen_thinking_sampling_is_the_cards_thinking_profile(self):
+        qwen = json.loads((ROOT / "templates/models.json").read_text())["providers"]["elm"]["models"][0]
+        self.assertEqual({"high": {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0,
+                                   "presence_penalty": 0.0}}, qwen["samplingParamsByThinkingLevel"])
+        # high is the only level the Qwen thinkingLevelMap turns on
+        self.assertEqual(["high"], [k for k, v in qwen["thinkingLevelMap"].items() if v not in (None, "none")])
+
+    @unittest.skipUnless(PI_PROVIDERS.is_file(), "pi is not installed in this checkout")
+    def test_provider_inventory_matches_the_installed_pi(self):
+        registered = set(re.findall(r'^import \{ \w+Provider \} from "\./([a-z0-9-]+)\.js"',
+                                    PI_PROVIDERS.read_text(), re.M))
+        self.assertGreater(len(registered), 30)
+        config = json.loads((ROOT / "config/elm-pi.json").read_text())
+        self.assertEqual(set(), registered - set(config["builtinProviders"]), "pi providers not stripped")
+        self.assertEqual(set(), set(config["builtinProviders"]) - registered, "stripped providers pi no longer has")
+
+    @unittest.skipUnless((PI / "schemas").is_dir(), "pi is not installed in this checkout")
+    def test_templates_match_the_installed_pis_schemas(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from check_config import config_problems
+        self.assertEqual([], config_problems(ROOT / "templates", PI / "schemas"))
+
+    def test_check_config_reports_a_value_pi_stopped_accepting(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from check_config import validate
+        schema = {"type": "object", "additionalProperties": False, "properties": {
+            "thinkingFormat": {"anyOf": [{"const": "openai"}, {"const": "qwen"}]}}}
+        problems = []
+        validate({"thinkingFormat": "reasoning_effort", "statusLineBg": "#000"}, schema, schema, "m", problems)
+        self.assertEqual(['m.thinkingFormat: "reasoning_effort" is not one of "openai", "qwen"',
+                          "m: unknown key statusLineBg"], problems)
+        problems = []
+        validate({"thinkingFormat": "openai"}, schema, schema, "m", problems)
+        self.assertEqual([], problems)
+
+    def test_theme_exclusions_follow_pis_filter_rules(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from check_config import _selected
+        self.assertTrue(_selected("themes/a.json", None))
+        self.assertFalse(_selected("themes/a.json", []))
+        self.assertFalse(_selected("themes/codex-slate.json", ["!themes/codex-slate.json"]))
+        self.assertTrue(_selected("themes/other.json", ["!themes/codex-slate.json"]))
+        self.assertFalse(_selected("themes/a.json", ["-themes/a.json"]))
+        self.assertFalse(_selected("themes/b.json", ["themes/a.json"]))
+
+    def test_patch_anchors_survive_a_reworded_description(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = Path(directory)
+            (bundle / "chunk.js").write_text(
+                'if(text==="/share"){await this.handleShareCommand(),this.editor.setText("");return}'
+                'if(text==="/bug"||text.startsWith("/bug ")){let hint=text.slice(4).trim();'
+                'this.editor.setText(""),await this.handleBugCommand(hint||void 0);return}'
+                '[{name:"share",description:"Some wording no release has used yet"},'
+                '{name:"bug",description:"Also new",argumentHint:"<what>"},{name:"copy"}]'
+                "async function uploadBugReport(bundle,options={}){}"
+                "async function tryShareViaRadius(tmpFile,context){}"
+                "async function shareViaGist(tmpFile,context){}")
+            run = lambda *extra: subprocess.run([sys.executable, str(ROOT / "patch-pi.py"), "--bundle", str(bundle), *extra],
+                                                capture_output=True, text=True)
+            self.assertEqual(0, run().returncode)
+            self.assertEqual(0, run("--check").returncode)
+            patched = (bundle / "chunk.js").read_text()
+            self.assertNotIn('name:"share"', patched)
+            self.assertNotIn('name:"bug"', patched)
+            self.assertIn('{name:"copy"}', patched)
+
+    def test_tested_versions_cover_every_direct_dependency(self):
+        versions = json.loads((ROOT / "config/versions.json").read_text())
+        core = json.loads((ROOT / "package.json").read_text())["dependencies"]
+        packages = json.loads((ROOT / "templates/packages.json").read_text())["dependencies"]
+        self.assertEqual(set(core), set(versions["core"]))
+        self.assertEqual(set(packages), set(versions["packages"]))
+        for version in [*versions["core"].values(), *versions["packages"].values()]:
+            self.assertRegex(version, r"^\d+\.\d+\.\d+")
+
+    def test_builtin_mcp_and_llama_cpp_are_off_and_installer_owned(self):
+        settings = json.loads((ROOT / "templates/settings.json").read_text())
+        self.assertIn("-builtin:mcp", settings["extensions"])
+        self.assertIn("-builtin:llama.cpp", settings["extensions"])
+        self.assertIn('"extensions",', (ROOT / "bootstrap.sh").read_text())
+
+    def test_skill_router_ignores_runs_without_a_user_prompt(self):
+        source = (ROOT / "templates/extensions/skill-router.ts").read_text()
+        self.assertLess(source.index('event.messageType !== "user"'), source.index("event.prompt"))
+
+    def test_install_writes_nothing_under_the_accounts_own_pi(self):
+        for name in ("bootstrap.sh", "install.sh", "templates/extensions/pi-permission-system/config.json"):
+            text = (ROOT / name).read_text()
+            self.assertNotIn('".pi", "workflows"', text, name)
+            self.assertNotIn('"~/.pi/workflows', text, name)
+
+    def test_verification_requires_qwen_by_id_and_reads_pis_errors(self):
+        bootstrap = (ROOT / "bootstrap.sh").read_text()
+        self.assertNotIn("^elm(-shim)?", bootstrap)
+        self.assertIn('$1 == "elm" && $2 == id', bootstrap)
+        self.assertIn("errors loading models.json", bootstrap)
+        self.assertIn("check_config.py", bootstrap)
+
 if __name__ == "__main__":
     unittest.main()

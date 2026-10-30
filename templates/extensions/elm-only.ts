@@ -37,10 +37,10 @@ const POLICY =
   "See LOCKDOWN.md in the install directory for the rationale and how to raise it.";
 
 /**
- * pi's built-in provider ids, as of 0.85.1. Stripped at load time so paths that
- * never open a session (`--list-models`) are covered too. Regenerate with the
- * probe in LOCKDOWN.md if a pi upgrade adds providers; anything missed here is
- * still caught by the dynamic pass below.
+ * pi's built-in provider ids, from builtinProviders in config/elm-pi.json.
+ * Stripped at load time so paths that never open a session (`--list-models`)
+ * are covered too. tests/test_project.py fails when a pi upgrade adds or
+ * renames one; anything missed here is still caught by the dynamic pass below.
  */
 const BUILTIN_PROVIDERS = (process.env.ELM_BUILTIN_PROVIDERS ?? "")
   .split(/[\s,]+/)
@@ -67,11 +67,14 @@ export default function (pi: ExtensionAPI) {
   for (const provider of BUILTIN_PROVIDERS) nuke(provider);
 
   // Session-start pass: catches providers registered by other extensions or by
-  // a pi upgrade that BUILTIN_PROVIDERS does not know about.
+  // a pi upgrade that BUILTIN_PROVIDERS does not know about. getAll() lists chat
+  // models only, so a provider with nothing but classifier or image models
+  // (pi 0.99's typesafe) is invisible to it; getRegisteredProviderIds() is not.
   pi.on("session_start", async (_event, ctx: any) => {
-    for (const provider of new Set<string>(
-      ctx.modelRegistry.getAll().map((m: any) => m.provider as string),
-    )) {
+    for (const provider of new Set<string>([
+      ...ctx.modelRegistry.getAll().map((m: any) => m.provider as string),
+      ...(ctx.modelRegistry.getRegisteredProviderIds?.() ?? []),
+    ])) {
       nuke(provider);
     }
   });

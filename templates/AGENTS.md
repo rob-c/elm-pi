@@ -329,7 +329,8 @@ where they are read last:
   `subagent({ workflow: "./.pi/tmp/<name>.js" })` launching them with `runs.all`
   (no `export`, no `meta`), launched only after validate says `"ok": true`;
   `bg_wait({ all: true })` to collect. A `workflow`-tool script (with
-  `export const meta`) is checked with `node --check` instead. A fresh child is also a
+  `export const meta`) is checked with `workflow-check` in `bash` instead,
+  never `node --check`. A fresh child is also a
   fresh prompt, which is the cheapest way to reset the decay on a long task.
 - `qwen` for anything that has to decide. `llama` only for numbered steps over one
   named file, when Qwen is rate-limited or the user asks.
