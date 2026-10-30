@@ -1,6 +1,7 @@
 {
   "inheritMainModel": true,
   "keywordTriggerEnabled": false,
+  "defaultAgentTimeoutMs": 1800000,
   "providerMiddlewareExtensions": [
     "elm-only",
     "protected-paths",

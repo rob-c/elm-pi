@@ -51,7 +51,7 @@ Useful environment:
   ELM_PI_NO_PROXY=1         run unproxied (debugging)
   ELM_PI_SHARED_STATE=1     preserve existing shared session/memory permissions
   PI_ELM_UNLOCK=1           lift the credential scrub and the argument guard
-  PI_FORCE=1                skip the busy-machine warning
+  PI_FORCE=1                skip the busy-machine and inside-the-install warnings
   PI_ELM_STARTUP_CHECKS=1   restore pi's own startup network checks
 
 pi's own flags follow.
@@ -699,6 +699,22 @@ if [ -n "${LOAD1:-}" ] && [ "${PI_FORCE:-0}" != "1" ] && [ -z "${PI_ELM_CHILD:-}
   elif [ "${RUNNERS:-0}" -gt 0 ]; then
     echo "pi: note - $RUNNERS sub-agent runner(s) already running (load $LOAD1/$CORES)." >&2
   fi
+fi
+
+# --- note a session started inside the install --------------------------------
+# The directory pi starts in is the project it works on. Started in the install
+# itself, a session writes its work among the installer's files: observed, a
+# slide-deck session replaced this repo's README.md with its own and left thirty
+# files in the install root - and the tracked change then made `pi update`
+# refuse to run. Warned, not refused: working on elm-pi itself is a real use.
+# PI_FORCE=1 silences it, as it does the load warning.
+if [ "$NEEDS_ELM_KEY" = "1" ] && [ "${PI_FORCE:-0}" != "1" ] && [ -z "${PI_ELM_CHILD:-}" ]; then
+  case "$(pwd -P)/" in
+    "$(cd "$HERE" && pwd -P)"/*)
+      echo "pi: this session is starting inside the elm-pi install ($HERE)." >&2
+      echo "    Whatever it writes lands among the installer's files, and an edited tracked file" >&2
+      echo "    stops 'pi update'. For your own work, cd to a project directory first." >&2 ;;
+  esac
 fi
 # ---------------------------------------------------------------------------
 

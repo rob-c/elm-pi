@@ -775,6 +775,13 @@ PYX
 #   providerMiddlewareExtensions  workflow children load no extensions at all
 #                                 by default - no permission gate, no protected
 #                                 paths, no safety net. These are loaded into them.
+#   defaultAgentTimeoutMs         30 min: without it a workflow agent has no
+#                                 deadline at all, and one that stalls holds the
+#                                 run open until someone notices. pi-subagents
+#                                 puts the same 30-minute backstop on its runs.
+#                                 There is deliberately no defaultTokenBudget:
+#                                 nothing here measures what a normal run spends,
+#                                 and a gate set by guesswork refuses real work.
 # pi-hashline-edit-pro reads agent/hashline/config.json (the launcher exports
 # PI_HASHLINE_DIR). requirePath makes every anchor edit name its file, which is
 # what lets protected-paths.ts check it; copy and move are off because a move's

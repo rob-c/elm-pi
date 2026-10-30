@@ -301,5 +301,26 @@ class PiReleaseTests(unittest.TestCase):
         self.assertIn("errors loading models.json", bootstrap)
         self.assertIn("check_config.py", bootstrap)
 
+    def test_workflow_agents_have_the_same_deadline_as_subagents(self):
+        settings = json.loads((ROOT / "templates/workflows/settings.json").read_text())
+        self.assertEqual(30 * 60 * 1000, settings["defaultAgentTimeoutMs"])
+        self.assertNotIn("defaultTokenBudget", settings)
+
+    def test_launcher_warns_when_started_inside_the_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            inside = Path(directory) / "install"
+            (inside / "sub").mkdir(parents=True)
+            outside = Path(directory) / "project"
+            outside.mkdir()
+            launcher = (ROOT / "pi").read_text()
+            start = launcher.index("# --- note a session started inside the install")
+            block = launcher[start:launcher.index("# -----", start + 10)]
+            script = f'HERE="{inside}"; NEEDS_ELM_KEY="$1"; unset PI_FORCE PI_ELM_CHILD\n{block}'
+            run = lambda cwd, needs="1": subprocess.run(["bash", "-c", script, "probe", needs], cwd=cwd,
+                                                        capture_output=True, text=True).stderr
+            self.assertIn("inside the elm-pi install", run(inside / "sub"))
+            self.assertEqual("", run(outside))
+            self.assertEqual("", run(inside, needs="0"))  # update, --version, --list-models
+
 if __name__ == "__main__":
     unittest.main()
