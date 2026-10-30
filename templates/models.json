@@ -32,7 +32,7 @@
           },
           "compat": {
             "supportsReasoningEffort": true,
-            "thinkingFormat": "reasoning_effort"
+            "thinkingFormat": "openai"
           },
           "samplingParams": {
             "temperature": 0.7,
