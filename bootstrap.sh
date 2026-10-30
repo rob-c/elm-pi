@@ -668,8 +668,10 @@ OWNED = {
         "tasks",                 # compaction routed to balanced
     ),
     "config/pi-auto-compact/config.json": (
-        "autoCompactThreshold",  # 50, not the package's 70: context rot sets in
-                                 # long before a 262k window is full, and the
+        "autoCompactThreshold",  # 70, the package's default: each compaction
+                                 # re-sends the history uncached and the next
+                                 # request starts cold, so compacting early
+                                 # costs more than the context it frees. The
                                  # pinned-instructions extension keeps the
                                  # user's standing instructions out of summaries
     ),

@@ -144,7 +144,7 @@ class ProjectConsistencyTests(unittest.TestCase):
 
     def test_compaction_threshold_is_installer_owned(self):
         config = json.loads((ROOT / "templates/config/pi-auto-compact/config.json").read_text())
-        self.assertEqual(50, config["autoCompactThreshold"])
+        self.assertEqual(70, config["autoCompactThreshold"])
         self.assertIn('"config/pi-auto-compact/config.json": (', (ROOT / "bootstrap.sh").read_text())
 
     def test_every_skill_has_valid_frontmatter_matching_its_directory(self):
