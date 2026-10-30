@@ -128,7 +128,12 @@ export default async function (pi: ExtensionAPI) {
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 128000,
-        maxTokens: 16384,
+        // The shim buffers the whole upstream reply before sending a byte, and
+        // pi gives up on a silent connection after httpIdleTimeoutMs (300 s),
+        // then retries. At Llama's measured 30-47 tok/s, 16384 tokens is
+        // 350-550 s: every long reply timed out and was generated again, up to
+        // six times. 8192 finishes inside the window at the slow end.
+        maxTokens: 8192,
         // Meta publishes no sampling advice in the model card; these are the
         // values in Llama-3.3-70B-Instruct's own generation_config.json.
         samplingParams: { temperature: 0.6, top_p: 0.9 },
