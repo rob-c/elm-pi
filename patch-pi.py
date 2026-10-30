@@ -78,7 +78,7 @@ EDITS = [
     ),
     (
         "autocomplete: /share",
-        '{name:"share",description:"Share session as a secret GitHub gist"},',
+        '{name:"share",description:"Share session via a Radius artifact or a GitHub gist"},',
         "",
         'name:"share"',
     ),
