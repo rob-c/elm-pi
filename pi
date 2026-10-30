@@ -53,6 +53,8 @@ Useful environment:
   PI_ELM_UNLOCK=1           lift the credential scrub and the argument guard
   PI_FORCE=1                skip the busy-machine and inside-the-install warnings
   PI_ELM_STARTUP_CHECKS=1   restore pi's own startup network checks
+  PI_CLIPBOARD_OSC52=0      copy to this machine's clipboard only, not also
+                            through the terminal (on by default, for remote hosts)
 
 pi's own flags follow.
 EOU
@@ -76,6 +78,13 @@ export PI_TELEMETRY=0
 # Nothing on this list belongs in a locked install: where /share points, and
 # pi's switch for unreleased features.
 unset PI_SHARE_VIEWER_URL PI_EXPERIMENTAL 2>/dev/null || true
+# Copies (/copy, Ctrl+X, copy-on-select) also go to the terminal as OSC 52, so
+# they reach the clipboard of the machine you are sitting at when pi runs on
+# another one. pi does that by itself only when it sees SSH or mosh variables,
+# which a tmux session reattached from elsewhere or a remote IDE terminal does
+# not carry. Locally it is a second write of the same text. Write-only: pi never
+# reads the clipboard this way. PI_CLIPBOARD_OSC52=0 turns it off.
+export PI_CLIPBOARD_OSC52="${PI_CLIPBOARD_OSC52:-1}"
 
 # keep config, sessions and credentials inside this directory, not ~/.pi
 export PI_CODING_AGENT_DIR="$HERE/agent"

@@ -322,5 +322,13 @@ class PiReleaseTests(unittest.TestCase):
             self.assertEqual("", run(outside))
             self.assertEqual("", run(inside, needs="0"))  # update, --version, --list-models
 
+    def test_launcher_copies_through_the_terminal_unless_told_not_to(self):
+        line = next(line for line in (ROOT / "pi").read_text().splitlines()
+                    if line.startswith("export PI_CLIPBOARD_OSC52="))
+        probe = lambda env: subprocess.run(["bash", "-c", f'{line}; printf %s "$PI_CLIPBOARD_OSC52"'],
+                                           env=env, capture_output=True, text=True).stdout
+        self.assertEqual("1", probe({"PATH": "/usr/bin:/bin"}))
+        self.assertEqual("0", probe({"PATH": "/usr/bin:/bin", "PI_CLIPBOARD_OSC52": "0"}))
+
 if __name__ == "__main__":
     unittest.main()
