@@ -49,6 +49,7 @@ every step: **[INSTALL.md](INSTALL.md)**. Web version of this page:
 | **Editing** | Anchor-based (`pi-hashline-edit-pro`) — the built-in `edit` tool is off |
 | **Memory** | Per-project `AGENTS.md`. No memory tool: `pi-hermes-memory` is not installed |
 | **Web** | `pi-web-access` (DuckDuckGo, then Exa) |
+| **Prompt suggestions** | `pi-next-prompt`: the likely next prompt in grey after each reply; Tab takes it |
 | **Sessions** | `.pi/sessions/` inside each project, not one central 1.9 GB pile |
 | **Models offered** | ELM only. 41 non-ELM provider catalogues stripped |
 

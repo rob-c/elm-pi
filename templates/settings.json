@@ -25,7 +25,8 @@
     },
     "npm:cc-safety-net",
     "npm:@juicesharp/rpiv-ask-user-question",
-    "npm:@quintinshaw/pi-dynamic-workflows"
+    "npm:@quintinshaw/pi-dynamic-workflows",
+    "npm:pi-next-prompt"
   ],
   "extensions": [
     "${PI_CODING_AGENT_DIR}/extensions",

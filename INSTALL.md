@@ -461,6 +461,18 @@ touching the tree. And context is the scarce resource on this deployment —
 `pi-auto-compact` exists because of it — so a channel that answers a question
 without spending any is worth more here than the convenience.
 
+`pi-next-prompt` suggests your next prompt, the way Claude Code does: when a
+reply finishes, the likely follow-up appears in grey in the empty editor. `Tab`
+or `→` takes it, typing hides it, `Esc` dismisses it until the next reply. It
+asks the session's own model - ELM, nothing else, no key or provider of its
+own - by resending the request pi just sent plus one short instruction, so the
+prompt cache covers almost all of it. It is still one extra Qwen request per
+finished reply, charged to the allocation like any other, and the suggestion
+arrives a few seconds after the reply. It runs only in the interactive TUI:
+`pi -p`, sub-agents and workflow agents never trigger it. One file, no
+dependencies; to drop it, remove it from `templates/settings.json` and
+`templates/packages.json` and re-run `./bootstrap.sh`.
+
 **No footer extension is loaded.** `pi-powerline-footer` was dropped for
 `pi-zentui`, and `pi-zentui` was then dropped as well: it used a captured
 extension context across the session replacement `pi-dynamic-workflows` performed
