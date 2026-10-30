@@ -173,7 +173,8 @@ class ProjectConsistencyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "agent/npm/node_modules/demo").mkdir(parents=True)
-            (root / "agent/settings.json").write_text(json.dumps({"packages": ["npm:demo", "npm:absent"]}))
+            (root / "agent/settings.json").write_text(json.dumps(
+                {"packages": [{"source": "npm:demo", "themes": []}, "npm:absent"]}))
             (root / "agent/npm/node_modules/demo/package.json").write_text(
                 json.dumps({"name": "demo", "pi": {"extensions": ["./dist/index.js"]}}))
             problems = package_problems(root)

@@ -804,9 +804,19 @@ if [ "$WITH_PACKAGES" = "1" ]; then
   # ever after, so a later run installed all four packages into agent/npm and
   # then loaded none of them. Everything else in that file is yours and is left
   # exactly as you left it.
+  #
+  # An entry is either "npm:name" or pi's object form, {"source": "npm:name",
+  # "themes": [...]}, which narrows what loads from the package. The object
+  # form is how awesome-pi-themes drops codex-slate.json, whose statusLine*
+  # colours pi 1.4's theme schema rejects with a warning at every launch.
   cp -f templates/packages.json agent/npm/package.json
   elm_py - <<'PYX'
 import json
+
+def name(spec):
+    spec = spec["source"] if isinstance(spec, dict) else spec
+    # spec[4:], not removeprefix: that is 3.9+, and macOS 11's /usr/bin/python3 is 3.8.
+    return spec[4:] if spec.startswith("npm:") else spec
 
 chosen = json.load(open("templates/settings.json")).get("packages", [])
 s = json.load(open("agent/settings.json"))
@@ -814,12 +824,17 @@ was = s.get("packages", [])
 s["packages"] = chosen
 json.dump(s, open("agent/settings.json", "w"), indent=2); open("agent/settings.json", "a").write("\n")
 
-# p[4:], not removeprefix: that is 3.9+, and macOS 11's /usr/bin/python3 is 3.8.
-print("    loading: " + (", ".join(p[4:] if p.startswith("npm:") else p for p in chosen) or "none"))
-if sorted(was) != sorted(chosen):
+print("    loading: " + (", ".join(name(p) for p in chosen) or "none"))
+if sorted(map(json.dumps, was)) != sorted(map(json.dumps, chosen)):
     print("    (agent/settings.json listed %d package(s); corrected to match)" % len(was))
 PYX
-  CHOSEN="$(elm_py -c 'import json; print(" ".join(p[4:] if p.startswith("npm:") else p for p in json.load(open("agent/settings.json")).get("packages", [])))')"
+  CHOSEN="$(elm_py - <<'PYC'
+import json
+specs = [p["source"] if isinstance(p, dict) else p
+         for p in json.load(open("agent/settings.json")).get("packages", [])]
+print(" ".join(p[4:] if p.startswith("npm:") else p for p in specs))
+PYC
+)"
 
   # Packages are reinstalled when the reviewed manifest changes, when forced, and
   # whenever what is on disk does not match what pi is told to load: every run

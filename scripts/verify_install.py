@@ -29,6 +29,9 @@ def package_problems(root: Path) -> list[str]:
     settings = json.loads((root / "agent/settings.json").read_text())
     problems = []
     for spec in settings.get("packages", []):
+        # pi's object form narrows a package's resources; the name is its source
+        if isinstance(spec, dict):
+            spec = spec["source"]
         name = spec[4:] if spec.startswith("npm:") else spec
         pkg = root / "agent/npm/node_modules" / name
         manifest = pkg / "package.json"

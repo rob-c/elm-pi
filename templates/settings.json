@@ -17,7 +17,10 @@
     "npm:@henryqw/pi-auto-compact",
     "npm:@tmustier/pi-ralph-wiggum",
     "npm:@pify/btw",
-    "npm:awesome-pi-themes",
+    {
+      "source": "npm:awesome-pi-themes",
+      "themes": ["!themes/codex-slate.json"]
+    },
     "npm:cc-safety-net",
     "npm:@juicesharp/rpiv-ask-user-question",
     "npm:@quintinshaw/pi-dynamic-workflows"
