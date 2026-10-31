@@ -97,7 +97,7 @@ Installer flags:
   -h, --help          this text
 
 Passed through to bootstrap.sh:
-  --no-packages       pi only: no sub-agents, memory, web access or anchor edit
+  --no-packages       pi only: no sub-agents, web access or anchor edit
   --no-tools          skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
   --no-shim           no Llama tool-call shim
   --no-patch          leave pi's /share and /bug commands in place

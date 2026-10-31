@@ -4,7 +4,7 @@
 set -euo pipefail
 unset CDPATH
 
-# Resolve through symlinks: the installer puts ~/.local/bin/elm-pi -> here, and
+# Resolve through symlinks: the installer puts ~/.local/bin/pi -> here, and
 # "$(dirname "$0")" on a symlink points at the link, not the install.
 SELF="${BASH_SOURCE[0]}"
 while [ -L "$SELF" ]; do
@@ -39,8 +39,8 @@ LOCKDOWN.md for what that blocks and how to lift it.
 
 Flags added by this launcher:
   --fast              load only the local extensions and the permission gate:
-                      no sub-agents, web access or anchor editing. ~1s to start
-                      instead of ~3s
+                      no sub-agents, web access or anchor editing. Much
+                      quicker to start
   --llama             run on Llama 3.3 70B through the tool-call shim
   --remote            allow this run to reach the internet: the web tools come
                       back on and the egress proxy records every destination
@@ -210,9 +210,10 @@ export PI_RADIUS_GATEWAY="${PI_RADIUS_GATEWAY:-http://127.0.0.1:1}"
 # --- sub-agent children find this launcher, not a bare "pi" ------------------
 # pi-subagents spawns children by resolving the pi CLI from process.argv[1] and
 # from package resolution, and when both fail it falls back to `command: "pi"` -
-# a bare PATH lookup. This install has no `pi` on PATH (the command is elm-pi),
-# so that fallback failed and sub-agents could not start until a `pi` symlink
-# was dropped into agent/bin, which pi prepends to PATH for child processes.
+# a bare PATH lookup. When this install's command was still elm-pi there was no
+# `pi` on PATH, so that fallback failed and sub-agents could not start until a
+# `pi` symlink was dropped into agent/bin, which pi prepends to PATH for child
+# processes. The installer now links ~/.local/bin/pi as well.
 #
 # Both routes are now covered: PI_SUBAGENT_PI_BINARY is the documented override
 # and short-circuits the resolution entirely, and bootstrap.sh creates
@@ -222,10 +223,11 @@ export PI_RADIUS_GATEWAY="${PI_RADIUS_GATEWAY:-http://127.0.0.1:1}"
 export PI_SUBAGENT_PI_BINARY="${PI_SUBAGENT_PI_BINARY:-$HERE/pi}"
 
 # --- --fast / --llama ------------------------------------------------------
-# Measured on this install: pi core plus the npm package set costs ~4.4s of CPU
-# at every launch, because the packages ship raw TypeScript and are transpiled and
-# imported from hundreds of files each time. pi itself starts in well under a
-# second. --fast loads only the local extensions, so a one-shot question does not
+# Measured on this install when the package set was three packages: pi core
+# plus the set cost ~4.4s of CPU at every launch, because the packages ship raw
+# TypeScript and are transpiled and imported from hundreds of files each time
+# (the set is larger now; not re-measured). pi itself starts in well under a
+# second. --fast loads only local extensions, so a one-shot question does not
 # pay for sub-agents and web access it will never use.
 #
 #   pi --fast -p "what does this regex do?"     quick, no sub-agents/web
@@ -233,9 +235,9 @@ export PI_SUBAGENT_PI_BINARY="${PI_SUBAGENT_PI_BINARY:-$HERE/pi}"
 #
 # --fast keeps the policy extensions (POLICY_EXTENSIONS below: the ELM-only
 # guard agent/extensions/elm-only.ts, the write protections, pinned
-# instructions and the permission gate) and pi's built-in edit tool; it drops
-# anchor editing, subagent/bg_wait and web search. Use a plain `pi` for real
-# multi-step work.
+# instructions and the permission gate), todo and the skill router, and pi's
+# built-in edit tool; it drops anchor editing, subagent/bg_wait and web search.
+# Use a plain `pi` for real multi-step work.
 FAST=0; LLAMA=0; REMOTE=0; ARGS=()
 for a in "$@"; do
   case "$a" in
@@ -418,8 +420,10 @@ fi
 # ---------------------------------------------------------------------------
 
 # --- web tools off by default -----------------------------------------------
-# pi-web-access registers four tools: web_search, source_check, fetch_content
-# and get_search_content. Between them they send the model's queries out - and
+# pi-web-access registers five tools: web_search, source_check, fetch_content,
+# get_search_content, and web_enable, which switches the others on. The list is
+# webTools in config/elm-pi.json, passed here as $ELM_WEB_TOOLS. Between them
+# they send the model's queries out - and
 # the model composes those from the code in front of it, so a function name or
 # an error string goes with them - fetch arbitrary pages, and then treat what
 # comes back as input. That last part is the one leak path that needs nobody to
@@ -432,8 +436,9 @@ fi
 #   ./bootstrap.sh --no-packages  or drop pi-web-access to remove it entirely
 #
 # The names are pi-web-access defaults and can be renamed in
-# agent/web-search.json. Rename them there and this list needs the same edit -
-# pi silently ignores an exclusion for a tool that does not exist.
+# agent/web-search.json. Rename them there and webTools in config/elm-pi.json
+# needs the same edit - pi silently ignores an exclusion for a tool that does
+# not exist. bootstrap.sh compares the two lists on every run.
 #
 # pi keeps only the last --exclude-tools it is given (a comma-separated list,
 # split once), so a caller's own `-xt bash` used to replace this exclusion and
@@ -466,7 +471,7 @@ fi
 # the first one blocks the prompt from appearing at all:
 #
 #   1. downloads fd and ripgrep from GitHub  - awaited before the TUI renders
-#   2. `npm view` on each package in settings.json (4 npm processes)
+#   2. `npm view` on each package in settings.json (one npm process each)
 #   3. asks pi.dev whether a newer pi exists, and reports the install
 #   4. refreshes the remote model catalogue - useless here, ELM models are local
 #
@@ -493,10 +498,12 @@ esac
 # ---------------------------------------------------------------------------
 
 # --- intercept 'pi update' --------------------------------------------------
-# `pi update` on its own means "update this install", which is two things: the
-# GitHub installer (elm-pi itself, and pi from npm) and pi's own package
-# updater for the extensions. One command runs both.
-# `pi update --extensions` and `pi update --models` are pi's, and pass through.
+# `pi update` on its own means "update this install": install.sh --update,
+# which brings the elm-pi source up to date and then has bootstrap.sh install
+# the latest pi and extension packages, putting the previous trees back if the
+# checks fail. `pi update --extensions` is intercepted too: it reinstalls the
+# tested set (bootstrap.sh --force-packages). `pi update --models` is pi's own
+# and passes through.
 if [ "${1:-}" = "update" ]; then
     HAS_EXTENSIONS=0
     HAS_MODELS=0
@@ -612,8 +619,8 @@ elm_secure_runtime_state "$HERE" "$SESSION_DIR"
 # runs that honours proxy variables - is filtered, and every refusal is logged
 # to agent/egress.log so the call can be stopped at source later.
 #
-# Fail-closed: if the proxy cannot start, pi does not start. That includes a
-# machine with no python3, which until now was optional here.
+# Fail-closed: if the proxy cannot start, pi does not start. That includes an
+# install whose recorded interpreter (agent/python-path) has gone.
 #
 #   ELM_PI_NO_PROXY=1 pi ...        run unfiltered, for debugging
 #   ELM_PI_PROXY_ALLOW=host,host    add hosts for a run
