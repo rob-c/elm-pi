@@ -24,10 +24,14 @@ HERE="$(cd "$(dirname "$SELF")" && pwd)"
 export PATH="$HERE/agent/bin:$HERE/.node/bin:$PATH"
 
 # --- pi --help ---------------------------------------------------------------
-# First, and before the key check, the load preflight and the egress proxy: an
-# install that cannot start is exactly the one whose help you want to read.
-# This launcher adds flags of its own, and until now `pi --help` showed only
-# pi's, so they were documented everywhere except where you would look.
+# Before the key check, the load preflight and the egress proxy: an install
+# that cannot start is exactly the one whose help you want to read. This
+# launcher adds flags of its own, and until now `pi --help` showed only pi's,
+# so they were documented everywhere except where you would look.
+#
+# Detected here, acted on below, once PI_CODING_AGENT_DIR and the telemetry
+# switch are set: pi runs its migrations and loads every extension before it
+# prints its help, and run from here that was vanilla pi on ~/.pi.
 elm_usage() {
   cat <<'EOU'
 elm-pi: pi wired to the University's ELM gateway. Models are ELM-only - see
@@ -59,19 +63,13 @@ Useful environment:
 pi's own flags follow.
 EOU
 }
+WANTS_HELP=0
 for a in "$@"; do
   case "$a" in
-    -h|--help)
-      elm_usage
-      if [ -x "$HERE/pi.orig" ]; then
-        echo
-        exec "$HERE/pi.orig" --help
-      fi
-      exit 0 ;;
+    --) break ;;   # prompt text from here on
+    -h|--help) WANTS_HELP=1; break ;;
   esac
 done
-
-
 
 # Telemetry is off, and not a knob: it reports the install to pi.dev.
 export PI_TELEMETRY=0
@@ -88,6 +86,32 @@ export PI_CLIPBOARD_OSC52="${PI_CLIPBOARD_OSC52:-1}"
 
 # keep config, sessions and credentials inside this directory, not ~/.pi
 export PI_CODING_AGENT_DIR="$HERE/agent"
+
+# pi's half of --help gets what a session gets, as far as an install that may
+# not start allows: this agent/ (above), no startup network work, and no
+# provider credentials. runtime.env has the credential list; an install that
+# lost it still has config/elm-pi.json, read here without needing Python.
+if [ "$WANTS_HELP" = "1" ]; then
+  elm_usage
+  [ -x "$HERE/pi.orig" ] || exit 0
+  echo
+  export PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1
+  if [ -f "$HERE/agent/runtime.env" ]; then
+    # shellcheck source=/dev/null
+    . "$HERE/agent/runtime.env"
+  else
+    ELM_PROVIDER_CREDENTIALS="$(sed -n '/"providerCredentials"/,/]/p' "$HERE/config/elm-pi.json" 2>/dev/null \
+      | grep -o '"[A-Z][A-Z0-9_]*"' | tr -d '"' || true)"
+  fi
+  if [ "${PI_ELM_UNLOCK:-0}" != "1" ]; then
+    for credential_name in ${ELM_PROVIDER_CREDENTIALS:-}; do
+      unset "$credential_name" 2>/dev/null || true
+    done
+    unset PI_ELM_ALLOWED_PROVIDERS 2>/dev/null || true
+  fi
+  exec "$HERE/pi.orig" --help
+fi
+
 [ -f "$HERE/agent/runtime.env" ] || {
   echo "elm-pi runtime configuration is missing. Run $HERE/bootstrap.sh." >&2
   exit 1
@@ -207,9 +231,11 @@ export PI_SUBAGENT_PI_BINARY="${PI_SUBAGENT_PI_BINARY:-$HERE/pi}"
 #   pi --fast -p "what does this regex do?"     quick, no sub-agents/web
 #   pi --llama -p "..."                          run on Llama 3.3 via the shim
 #
-# --fast keeps the ELM-only policy (elm-only.ts is always loaded) and pi's
-# built-in edit tool; it drops anchor editing, subagent/bg_wait
-# and web search. Use a plain `pi` for real multi-step work.
+# --fast keeps the policy extensions (POLICY_EXTENSIONS below: the ELM-only
+# guard agent/extensions/elm-only.ts, the write protections, pinned
+# instructions and the permission gate) and pi's built-in edit tool; it drops
+# anchor editing, subagent/bg_wait and web search. Use a plain `pi` for real
+# multi-step work.
 FAST=0; LLAMA=0; REMOTE=0; ARGS=()
 for a in "$@"; do
   case "$a" in
@@ -221,11 +247,75 @@ for a in "$@"; do
 done
 set -- ${ARGS[@]+"${ARGS[@]}"}
 
-# Catalogue and package-management commands do not contact the ELM inference
-# endpoint. Keep them usable when a key has expired or a fresh install still
-# needs configuring; ordinary sessions continue to fail early with guidance.
+# --- pi install / pi remove ---------------------------------------------------
+# Refused. The packages this install loads are a reviewed set at tested
+# versions - templates/packages.json, pinned by config/versions.json - and
+# bootstrap.sh rebuilds agent/npm and settings.json "packages" from it on every
+# run, `pi update` included. A package pi installed by itself would load
+# unreviewed and unpinned until then, and then be deleted without a word. The
+# egress proxy, which allows only the gateway, also refused npm's registry
+# request, so in practice the command never worked here; it now says why.
+# LOCKDOWN.md has the reasoning; CONTRIBUTING.md has how to add a package.
+case "${1:-}" in
+  install|remove|uninstall)
+    echo "pi: \`pi ${1}\` is not available in this install." >&2
+    echo "    Its packages are the reviewed set in $HERE/templates/packages.json," >&2
+    echo "    which every bootstrap and \`pi update\` rebuilds agent/npm and agent/settings.json from," >&2
+    echo "    so a package added here would be removed again at the next update." >&2
+    echo "    To add one for good: list it in templates/packages.json and, as npm:<name>, in" >&2
+    echo "    templates/settings.json \"packages\", then run $HERE/bootstrap.sh (CONTRIBUTING.md)." >&2
+    echo "    To try a local extension for one session: pi -e /path/to/extension.ts" >&2
+    exit 2 ;;
+esac
+
+# --- ELM-only policy ---------------------------------------------------------
+# Staff allocations are funded at industry token rates, which does not buy a
+# meaningful amount of commercial-model usage. This install offers the
+# university's self-hosted models only. See LOCKDOWN.md.
+#
+# Three layers, all deliberately visible and reversible:
+#   1. credential scrub  - a stray key in ~/.zshrc cannot enable a paid provider
+#   2. argument guard    - --provider/--model/--api-key cannot route elsewhere
+#   3. elm-only extension - strips every non-ELM provider's model catalogue
+#
+# Before the key check, so a refusal does not wait on a key: an install with
+# none yet still refuses --model anthropic/..., which is also what makes
+# bootstrap.sh's probe of the guard mean something there.
+#
+# Escape hatch, for when someone genuinely needs it:
+#   PI_ELM_UNLOCK=1 pi ...            lifts layers 1 and 2 for that run
+#   PI_ELM_UNLOCK=1 PI_ELM_ALLOWED_PROVIDERS="elm,elm-shim,anthropic" pi ...
+UNLOCK="${PI_ELM_UNLOCK:-0}"
+
+if [ "$UNLOCK" != "1" ]; then
+  # 1. credential scrub. Only LLM-provider credentials are removed, and only
+  #    from pi's own environment - your shell is untouched. AWS_* and GITHUB_*
+  #    are deliberately left alone: the agent's bash tool needs them for real
+  #    work, and layer 3 already removes bedrock/copilot from the catalogue.
+  for credential_name in $ELM_PROVIDER_CREDENTIALS; do
+    unset "$credential_name" 2>/dev/null || true
+  done
+  unset PI_ELM_ALLOWED_PROVIDERS 2>/dev/null || true
+
+  # 2. argument guard: default-deny every provider outside the allowlist. This
+  # is deliberately not a list of providers known when this file was written.
+  refuse() {
+    echo "pi: $1" >&2
+    echo "    This install is restricted to the University's self-hosted ELM models." >&2
+    echo "    Why, and how to lift it: $HERE/LOCKDOWN.md" >&2
+    exit 2
+  }
+  type elm_policy_check_args >/dev/null 2>&1 || refuse "the argument policy helper is missing."
+  elm_policy_check_args "$@" || refuse "$ELM_POLICY_ERROR"
+fi
+
+# ---------------------------------------------------------------------------
+
+# Catalogue commands do not contact the ELM inference endpoint, and neither
+# does `pi update`. Keep them usable when a key has expired or a fresh install
+# still needs configuring; ordinary sessions continue to fail early with guidance.
 NEEDS_ELM_KEY=1
-case "${1:-}" in update|install|remove|--list-models|--version) NEEDS_ELM_KEY=0 ;; esac
+case "${1:-}" in update|--list-models|--version) NEEDS_ELM_KEY=0 ;; esac
 if [ "$NEEDS_ELM_KEY" = "1" ] && [ -z "${ELM_API_KEY:-}" ]; then
   echo "ELM_API_KEY is not set. Copy $HERE/.env.example to $HERE/.env and add your ELM key." >&2
   echo "Run $HERE/bootstrap.sh if this install has not been set up yet." >&2
@@ -268,26 +358,56 @@ LLAMA_MODEL="elm-shim/$ELM_LLAMA_MODEL_ID"
 WANTS_SHIM=$LLAMA
 case " $* " in *" elm-shim"*|*"elm-shim/"*) WANTS_SHIM=1 ;; esac
 
+# The policy extensions: what has to load whenever pi's own discovery is off,
+# whether --fast turned it off or the caller did with --no-extensions/-ne. One
+# list for both, because the two used to differ - -ne got the model policy
+# alone, and ran with no permission gate, write protection or pinned
+# instructions. The permission gate ships as a package, so it is named by
+# path; a release that moves its entry point must not quietly drop the gate,
+# so a missing entry in an installed package stops the launch.
+POLICY_EXTENSIONS="elm-only protected-paths pinned-instructions"
+GATE_PKG="$HERE/agent/npm/node_modules/@gotgenes/pi-permission-system"
+GATE="$GATE_PKG/src/index.ts"
+add_policy_extensions() {
+  local e
+  for e in $POLICY_EXTENSIONS; do
+    if [ ! -f "$HERE/agent/extensions/$e.ts" ]; then
+      echo "pi: agent/extensions/$e.ts is missing, and with extension discovery off nothing else loads it." >&2
+      echo "    Run $HERE/bootstrap.sh to put it back." >&2
+      exit 1
+    fi
+    PRE+=(-e "$HERE/agent/extensions/$e.ts")
+  done
+  # No package directory is an install made with --no-packages, which has no
+  # gate in any mode. A package without its entry point is a broken one.
+  if [ -d "$GATE_PKG" ]; then
+    if [ ! -f "$GATE" ]; then
+      echo "pi: the permission gate is installed but $GATE is not there." >&2
+      echo "    Not starting without it. If @gotgenes/pi-permission-system moved its entry point," >&2
+      echo "    GATE in $HERE/pi needs the new path; otherwise: pi update --extensions" >&2
+      exit 1
+    fi
+    PRE+=(-e "$GATE")
+  fi
+}
+
 if [ "$FAST" = "1" ]; then
   PRE+=(--no-extensions)
-  for e in elm-only protected-paths todo pinned-instructions skill-router; do
-    [ -f "$HERE/agent/extensions/$e.ts" ] && PRE+=(-e "$HERE/agent/extensions/$e.ts")
+  add_policy_extensions
+  # Conveniences on top of the policy: cheap, local, and what makes --fast
+  # still feel like this install.
+  for e in todo skill-router; do
+    if [ -f "$HERE/agent/extensions/$e.ts" ]; then PRE+=(-e "$HERE/agent/extensions/$e.ts"); fi
   done
-  # The permission gate ships as a package, so --no-extensions dropped it and
-  # --fast ran with no outside-cwd or bash prompts at all. It is policy, not
-  # convenience: load it explicitly, as the model policy is.
-  GATE="$HERE/agent/npm/node_modules/@gotgenes/pi-permission-system/src/index.ts"
-  [ -f "$GATE" ] && PRE+=(-e "$GATE")
   if [ "$WANTS_SHIM" = "1" ] && [ -f "$HERE/agent/extensions/elm-shim.ts" ]; then
     PRE+=(-e "$HERE/agent/extensions/elm-shim.ts")
   fi
 fi
-# A caller may turn off package discovery, but the model policy is an invariant
-# of the locked launcher. Load it explicitly for either spelling, just as
-# --fast does. The helper respects --, where these tokens become prompt text.
+# A caller may turn off package discovery, but the policy is an invariant of
+# the locked launcher. Load it explicitly for either spelling, just as --fast
+# does. The helper respects --, where these tokens become prompt text.
 if [ "$FAST" != "1" ] && elm_policy_extensions_disabled "$@"; then
-  [ -f "$HERE/agent/extensions/elm-only.ts" ] && \
-    PRE+=(-e "$HERE/agent/extensions/elm-only.ts")
+  add_policy_extensions
 fi
 if [ "$LLAMA" = "1" ]; then
   case " $* " in
@@ -314,53 +434,31 @@ fi
 # The names are pi-web-access defaults and can be renamed in
 # agent/web-search.json. Rename them there and this list needs the same edit -
 # pi silently ignores an exclusion for a tool that does not exist.
+#
+# pi keeps only the last --exclude-tools it is given (a comma-separated list,
+# split once), so a caller's own `-xt bash` used to replace this exclusion and
+# turn the web tools back on. The caller's lists are folded into this one
+# instead, as one flag. An explicit --tools/-t allowlist is still left alone:
+# naming a web tool there is asking for it.
 if [ "${PI_ELM_WEB:-0}" != "1" ]; then
-  case " $* " in
-    # the caller has already said something about tools; do not argue with it
-    *" --tools "*|*" -t "*|*" --exclude-tools "*|*" -xt "*) : ;;
-    # one flag, one value: the value is a comma-separated list, not a list
-    *) PRE+=(--exclude-tools "$ELM_WEB_TOOLS") ;;
-  esac
-fi
-# ---------------------------------------------------------------------------
-
-# --- ELM-only policy ---------------------------------------------------------
-# Staff allocations are funded at industry token rates, which does not buy a
-# meaningful amount of commercial-model usage. This install offers the
-# university's self-hosted models only. See LOCKDOWN.md.
-#
-# Three layers, all deliberately visible and reversible:
-#   1. credential scrub  - a stray key in ~/.zshrc cannot enable a paid provider
-#   2. argument guard    - --provider/--model/--api-key cannot route elsewhere
-#   3. elm-only extension - strips every non-ELM provider's model catalogue
-#
-# Escape hatch, for when someone genuinely needs it:
-#   PI_ELM_UNLOCK=1 pi ...            lifts layers 1 and 2 for that run
-#   PI_ELM_UNLOCK=1 PI_ELM_ALLOWED_PROVIDERS="elm,elm-shim,anthropic" pi ...
-UNLOCK="${PI_ELM_UNLOCK:-0}"
-
-if [ "$UNLOCK" != "1" ]; then
-  # 1. credential scrub. Only LLM-provider credentials are removed, and only
-  #    from pi's own environment - your shell is untouched. AWS_* and GITHUB_*
-  #    are deliberately left alone: the agent's bash tool needs them for real
-  #    work, and layer 3 already removes bedrock/copilot from the catalogue.
-  for credential_name in $ELM_PROVIDER_CREDENTIALS; do
-    unset "$credential_name" 2>/dev/null || true
+  XT_ARGS=(); XT_USER=""; XT_TOOLS=0; xt_prev=""
+  for a in "$@"; do
+    if [ "$xt_prev" = "stop" ]; then XT_ARGS+=("$a"); continue; fi
+    if [ "$xt_prev" = "value" ]; then XT_USER="${XT_USER:+$XT_USER,}$a"; xt_prev=""; continue; fi
+    case "$a" in
+      --) xt_prev="stop"; XT_ARGS+=("$a") ;;
+      --exclude-tools|-xt) xt_prev="value" ;;
+      --tools|-t) XT_TOOLS=1; XT_ARGS+=("$a") ;;
+      *) XT_ARGS+=("$a") ;;
+    esac
   done
-  unset PI_ELM_ALLOWED_PROVIDERS 2>/dev/null || true
-
-  # 2. argument guard: default-deny every provider outside the allowlist. This
-  # is deliberately not a list of providers known when this file was written.
-  refuse() {
-    echo "pi: $1" >&2
-    echo "    This install is restricted to the University's self-hosted ELM models." >&2
-    echo "    Why, and how to lift it: $HERE/LOCKDOWN.md" >&2
-    exit 2
-  }
-  type elm_policy_check_args >/dev/null 2>&1 || refuse "the argument policy helper is missing."
-  elm_policy_check_args "$@" || refuse "$ELM_POLICY_ERROR"
+  # A trailing flag with no value is pi's to report, not ours to swallow.
+  [ "$xt_prev" != "value" ] || XT_ARGS+=("--exclude-tools")
+  if [ "$XT_TOOLS" = "0" ]; then
+    set -- ${XT_ARGS[@]+"${XT_ARGS[@]}"}
+    PRE+=(--exclude-tools "$ELM_WEB_TOOLS${XT_USER:+,$XT_USER}")
+  fi
 fi
-
 # ---------------------------------------------------------------------------
 
 # --- no update work at launch -----------------------------------------------
@@ -382,13 +480,10 @@ fi
 #     pi update                 elm-pi + pi + the extension packages
 #     PI_ELM_STARTUP_CHECKS=1 pi     restore pi's own startup checks for a run
 #
-# A package subcommand (update/install/remove) needs the network by definition,
-# so it is exempt.
+# `pi update` needs the network by definition, so it is exempt. (install and
+# remove are refused above.)
 case "${1:-}" in
   update) ;;
-  # pi runs npm for these. Same confinement as bootstrap.sh: config/npmrc, the
-  # install's own cache and prefix, no ~/.npmrc and no npm_config_* variables.
-  install|remove) elm_npm_env "$HERE" ;;
   *)
     if [ "${PI_ELM_STARTUP_CHECKS:-0}" != "1" ]; then
       export PI_OFFLINE="${PI_OFFLINE:-1}"
@@ -421,19 +516,28 @@ if [ "${1:-}" = "update" ]; then
         echo "pi: updating this install." >&2
         echo "    source, then pi and the extension packages at their latest versions;" >&2
         echo "    if the new versions fail the install's checks, the current ones are put back." >&2
-        echo "    To reinstall the extensions at the tested versions instead: pi update --extensions" >&2
+        echo "    To go back to the tested versions instead: pi update --extensions" >&2
+        echo "    The options this install was made with (agent/install-options) are kept." >&2
         echo "" >&2
         # The launch-time offline default must not follow us into an update.
         unset PI_OFFLINE PI_SKIP_VERSION_CHECK
+        # install.sh reads the branch and repository from agent/install-options,
+        # and bootstrap.sh the --no-* flags, so neither needs repeating here.
         ELM_PI_PREFIX="$HERE" ELM_PI_NO_PATH=1 ELM_PI_NO_LINK=1 \
           "$HERE/install.sh" --update --no-path --no-link || {
-            echo "pi: the elm-pi update failed; the previous dependency tree remains active." >&2
+            # install.sh and bootstrap.sh have said what was put back and what
+            # was not; this only must not claim more than they did.
+            echo "pi: the update did not complete - see above for what was rolled back." >&2
             exit 1
         }
         exit 0
     fi
     if [ "$HAS_EXTENSIONS" = "1" ] && [ "$HAS_MODELS" = "0" ]; then
-        echo "pi: reinstalling the repository-pinned extension package set..." >&2
+        # "The tested versions" means the tested set: bootstrap.sh's
+        # --force-packages also returns pi to config/versions.json's pin when a
+        # `pi update` moved it on, since the packages were tested against that pi.
+        echo "pi: reinstalling the extension packages at the tested versions (config/versions.json)," >&2
+        echo "    and pi itself if it is not at its tested version." >&2
         unset PI_OFFLINE PI_SKIP_VERSION_CHECK
         "$HERE/bootstrap.sh" --force-packages --non-interactive
         exit $?
@@ -692,7 +796,8 @@ else
   LOAD1="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}' || true)"
 fi
 if command -v pgrep >/dev/null 2>&1; then
-  RUNNERS="$(pgrep -fc 'pi-subagents/runner-peer-preload' 2>/dev/null || true)"
+  # Counted with wc: pgrep -c is procps only, and a usage error on macOS.
+  RUNNERS="$( { pgrep -f 'pi-subagents/runner-peer-preload' 2>/dev/null || true; } | wc -l | tr -d ' ')"
 else
   RUNNERS=0
 fi

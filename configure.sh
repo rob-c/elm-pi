@@ -6,6 +6,13 @@
 # session settings survive. Only the model id and defaultModel change.
 #
 # Usage: ./configure.sh [model-id-substring]      (default: qwen)
+#
+# The substring picks among the gateway's Qwen ids; it must resolve to one.
+# This sets the Qwen slot and nothing else. Llama is served only through the
+# tool-call shim (pi --llama, the elm-shim provider), which has its own id: a
+# direct elm/ Llama entry cannot call tools, and bootstrap.sh removes any that
+# appears. `./configure.sh llama` used to write the Llama id into the Qwen slot,
+# and the next bootstrap then removed it - leaving elm with no model at all.
 set -euo pipefail
 unset CDPATH
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +29,18 @@ esac
 
 BASE="${ELM_BASE_URL:-https://elm.edina.ac.uk/api/v1}"
 MATCH="${1:-qwen}"
-RAW="$(mktemp "$HERE/agent/.models-raw.XXXXXX.json")"
+refuse_non_qwen() {
+  echo "configure.sh: $1" >&2
+  echo "    configure.sh sets the Qwen model only. Llama runs through the tool-call shim:" >&2
+  echo "    pi --llama, or --model elm-shim/<id>; its id is not configured here." >&2
+  exit 2
+}
+case "$(printf '%s' "$MATCH" | tr '[:upper:]' '[:lower:]')" in
+  *llama*) refuse_non_qwen "\"$MATCH\" names a Llama model." ;;
+esac
+# No suffix after the Xs: BSD mktemp replaces only a trailing run of them, so
+# ".XXXXXX.json" made the same fixed name every time.
+RAW="$(mktemp "$HERE/agent/.models-raw.XXXXXX")"
 AUTH_HEADER="$(mktemp "$HERE/agent/.auth-header.XXXXXX")"
 chmod 600 "$RAW" "$AUTH_HEADER"
 printf 'Authorization: Bearer %s\n' "$ELM_API_KEY" > "$AUTH_HEADER"
@@ -55,6 +73,10 @@ print(hits[0])
 PY
 )
 
+case "$(printf '%s' "$MODEL_ID" | tr '[:upper:]' '[:lower:]')" in
+  *qwen*) ;;
+  *) refuse_non_qwen "\"$MATCH\" matched $MODEL_ID, which is not a Qwen model; nothing was changed." ;;
+esac
 echo "Model id: $MODEL_ID"
 
 echo
@@ -75,7 +97,7 @@ print("  reply:", d["choices"][0]["message"].get("content"))
 # overrides, task-model profiles, agent frontmatter and the launcher environment.
 elm_py "$HERE/scripts/elm_config.py" --root "$HERE" set-model qwen "$MODEL_ID"
 
-elm_py - "$HERE" "$MODEL_ID" "$BASE" "$MATCH" <<'PY'
+elm_py - "$HERE" "$MODEL_ID" "$BASE" qwen <<'PY'
 import json,sys
 here,model,base,match=sys.argv[1:5]
 

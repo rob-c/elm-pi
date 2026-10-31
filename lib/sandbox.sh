@@ -29,8 +29,8 @@
 #
 # The launcher deliberately does NOT scrub: the agent's own bash tool needs the
 # researcher's conda and PATH to do their work. It isolates per call instead -
-# elm_py for its own Python, pi.orig drops NODE_OPTIONS/NODE_PATH for pi's node,
-# and `pi install`/`pi remove` get elm_npm_env.
+# elm_py for its own Python, and pi.orig drops NODE_OPTIONS/NODE_PATH for pi's
+# node. (`pi install`/`pi remove`, which would run npm, are refused.)
 
 # ELM_PY_ERROR, ELM_PI_ROOT and ELM_PI_USER_PATH are set here for the scripts
 # that source this file.
