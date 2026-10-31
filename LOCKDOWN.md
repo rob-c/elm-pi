@@ -29,9 +29,14 @@ The launcher `unset`s every commercial LLM credential before exec'ing pi, so a k
 in `~/.zshrc` or a CI environment cannot quietly re-enable a paid provider. Your
 shell is untouched — only pi's own environment.
 
+The list is `providerCredentials` in `config/elm-pi.json`, kept in step with
+the variables pi-ai 1.4 itself reads; a test compares the two when pi is
+installed in the checkout. `pi --help` runs with the same scrub.
+
 Deliberately **not** scrubbed: `AWS_*` (except `AWS_BEARER_TOKEN_BEDROCK`) and
-`GITHUB_TOKEN`. The agent's bash tool needs them for real work, and layer 3
-already removes `amazon-bedrock` and `github-copilot` from the catalogue.
+`GITHUB_TOKEN` (`COPILOT_GITHUB_TOKEN` is). The agent's bash tool needs them for
+real work, and layer 3 already removes `amazon-bedrock` and `github-copilot`
+from the catalogue.
 
 ### 2. Default-deny argument guard (`pi`)
 
@@ -47,15 +52,23 @@ pi --api-key sk-... ...
 ```
 
 `--api-key` is refused outright: its only purpose is to hand a session a
-credential the scrub just removed.
+credential the scrub just removed. The guard runs before the launcher looks for
+the ELM key, so an install with no key yet refuses these too.
 
 ### 3. Catalogue strip (`agent/extensions/elm-only.ts`)
 
-The load-bearing one. pi ships ~40 built-in providers. Registering a provider with
+The load-bearing one. pi 1.4 ships 42 built-in providers. Registering a provider with
 an empty `models` array **replaces** its catalogue, so the extension strips every
 non-allowed provider to zero models — once at extension load (covers
 `--list-models` and other pre-session paths), then again at session start (covers
 providers a pi upgrade or another extension adds).
+
+It loads in every mode. `--fast`, and `--no-extensions`/`-ne` given by the
+caller, turn off pi's own extension discovery, so the launcher loads the policy
+set explicitly in both cases: this extension, `protected-paths.ts`,
+`pinned-instructions.ts` and the permission gate. If one of the three local
+files is missing, or the gate package is installed without its entry point,
+pi does not start.
 
 Measured on this install: **1,357 built-in models → the ELM catalogue only.**
 The local Llama shim appears as `elm-shim` when its loopback service is
@@ -64,7 +77,7 @@ available; it is still backed by an ELM-hosted model.
 ```
 provider  model                              context  max-out  thinking  images
 elm       Qwen/Qwen3.5-397B-A17B-FP8         262.1K   32.8K    yes       yes
-elm-shim  meta-llama/Llama-3.3-70B-Instruct  128K     16.4K    no        no
+elm-shim  meta-llama/Llama-3.3-70B-Instruct  128K     8.2K     no        no
 ```
 
 This is what makes `/login` pointless: a credential with no catalogue entry is
@@ -120,15 +133,16 @@ an empty model catalogue.
 
 ### 5. Web tools off by default (`pi`)
 
-`pi-web-access` registers four tools — `web_search`, `source_check`,
-`fetch_content` and `get_search_content`. Between them they send the model's
+`pi-web-access` registers five tools — `web_search`, `source_check`,
+`fetch_content`, `get_search_content`, and `web_enable`, which switches the
+others on. Between them they send the model's
 queries out, and the model composes those from the code in front of it, so a
 function name or an error string travels with them. They also fetch arbitrary
 pages and then treat what comes back as input, which is the one leak path that
 requires nobody to do anything wrong: a fetched page can instruct the agent to
 put data in a URL.
 
-The launcher therefore passes `--exclude-tools` for all four. The package stays
+The launcher therefore passes `--exclude-tools` for all five. The package stays
 installed, so this is a per-run decision rather than a per-install one:
 
     PI_ELM_WEB=1 pi ...     web search and fetching, for that run
@@ -138,21 +152,26 @@ installed, so this is a per-run decision rather than a per-install one:
 the gateway, so every search refuses and lands in the log. That is the honest
 combination for testing the block; `--remote` is the one that works.
 
-If the caller passes `--tools` or `--exclude-tools` themselves, the launcher
-leaves the decision alone. The four names are `pi-web-access` defaults and can
-be renamed in `agent/web-search.json`; rename them there and the launcher's
-list needs the same edit, because pi silently ignores an exclusion for a tool
-that does not exist.
+pi keeps only the last `--exclude-tools` it is given, so a caller's own
+`--exclude-tools` (or `-xt`) is merged into the launcher's list rather than
+replacing it. An explicit `--tools` allowlist is left alone: naming a web tool
+there is asking for it. The names are `pi-web-access` defaults and can be
+renamed in `agent/web-search.json`; rename them there and `webTools` in
+`config/elm-pi.json` needs the same edit, because pi silently ignores an
+exclusion for a tool that does not exist. Bootstrap compares the two lists on
+every run and warns if the package registers a tool the list does not name.
 
 Sub-agents have a second, independent route out: `pi-subagents` can export a
 run to HTML and publish it with `gh gist create`. It is off unless
 `agent/extensions/subagent/config.json` sets `"share": true`, and that file now
 says `"share": false` explicitly rather than relying on the default.
 
-Dynamic Workflows is not loaded by the default package set because its global
-model-policy hook can be overridden by an individual workflow. Its guard is
-still installed for explicit opt-ins, but that is weaker than strict
-`pi-subagents` model scope.
+Dynamic Workflows (`@quintinshaw/pi-dynamic-workflows`) **is** loaded by the
+default package set, knowingly: its global model-policy hook can be overridden
+by an individual workflow script. Its guard, `workflow-model-scope.ts`, is a
+required extension and refuses models outside the ELM providers, but that is
+weaker than strict `pi-subagents` model scope. INSTALL.md, "Dynamic Workflows,
+and the one control it lacks", has the measurements.
 
 ### Private local state
 
@@ -178,8 +197,9 @@ No certificate, no interception, no decryption: HTTPS through a proxy opens
 with a plaintext `CONNECT host:443`, which is all an allowlist needs. The
 payload stays encrypted end to end.
 
-- **Fail-closed.** No proxy, no pi. That includes a machine without `python3`,
-  which used to be optional here and is not any more.
+- **Fail-closed.** No proxy, no pi. The proxy runs on the Python bootstrap
+  chose (the system's, or a standalone CPython it downloaded when there was no
+  usable one), so an install whose interpreter has gone does not start.
 - **`pi update` is the one exception**, and deliberately: updates need
   `registry.npmjs.org`, `github.com` and `nodejs.org`. The proxy is started
   *after* the update intercept, so an update never sees it, and nothing else
@@ -231,12 +251,20 @@ Mac the answer remains `pf` and an administrator.
 | `PI_ELM_UNLOCK=1 PI_ELM_ALLOWED_PROVIDERS="elm,elm-shim,anthropic"` | Anthropic returns — the intended escape hatch |
 | `pi --list-models` | ELM only |
 | `/share`, `/bug` | absent from autocomplete; both refuse, and their upload paths throw |
-| asking the model to list its tools | 17 tools, none of them web: `read, bash, write, todo, subagent, bg_wait, memory_*, skill_manage, session_search, replace, insert, anchor_grep, undo_last_change, subagent_supervisor` |
-| the same with `PI_ELM_WEB=1` | 21 tools — `web_search`, `source_check`, `fetch_content`, `get_search_content` return |
+| asking the model to list its tools | none of them web |
+| the same with `PI_ELM_WEB=1` | the web tools return |
 | ELM request through the proxy | allowed; a real `pi -p` round trip works |
 | agent running `curl https://example.com` in `bash` | refused, `exit=56`, logged as `REJECTED example.com:443 not on the allowlist` |
 | `pi update` | runs unproxied, by construction — the proxy starts after the update intercept |
 | `proxy/egress.py` missing | pi refuses to start (exit 1) rather than running unfiltered |
+
+Those two tool rows were measured on an earlier package set, whose list
+included a memory tool that is no longer installed; the counts are not given
+here because they change with the set. From the code as it stands: editing is
+`pi-hashline-edit-pro`'s `read`, `grep`, `replace`, `replace_match`, `insert`
+and `undo_last_change`, with pi's own `edit` turned off (pi's `find` and `ls`
+are not in its default tool set), beside `bash`, `write` and the tools the
+other packages and local extensions add.
 
 ## What this does not do
 
@@ -269,9 +297,28 @@ PI_ELM_UNLOCK=1 pi ...                                        # layers 1 and 2 o
 PI_ELM_UNLOCK=1 PI_ELM_ALLOWED_PROVIDERS="elm,elm-shim,anthropic" pi ...   # + layer 3
 ```
 
-Permanently, for a host or a person with funded access: edit `ALLOWED` in
-`templates/extensions/elm-only.ts`, drop the `unset` block from `pi`, and
-`./bootstrap.sh --update --no-auth-lock`.
+Layer 6 still allows only the gateway, so a request to the provider is
+refused by the proxy until its host is allowed too, for example
+`ELM_PI_PROXY_ALLOW=api.anthropic.com`.
+
+Permanently, for a host or a person with funded access, change the policy at
+its source, `config/elm-pi.json`, which every layer reads (through
+`agent/runtime.env`):
+
+- add the provider to `allowedProviders` — the argument guard, `elm-only.ts`
+  and `workflow-model-scope.ts` all take their allowlist from it;
+- remove that provider's variables from `providerCredentials`, which is the
+  list the scrub unsets;
+- add `"<provider>/*"` to `subagents.modelScope.allow` in
+  `templates/settings.json`, or sub-agents still refuse it;
+
+then re-run `./bootstrap.sh --no-auth-lock` (the flag is then remembered). The
+proxy allowlist has no config file: set `ELM_PI_PROXY_ALLOW` in the
+environment. Be aware that bootstrap's own lockdown check ("verifying the
+ELM-only policy") stops the run with "commercial providers are still visible"
+if any `anthropic`, `openai` or `google` model is listed, and it sets fake
+Anthropic and OpenAI keys to provoke exactly that; lifting one of those three
+means changing that check in `bootstrap.sh` as well.
 
 Note that `pi --remote` is **not** this. It lifts layers 5 and 6 — the network
 ones — and leaves 1, 2 and 3 exactly where they are. Inference still goes to

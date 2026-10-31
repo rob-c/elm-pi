@@ -35,21 +35,26 @@ Environment: `SHIM_PORT`, `ELM_BASE_URL`, `SHIM_MODELS` (comma separated).
 
 ## Wire into pi
 
-`agent/models.json` gains a second provider pointing at the shim:
+Nothing to do by hand in an install. `agent/extensions/elm-shim.ts` (from
+`templates/extensions/elm-shim.ts`) starts the shim on demand on
+`127.0.0.1:8811` (`ELM_SHIM_PORT` moves it), reuses one that is already
+running, and registers it as the `elm-shim` provider:
 
-```json
-"elm-shim": {
-  "baseUrl": "http://127.0.0.1:8811",
-  "api": "openai-completions",
-  "apiKey": "$ELM_API_KEY",
-  "models": [{ "id": "meta-llama/Llama-3.3-70B-Instruct",
-               "name": "Llama 3.3 70B (ELM via tool-shim)",
-               "contextWindow": 128000, "maxTokens": 16384 }]
-}
+```
+provider  elm-shim  ->  http://127.0.0.1:8811, api openai-completions, key $ELM_API_KEY
+model     meta-llama/Llama-3.3-70B-Instruct   contextWindow 128000, maxTokens 8192
 ```
 
-Then `pi --model "elm-shim/meta-llama/Llama-3.3-70B-Instruct"`, or pick it in
-`/model`. The shim must be running or the provider fails to connect.
+`maxTokens` is 8192 because the shim buffers the whole upstream reply before
+sending anything, and pi abandons a connection that is silent for 300 s and
+retries. At Llama's measured 30-47 tok/s a 16384-token reply takes 350-550 s,
+so long replies timed out and were generated again, up to six times.
+
+Then `pi --llama`, `pi --model "elm-shim/meta-llama/Llama-3.3-70B-Instruct"`,
+or pick it in `/model`. If the shim cannot start, pi shows an `elm-shim:`
+warning and the provider is simply absent. `agent/models.json` needs no
+`elm-shim` entry, and an `elm/` Llama entry is removed by bootstrap: it would
+reach ELM directly, where Llama cannot call tools.
 
 ## What works, and what does not
 

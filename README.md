@@ -45,22 +45,23 @@ every step: **[INSTALL.md](INSTALL.md)**. Web version of this page:
 | | |
 |---|---|
 | **Model** | `Qwen/Qwen3.5-397B-A17B-FP8` — 262K context, tool calling, vision |
-| **Sub-agents** | 64-child fan-out budget; cheap Llama 3.3 workers via a local tool-call shim |
+| **Sub-agents** | 64-child fan-out budget, Qwen by default; Llama 3.3 via a local tool-call shim as a fallback |
 | **Editing** | Anchor-based (`pi-hashline-edit-pro`) — the built-in `edit` tool is off |
 | **Memory** | Per-project `AGENTS.md`. No memory tool: `pi-hermes-memory` is not installed |
-| **Web** | `pi-web-access` (DuckDuckGo, then Exa) |
+| **Web** | `pi-web-access` (DuckDuckGo, then Exa). **Off by default**; `pi --remote` turns it on for a run |
+| **Skills** | 13 — physics methods, scientific code, sub-agent orchestration. A router adds the ones a request needs, shown as a dim `skills:` line |
 | **Prompt suggestions** | `pi-next-prompt`: the likely next prompt in grey after each reply; Tab takes it |
 | **Sessions** | `.pi/sessions/` inside each project, not one central 1.9 GB pile |
-| **Models offered** | ELM only. 41 non-ELM provider catalogues stripped |
+| **Models offered** | ELM only. 42 non-ELM provider catalogues stripped |
 
 ## Layout
 
 ```
 install.sh          the curl|bash entry point: fetch, bootstrap, link
-bootstrap.sh        installs the reviewed, locked runtime; idempotent
+bootstrap.sh        installs the reviewed runtime at the tested versions; idempotent
 pi                  the wrapper: bundled Node, .env, ELM-only guards, preflight
 pi.orig             the unwrapped CLI the wrapper hands over to
-configure.sh        resolves the model id from the gateway, merges it into config
+configure.sh        resolves the Qwen model id from the gateway, merges it into config
 patch-pi.py         removes /share and /bug from the release; run on every install
 templates/          the source of truth for everything under agent/
 config/elm-pi.json  shared model, provider, extension and web-tool policy
@@ -69,7 +70,7 @@ scripts/ tests/     config rendering, checks and regression tests
 docs/               the GitHub Pages site
 shim/               Llama tool-call shim (Python, loopback only)
 proxy/              egress proxy: allowlists ELM, logs and refuses the rest
-agent/              generated: PI_CODING_AGENT_DIR (config, sessions, memory)
+agent/              generated: PI_CODING_AGENT_DIR (config, extensions, skills, state)
 agent/bin/          generated: fd rg jq yq shellcheck ast-grep, pinned + checksummed
 .node/ node_modules/  generated: Node 24 + pi, ~650 MB
 ```
@@ -80,13 +81,20 @@ tested, `config/versions.json`; `pi update` takes the latest and keeps them only
 if they pass the install's checks. The split
 is **code versus config**.
 
+The options an install was made with — `--no-packages` and the other `--no-*`
+flags, an `ELM_PI_TOOLS` subset, the branch and repository — are recorded in
+`agent/install-options` and repeated by every later run: a re-run of the
+installer or `bootstrap.sh`, `pi update`, `pi update --extensions`. Flags given
+on a later run are added to the record; `--reset-options` starts it again from
+that run's flags alone.
+
 Code and policy — `AGENTS.md`, the agent definitions, the local extensions — are
 **refreshed on every run**, so a re-install always runs the current rules. Config you tune — `settings.json`, `models.json`,
 `web-search.json`, the extension configs — is kept.
 
 Within the kept config, **one exception**, so a re-install can change its mind. Some values are
 decisions this repo makes for a measured or documented reason — thinking off,
-compaction owned by `pi-auto-compact`, PDFs extracted locally rather than
+compaction owned by `pi-auto-compact` at 70% of the context window, PDFs extracted locally rather than
 uploaded, `/share` off for sub-agents, exactly one Llama, the permission
 policy, the ELM-only model scope. Every run compares those against
 `templates/`, **prints anything you have changed**, and applies the repo's
@@ -99,28 +107,42 @@ routing, and any key the list does not name. Change a decision permanently in
 **A re-install never redoes work that is already done.** It does not reinstall
 pi, re-download the bundled binaries, or reinstall the extension packages when
 they are present — that is minutes spent reproducing a state that already
-exists. `pi update` fetches and validates the source, builds dependencies in
+exists. The exception is a change to the tested set: when a pull changes
+`config/versions.json` (or a manifest), the next run installs the new pinned
+versions. `pi update` fetches and validates the source, builds dependencies in
 staging from the current registry versions, verifies the patched CLI, and only
 then swaps the runtime into place. If the new pi then cannot load the config -
 Qwen missing from `--list-models`, or a value its schemas reject - the previous
-pi and extensions are put back. A genuinely broken install is a `rm -rf` away from
-a clean one.
+pi and extensions are put back. The elm-pi source and the files regenerated
+under `agent/` are not rolled back; a failed update says exactly what was and
+was not, and how to return to the previous commit. A genuinely broken install
+is a `rm -rf` away from a clean one.
 
 ## Daily use
 
 ```bash
 pi                             # interactive, starts on Qwen 397B
 pi -p "..."                    # one-shot
-pi --fast -p "..."             # one-shot, ~3x quicker to start
+pi --fast -p "..."             # one-shot, much quicker to start
 pi --llama -p "..."            # run on Llama 3.3 70B through the tool-call shim
 cat file | pi -p "summarise"
-pi update                      # validated source + repository-locked runtime
+pi update                      # latest elm-pi, pi and packages (see below)
+pi update --extensions         # back to the tested versions in config/versions.json
 ```
 
 Nothing updates itself while you are trying to start work: the launcher runs pi
 with `PI_OFFLINE=1`, so no version check, package check or tool download happens
-at launch. `pi update` is the one place updates happen. `pi update --extensions`
-reinstalls the extension set, taking whatever npm currently publishes.
+at launch. `pi update` is the one place updates happen: the latest elm-pi
+source, then the latest pi and extension packages, kept only if the install's
+checks pass. `pi update --extensions` reinstalls the tested set from
+`config/versions.json` instead — the packages, and pi itself if an update moved
+it on. `agent/installed-versions.json` records what is installed.
+
+`pi install` and `pi remove` are refused: the package set is reviewed and
+pinned, and every bootstrap and `pi update` rebuilds it from `templates/`, so a
+package added that way would vanish at the next update. To add one for good,
+see [CONTRIBUTING.md](CONTRIBUTING.md); to try a local extension for one
+session, `pi -e /path/to/extension.ts`.
 
 `pi` is a symlink to `~/.local/share/elm-pi/pi`; the launcher resolves symlinks,
 so you can move or re-link it freely. `pi.orig` in the install directory is the
@@ -130,8 +152,10 @@ wrapper's fault?".
 
 | Flag | |
 |---|---|
-| `--fast` | skip the npm package set: ~1.2s of CPU at launch instead of ~4.4s. No sub-agents, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
+| `--fast` | skip the npm package set, which is most of the startup time. The policy extensions and the permission gate still load. No sub-agents, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
 | `--llama` | Llama 3.3 70B via the local shim. A fallback, **not** a speed-up — Qwen is faster here. |
+| `--remote` | web tools on for this run, and the egress proxy records every destination instead of allowing only ELM. Models are unaffected: still ELM only. `PI_ELM_WEB=1` turns the tools on without opening the proxy. |
+| `--help` | the launcher's flags and environment, then pi's own help, run with this install's config, offline and with credentials scrubbed |
 
 | Command | |
 |---|---|
@@ -153,10 +177,13 @@ Hard-won settings that are in here deliberately. Full measurements in
   fan-out across both models is *slower* than sending it all to Qwen. Llama is a
   fallback, not an optimisation.
 - **Startup is the npm packages, not pi.** They ship raw TypeScript and are
-  transpiled at every launch; `--fast` skips them: 1.4s to start against 4.7s,
-  and 3.5s against 8.0s end to end on a small edit task.
+  transpiled at every launch; `--fast` skips them. Measured when the set was
+  three packages: 1.4s to start against 4.7s, and 3.5s against 8.0s end to end
+  on a small edit task. The set is now thirteen and has not been re-measured.
 - **Prefix caching gives ~8x.** Long stable context is cheap; extra agent *turns*
-  are what cost. Verified byte-stable prompt prefixes across a session.
+  are what cost. Verified byte-stable prompt prefixes across a session; the
+  skill router adds skills as a message after your request, not to the system
+  prompt, so it keeps them that way.
 - **Sub-agent fan-out is nearly free past the startup cost** (20 agents ≈ 12), but
   delegating work smaller than the round trip is 10x slower than doing it directly.
 - **`retry.maxRetries` is 5, `retry.provider.maxRetries` is 0.** Five gives ~62s of
@@ -176,7 +203,7 @@ Hard-won settings that are in here deliberately. Full measurements in
 
 Run `./scripts/check.sh` before committing. It performs shell and Python syntax
 checks, policy/runtime tests, ShellCheck when available, and TypeScript checking
-with the locked development tree. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+when `typescript` is installed in the checkout. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
 dependency-update and generated-configuration workflow.
 
 ## Cost and policy

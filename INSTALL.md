@@ -1,8 +1,10 @@
 # Installing elm-pi on a new machine or host
 
 Verified on macOS 15.8 (Intel) and written to work unchanged on Apple Silicon and
-Linux x64/arm64. Requires: `curl`, `tar`, `python3`, and an ELM API key. `git` is
-optional — the installer falls back to a source tarball without it.
+Linux x64/arm64. Requires: `curl`, `tar`, and an ELM API key. `git` is
+optional — the installer falls back to a source tarball without it. Python 3.8+
+is used when the system has one (never conda, a virtualenv or pyenv); otherwise
+the installer downloads a standalone CPython into the install.
 
 ---
 
@@ -25,7 +27,7 @@ cd ~/.local/share/elm-pi
 ```
 
 The source checkout must travel as a unit: the launch scripts, `config/`, `lib/`,
-`scripts/`, `templates/`, lockfiles, shim, proxy and docs are all used by install
+`scripts/`, `templates/`, shim, proxy and docs are all used by install
 or validation. Installed software and runtime state are downloaded or generated.
 `.gitignore` already excludes the key, the installed software and all runtime
 state, so the repository is safe to push.
@@ -43,9 +45,12 @@ ELM_API_KEY=elm-... ./bootstrap.sh --non-interactive
 ELM_API_KEY=elm-... /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
 ```
 
-Re-running either is safe: neither overwrites `.env`, sessions, memory, or a
-config you have edited. `pi update` fetches and validates current source, then
-re-resolves and reinstalls pi and the packages while keeping configs.
+Re-running either is safe: neither overwrites `.env`, sessions, or a config
+you have edited, and both repeat the options the install was made with (below).
+A re-run installs the tested versions in `config/versions.json` when a pull has
+changed them, and otherwise leaves pi and the packages alone. `pi update`
+fetches and validates current source, then installs the latest pi and packages
+while keeping configs; `pi update --extensions` goes back to the tested set.
 
 Installer knobs, if the defaults do not suit:
 
@@ -53,7 +58,8 @@ Installer knobs, if the defaults do not suit:
 |---|---|
 | `ELM_PI_PREFIX` | `~/.local/share/elm-pi` — where the install lives |
 | `ELM_PI_BINDIR` | `~/.local/bin` — where `pi` is linked |
-| `ELM_PI_BRANCH` | `main` |
+| `ELM_PI_BRANCH` | the branch the install was made from (`agent/install-options`), else `main` |
+| `ELM_PI_REPO` | the repository the install was made from, else `rob-c/elm-pi` on GitHub |
 | `ELM_PI_UPDATE` | `0`; `1` passes `--update` through to bootstrap |
 
 To remove everything: `rm -rf ~/.local/share/elm-pi ~/.local/bin/pi`.
@@ -96,21 +102,40 @@ Two things people get wrong:
 | Flag | |
 |---|---|
 | `--non-interactive` | take the key from `$ELM_API_KEY`, never prompt |
-| `--update` | apply repository-locked pi and extension trees; keep configs |
-| `--no-packages` | pi only: no sub-agents, memory, web access or anchor editing |
+| `--update` | the latest pi and extension packages, kept only if the checks pass; keep configs (what `pi update` runs) |
+| `--force-packages` | reinstall the extension packages at the tested versions, and pi too if it is not at its tested version (what `pi update --extensions` runs) |
+| `--no-packages` | pi only: no sub-agents, web access or anchor editing |
 | `--no-tools` | do not bundle fd, rg, jq, yq, shellcheck and ast-grep |
 | `--no-shim` | no Llama tool-call shim (Qwen unaffected) |
 | `--no-auth-lock` | leave `agent/auth.json` writable, so `/login` works |
 | `--no-patch` | leave pi's `/share` and `/bug` commands in place |
-| `--force` | re-download the tools and reinstall the npm packages |
+| `--force` | re-download the tools and reinstall pi and the npm packages, at the tested versions |
+| `--reset-options` | forget the options earlier runs recorded, and use only this run's |
 | `-h`, `--help` | the flag list, which now lives in one place in the script |
+
+**The options are remembered.** The `--no-*` flags and `ELM_PI_TOOLS` are
+written to `agent/install-options`, together with the branch and repository
+`install.sh` fetched, and every later run repeats them: re-running the
+installer or `./bootstrap.sh`, `pi update` and `pi update --extensions`. An
+update therefore keeps the install you chose rather than reinstalling what you
+declined, or re-locking `auth.json` after `--no-auth-lock`. A flag given on a
+later run is added to the record. To take one back, start the record again
+with only the flags you want:
+
+```bash
+./bootstrap.sh --reset-options --no-shim     # now: everything except the shim
+```
+
+`install.sh` accepts `--reset-options` and passes it through. An install made
+before the record existed has its flags inferred from what they left behind,
+except `--no-patch` and a tool subset.
 
 `pi --remote` is the flag for work that needs the web. It is on the launcher,
 not the installer, so it is a decision per run rather than per host:
 
 ```bash
 pi --remote                 # web tools on, egress proxy recording not gating
-pi --remote --fast -p "..." # and without the npm packages
+pi --remote --fast -p "..." # open proxy, but --fast loads no web tools
 ```
 
 It lifts exactly two things — the web tools come back on, and the egress proxy
@@ -129,14 +154,15 @@ PI_ELM_WEB=1 pi                     # tools on, proxy unchanged (they will fail)
 ```
 
 Whatever these flags decide, `agent/settings.json`'s `packages` list is written
-to match on every run. It is derived from `templates/settings.json` minus the
-drops, not edited in place — editing in place could only ever remove, so an
-install that had once been run with `--no-packages` kept an empty list for ever
-after, installed the package set on the next run and then loaded none of
-them. Everything else in that file is yours and is left alone. A package that
-is listed but missing from `agent/npm/node_modules` is now called out during
-the install, because at runtime it is silent: pi starts offline, so it does not
-fetch it either.
+to match on every run. It is copied from `templates/settings.json` (emptied by
+`--no-packages`), not edited in place — editing in place could only ever
+remove, so an install that had once been run with `--no-packages` kept an empty
+list for ever after, installed the package set on the next run and then loaded
+none of them. A package added to the list by hand is named and removed.
+Everything else in that file is yours and is left alone. A package that is
+listed but missing or incomplete in `agent/npm/node_modules` is reinstalled,
+and the install stops if it is still incomplete, because at runtime it is
+silent: pi starts offline, so it does not fetch it either.
 
 ---
 
@@ -165,6 +191,8 @@ mkdir -p .node && tar -xzf "/tmp/$TAR" -C .node --strip-components=1
 
 `package.json` asks for `latest`; `config/versions.json` holds the version this
 repo last tested, which every install but `--update` takes (see CONTRIBUTING.md).
+`--force-packages` also brings pi back to that version when `pi update` moved it
+on, since the packages were tested against it.
 Bootstrap runs `npm install --omit=dev --ignore-scripts` in a sibling staging
 directory, patches and starts the staged CLI, then swaps its `node_modules` into
 place. The tree it replaced is kept until the end of the run and put back if
@@ -181,14 +209,19 @@ pi install.
 |---|---|
 | `agent/models.json` | the ELM provider: base URL, `$ELM_API_KEY`, the two models |
 | `agent/settings.json` | defaults, packages, extensions, retry, `sessionDir` |
-| `agent/AGENTS.md` | loaded every session: delegation policy, model choice, memory rules |
+| `agent/AGENTS.md` | loaded by every top-level session: delegation policy, model choice, project-memory rules. Sub-agents do not see it (nor `APPEND_SYSTEM.md`); their rules are in `agent/agents/*.md` |
 | `agent/extensions/elm-only.ts` | the ELM-only policy — always refreshed |
 | `agent/extensions/elm-shim.ts` | registers the Llama tool-shim provider |
 | `agent/extensions/protected-paths.ts` | blocks writes to `.env`, `.git/`, `node_modules/` |
 | `agent/extensions/todo.ts` | adds a `todo` tool for multi-step work |
+| `agent/extensions/pinned-instructions.ts` | `pin_instruction`: standing instructions kept in the system prompt, where compaction cannot summarise them away |
+| `agent/extensions/skill-router.ts` | adds the skills a request needs (see [Skills](#skills-and-the-skill-router)) |
+| `agent/extensions/workflow-model-scope.ts` | keeps Dynamic Workflows agents on ELM models |
 | `agent/extensions/subagent/config.json` | fan-out budget: 8 concurrent, 64 per run |
 | `agent/bin/pi` | symlink to the launcher, so sub-agent children find `pi` whatever PATH looks like |
 | `agent/web-search.json` | DuckDuckGo then Exa; `unpdf` for PDFs |
+| `agent/install-options` | the options this install was made with, repeated by later runs |
+| `agent/installed-versions.json` | the exact pi and package versions installed, written after the checks pass |
 
 `agent/` is generated. Put durable changes in `templates/`, commit them, and run
 `pi update` on each host so the validated source reaches it.
@@ -196,23 +229,33 @@ pi install.
 ### 4. pi packages
 
 pi resolves `npm:<name>` from `agent/npm/node_modules`. Bootstrap installs
-`templates/packages.json` with `npm install`, initially with all package scripts
-disabled. It then rebuilds only the reviewed native dependency,
-`better-sqlite3`, in staging before activating the tree.
+`templates/packages.json` with `npm install --ignore-scripts` in a staging
+directory, at the versions in `config/versions.json`, and swaps the tree into
+place once every listed package is present. No package install script runs.
+
+The set is thirteen packages; `templates/packages.json` is the list. The three
+that shape the agent most:
 
 | Package | |
 |---|---|
 | `pi-subagents` | sub-agent fan-out (`subagent`, `bg_wait`, `subagent_supervisor`) |
-| `pi-hashline-edit-pro` | anchor-based editing; the built-in `edit` tool is disabled |
-| `pi-web-access` | web search and fetch |
+| `pi-hashline-edit-pro` | anchor-based editing: its own `read` and `grep` (with 5-letter line anchors), `replace`, `replace_match`, `insert` and `undo_last_change`. pi's built-in `edit` is turned off |
+| `pi-web-access` | web search and fetch — off by default, see `pi --remote` above |
 
 > pi packages run with full system access. Review before adding more.
 
+`pi install` and `pi remove` are refused by the launcher, with a message
+saying why: every bootstrap and `pi update` rebuilds the set from
+`templates/`, so a package added that way would be removed again. Add one in
+`templates/packages.json` and `templates/settings.json` (CONTRIBUTING.md), or
+try a local extension for one session with `pi -e /path/to/extension.ts`.
+
 **How sub-agent children find pi.** `pi-subagents` spawns each child by resolving
 the pi CLI from `process.argv[1]`, then from package resolution, and if both fail
-it falls back to `{ command: "pi" }` — a bare PATH lookup. This install puts
-no `pi` on PATH at all — the command was `elm-pi` — so on hosts where the first
-two routes fail that fallback found nothing and sub-agents would not start.
+it falls back to `{ command: "pi" }` — a bare PATH lookup. When this install's
+command was still called `elm-pi` there was no `pi` on PATH at all, so on hosts
+where the first two routes failed that fallback found nothing and sub-agents
+would not start.
 
 Three independent fixes, any one of which is sufficient:
 
@@ -295,7 +338,7 @@ ANTHROPIC_API_KEY=x OPENAI_API_KEY=x ./pi --list-models
 ```
 provider  model                              context  max-out  thinking  images
 elm       Qwen/Qwen3.5-397B-A17B-FP8         262.1K   32.8K    yes       yes
-elm-shim  meta-llama/Llama-3.3-70B-Instruct  128K     16.4K    no        no
+elm-shim  meta-llama/Llama-3.3-70B-Instruct  128K     8.2K     no        no
 ```
 
 **2. A round trip completes:**
@@ -359,7 +402,7 @@ does four things over the network while it comes up:
 | What | When | Cost |
 |---|---|---|
 | downloads `fd` and `rg` from GitHub into `agent/bin` | **awaited before the prompt is drawn** | two release lookups + two tarballs, and a 10s/120s timeout each if GitHub is slow |
-| `npm view <pkg> version` for every package in `settings.json` | after the prompt appears | four npm processes, concurrently with the TypeScript transpile below |
+| `npm view <pkg> version` for every package in `settings.json` | after the prompt appears | one npm process per package, concurrently with the TypeScript transpile below |
 | asks `pi.dev` for the latest pi version, and reports the install | after the prompt appears | one request each |
 | refreshes the remote model catalogue | after the prompt appears | one request, useless here — the ELM catalogue is `agent/models.json` |
 
@@ -418,7 +461,10 @@ Updates then happen when you ask for them, which is what `pi update` is for.
 for: they ship **raw TypeScript**, so every launch transpiles and imports them from
 several hundred files. Measured with `PI_TIMING=1` and `/usr/bin/time`, reporting
 CPU time (user+sys) because that is the number that does not move with machine load
-— taken at load ~8 on 12 threads, where wall ≈ CPU:
+— taken at load ~8 on 12 threads, where wall ≈ CPU. **These figures are
+historical:** they were taken when the set was three packages (`pi-subagents`,
+`pi-hashline-edit-pro`, `pi-web-access`). It is now thirteen and has not been
+re-measured, so read them as the shape of the cost rather than today's figures.
 
 | Configuration | CPU per launch |
 |---|---|
@@ -497,9 +543,13 @@ the network.
 
 **Three levers, in order of payoff:**
 
-1. **`pi --fast`** for one-shot work. Loads only the local extensions — the
-   ELM-only policy, protected paths and `todo` — and keeps pi's built-in `edit`
-   tool. No sub-agents, web search or anchor editing.
+1. **`pi --fast`** for one-shot work. Loads only local extensions — the policy
+   set (the ELM-only guard, protected paths, pinned instructions and the
+   permission gate), plus `todo` and the skill router — and keeps pi's built-in
+   `edit` tool. No sub-agents, web search or anchor editing. The policy set is
+   the same one loaded when you pass `--no-extensions`/`-ne` yourself, and a
+   missing policy file stops the launch rather than running without it.
+   Measured on the three-package set:
 
    | | wall | CPU |
    |---|---|---|
@@ -512,9 +562,8 @@ the network.
 
 2. **`./bootstrap.sh --no-packages`** drops the npm set entirely rather than
    skipping it per run, for an install that only ever answers one-shot
-   questions. `pi-hermes-memory` used to be the single biggest item here and
-   the `--no-memory` flag existed to drop it; both are gone, so the remaining
-   set costs ~1.6s rather than ~3.4s.
+   questions. (`pi-hermes-memory` used to be the single biggest item here, and
+   `--no-memory` existed to drop it; both are gone.)
 
 3. **Machine load.** Wall time is CPU time multiplied by whatever else the machine
    is doing. The same launch measured 4.7s wall at load 8 and 32-47s wall at load
@@ -527,8 +576,9 @@ the network.
 ### The transpile cache: 21s cold, 3.3s warm
 
 The packages are transpiled by jiti, which caches the result in `$TMPDIR/jiti`
-and reuses it on every later launch. Measured here with the package set
-loaded, CPU time, by pointing `TMPDIR` at an empty directory:
+and reuses it on every later launch. Measured here with the package set of the
+time (three packages) loaded, CPU time, by pointing `TMPDIR` at an empty
+directory:
 
 | | CPU |
 |---|---|
@@ -543,8 +593,11 @@ own `/tmp`.
 
 So the cost is now paid where waiting is expected rather than where it is not:
 
-- `bootstrap.sh` fills the cache at the end of the install (`pi.orig
-  --list-models`, which needs no ELM key), and says so while it does it.
+- `bootstrap.sh` fills the cache at the end of the install, and says so while
+  it does it. `scripts/check-extensions.mjs` loads every extension with pi's
+  own resource loader, as a session does, which fills the cache and is also the
+  load check: an extension that fails to load gets the packages reinstalled
+  once, then stops the install. It needs no ELM key.
 - `pi update` fills it again after updating the packages, since new sources
   mean a cold cache.
 - `ELM_PI_OWN_TMP=1` moves `TMPDIR` inside the install, so the cache survives
@@ -554,10 +607,10 @@ So the cost is now paid where waiting is expected rather than where it is not:
   quota rather than scratch space. Worth setting on a multi-node estate with an
   aggressive `/tmp`, not worth it on a laptop.
 
-Per-package cost, re-measured warm (`pi --list-models`, CPU, same machine):
-pi and the local extensions 0.84s, `pi-subagents` +0.65s,
-`pi-hashline-edit-pro` +0.23s, `pi-web-access` +0.16s. `--fast`
-remains the single biggest saving available, and `--fast` skips all four.
+Per-package cost, re-measured warm on the three-package set (`pi
+--list-models`, CPU, same machine): pi and the local extensions 0.84s,
+`pi-subagents` +0.65s, `pi-hashline-edit-pro` +0.23s, `pi-web-access` +0.16s.
+`--fast` remains the single biggest saving available, and skips every package.
 
 **Three things that do not help**, all measured rather than assumed:
 
@@ -603,8 +656,13 @@ pi --model elm-shim/meta-llama/Llama-3.3-70B-Instruct  # the long form
 ```
 
 Both go through the local tool-call shim, which buffers the whole response before
-re-emitting it, so Llama also loses streaming. `agent/AGENTS.md` now tells
-sub-agents to default to Qwen.
+re-emitting it, so Llama also loses streaming. That buffering is also why Llama
+replies are capped at 8192 tokens (`maxTokens`, set in `elm-shim.ts`): pi gives
+up on a connection that sends nothing for 300 s and retries, and at 30-47 tok/s
+a 16384-token reply takes 350-550 s, so long replies timed out and were
+generated again. `agent/AGENTS.md` tells the session to send sub-agents to
+`qwen`, and the `delegate` agent is described as Llama, for numbered steps
+only.
 
 ### Thinking is off by default
 
@@ -636,7 +694,17 @@ turn, each message list is a strict verbatim extension of the last, and TTFB fel
 from 3.02s to 0.96s **while the prompt grew** — the cache signature.
 
 So: `AGENTS.md` and long stable context are nearly free, and **turn count, not
-prompt length, is what to optimise**. Nothing needs enabling.
+prompt length, is what to optimise**. Nothing needs enabling. The skill router
+is built to keep this: it adds skills as a message after the request rather
+than changing the system prompt, which would change the first bytes of every
+request and lose the cache (see [below](#skills-and-the-skill-router)).
+
+Compaction (`pi-auto-compact`) starts at **70%** of the context window, an
+installer-owned setting (`autoCompactThreshold`; it was 50%). Each compaction
+re-sends the history uncached and the next request starts cold, so compacting
+early costs more than the context it frees. Standing instructions recorded
+with `pin_instruction` (`pinned-instructions.ts`) are put back into the system
+prompt on every run, so compaction cannot summarise them away.
 
 Two settings were tried and removed: `compat.sendSessionAffinityHeaders` /
 `sessionAffinityFormat`, and `PI_CACHE_RETENTION=long`. Neither produced a
@@ -781,14 +849,44 @@ wrong, and nothing in the workflow caught it. That is the failure a cross-checki
 sweep exists for, which is the argument for keeping the standards even when the
 orchestration comes from somewhere else.
 
+## Skills and the skill router
+
+`agent/skills` holds thirteen skills from `templates/skills`: physics methods
+(fitting, statistics, uncertainties, histograms, derivations, numerical
+methods, constants, documents), scientific Python and C++, and the sub-agent
+and workflow orchestration rules. pi lists each skill's name and description
+and leaves loading it to the model, which measured unreliable here: asked for a
+half-life, the model never read `data-fitting` and used the method that skill
+forbids.
+
+So `skill-router.ts` matches each request you type against a keyword table and
+adds the best two matching skills in full, and names up to two more by path.
+They go in as a message **after your request**, shown as a dim
+`skills: ...` line (expand it for the paths) and stored in the session — not
+as a hidden section of the system prompt, which changed the first bytes of the
+request and cost ELM's prefix cache the whole history each time. Each skill is
+added at most once per session; it comes back only after a compaction has
+summarised it away. The keywords are deliberately narrow: ordinary software
+requests ("add a regression test", "make the magic number a named constant")
+add nothing.
+`tests/test_skill_router.py` runs both kinds of request through it.
+
+Sub-agents are routed by their task alone, with the agent's own instructions
+cut out first. Runs not started by a prompt you typed — auto-compaction,
+loop drivers, sub-agent completion notices — add nothing. The first
+`subagent` or `workflow` call of a session is refused until the orchestration
+skill it needs has been read, with the path to read.
+
 ## Sessions, memory and artefacts
 
 `sessionDir: ".pi/sessions"` is **relative**, so it resolves against the working
 directory and each project keeps its own history. This also fixed an accumulation
 problem: sessions had reached 1.9 GB across 699 files in one central directory.
 
-Add `.pi/` to each project's `.gitignore` — transcripts contain whatever the agent
-read, which may include secrets.
+Transcripts contain whatever the agent read, which may include secrets, so in
+a git work tree the launcher writes `.pi/.gitignore` containing `*`: the whole
+directory is invisible to git, and `git add -A` cannot stage it. Nothing needs
+adding to the project's own `.gitignore`.
 
 Precedence is `--session-dir` > `PI_CODING_AGENT_SESSION_DIR` > `sessionDir`.
 
@@ -814,8 +912,8 @@ project-specific, not derivable from the code — and never secrets).
 | `pi: this machine is busy ...` | Informational. It starts anyway, just slowly. `PI_FORCE=1` silences it. |
 | On a remote host, `/copy` or a selection never reaches your own clipboard | The launcher sends every copy through the terminal as OSC 52, and the terminal must accept it: iTerm2 needs *Settings > General > Selection > Applications in terminal may access clipboard*, tmux needs `set -g set-clipboard on`, and Terminal.app does not support it at all. Allow writes only, never reads. Copies over ~75 KB do not fit in OSC 52. To paste, use the terminal's own paste (Cmd+V): pi's Ctrl+V reads the clipboard of the machine pi runs on, which over SSH is the remote one. `PI_CLIPBOARD_OSC52=0` turns the OSC 52 copy off. |
 | `env: node: No such file or directory` | Launcher bypassed, or `.node/` missing — re-run `./bootstrap.sh`. |
-| Llama sub-agents unavailable | `python3` missing, or port 8811 taken. `ELM_SHIM_PORT` moves it. |
-| Sub-agents fail to start, or something reports `pi: command not found` | pi-subagents falls back to a bare `pi` on PATH when it cannot resolve the CLI. Fixed three ways — the launcher exports `PI_SUBAGENT_PI_BINARY`, `bootstrap.sh` creates `agent/bin/pi`, and the installer links `~/.local/bin/pi`. Re-run `./bootstrap.sh --update` if `agent/bin/pi` is missing. |
+| Llama sub-agents unavailable | The shim could not start (pi shows an `elm-shim:` warning), usually because port 8811 is taken. `ELM_SHIM_PORT` moves it. |
+| Sub-agents fail to start, or something reports `pi: command not found` | pi-subagents falls back to a bare `pi` on PATH when it cannot resolve the CLI. Fixed three ways — the launcher exports `PI_SUBAGENT_PI_BINARY`, `bootstrap.sh` creates `agent/bin/pi`, and the installer links `~/.local/bin/pi`. Re-run `./bootstrap.sh` if `agent/bin/pi` is missing. |
 | `pi: command not found` in a new shell | The installer adds `~/.local/bin` to your shell profile; open a new shell, or `export PATH="$HOME/.local/bin:$PATH"` for the current one. |
 | `pi` runs something other than this install | Another `pi` is earlier on PATH — the installer warns when it sees one. `command -v pi` shows which wins; either remove it or put `~/.local/bin` ahead of it. |
 | Want vanilla pi, to tell wrapper bugs from pi bugs | `~/.local/share/elm-pi/pi.orig`. It is the unwrapped CLI with pi's own `~/.pi` config, so it starts with no models until you configure one. |
