@@ -56,7 +56,8 @@ Useful environment:
   ELM_PI_SHARED_STATE=1     preserve existing shared session/memory permissions
   PI_ELM_UNLOCK=1           lift the credential scrub and the argument guard
                             (which also refuses -e/--extension)
-  PI_FORCE=1                skip the busy-machine and inside-the-install warnings
+  PI_FORCE=1                start in home or another folder that is not a project, and
+                            skip the busy-machine and inside-the-install warnings
   PI_ELM_STARTUP_CHECKS=1   restore pi's own startup network checks
   PI_CLIPBOARD_OSC52=0      copy to this machine's clipboard only, not also
                             through the terminal (on by default, for remote hosts)
@@ -325,6 +326,26 @@ if [ "$NEEDS_ELM_KEY" = "1" ] && [ -z "${ELM_API_KEY:-}" ]; then
   exit 1
 fi
 
+# --- not in home, the root, or a credential folder ---------------------------
+# The folder pi starts in is the project. The permission gate asks before the
+# agent touches anything outside it and nothing inside it, so started in home,
+# the whole home folder is the project: every repository, document and dotfile
+# in it readable and writable without a prompt, and the agent's searches and
+# context-gathering sweep all of it. Only the path denials (~/.ssh, .env, ...)
+# would still hold. The list is untrustedFolders in config/elm-pi.json; the
+# trust-guard extension keeps project trust off the same folders.
+# Sessions only - --version, --list-models and `pi update` run anywhere - and
+# not sub-agent children, which start where their parent already chose to.
+if [ "$NEEDS_ELM_KEY" = "1" ] && [ "${PI_FORCE:-0}" != "1" ] && [ -z "${PI_ELM_CHILD:-}" ]; then
+  if type elm_untrusted_folder >/dev/null 2>&1 && elm_untrusted_folder "$PWD"; then
+    echo "pi: not starting in $PWD - $ELM_UNTRUSTED_WHAT." >&2
+    echo "    The folder pi starts in is the project it works on, and nothing inside it is" >&2
+    echo "    asked about. cd to a project folder first (mkdir ~/scratch for a quick question)," >&2
+    echo "    or start here anyway with PI_FORCE=1. Why: $HERE/LOCKDOWN.md" >&2
+    exit 2
+  fi
+fi
+
 # --- --remote: let this run reach the internet -------------------------------
 # Two things stop pi reaching anything but the gateway: the web tools are off by
 # default, and the egress proxy allows one host. Turning the tools on without
@@ -364,11 +385,11 @@ case " $* " in *" elm-shim"*|*"elm-shim/"*) WANTS_SHIM=1 ;; esac
 # The policy extensions: what has to load whenever pi's own discovery is off,
 # whether --fast turned it off or the caller did with --no-extensions/-ne. One
 # list for both, because the two used to differ - -ne got the model policy
-# alone, and ran with no permission gate, write protection or pinned
-# instructions. The permission gate ships as a package, so it is named by
+# alone, and ran with no permission gate, write protection, trust guard or
+# pinned instructions. The permission gate ships as a package, so it is named by
 # path; a release that moves its entry point must not quietly drop the gate,
 # so a missing entry in an installed package stops the launch.
-POLICY_EXTENSIONS="elm-only protected-paths pinned-instructions"
+POLICY_EXTENSIONS="elm-only protected-paths trust-guard pinned-instructions"
 GATE_PKG="$HERE/agent/npm/node_modules/@gotgenes/pi-permission-system"
 GATE="$GATE_PKG/src/index.ts"
 add_policy_extensions() {

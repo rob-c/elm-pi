@@ -133,3 +133,51 @@ elm_policy_check_args() {
   fi
   return 0
 }
+
+# True when $1 is a folder no session should start in: home, an ancestor of
+# home, or another container listed in ELM_UNTRUSTED_EXACT (the folder itself,
+# not what is under it), or anywhere inside a credential or system folder listed
+# in ELM_UNTRUSTED_TREE. Both lists come from untrustedFolders in
+# config/elm-pi.json through runtime.env, one path per line, ~ for home.
+# Compares canonical paths, as pi does, so /tmp and /private/tmp agree on macOS.
+# Sets ELM_UNTRUSTED_WHAT to a short description for the refusal message.
+elm_policy_canonical() {
+  local p="$1"
+  # A literal ~ from the config, not one for the shell to expand.
+  # shellcheck disable=SC2088
+  case "$p" in
+    "~") p="$HOME" ;;
+    "~/"*) p="$HOME/${p#\~/}" ;;
+  esac
+  if [ -d "$p" ]; then (cd "$p" 2>/dev/null && pwd -P) || printf '%s' "$p"; else printf '%s' "$p"; fi
+}
+
+elm_untrusted_folder() {
+  local dir home entry up
+  ELM_UNTRUSTED_WHAT=""
+  export ELM_UNTRUSTED_WHAT
+  dir="$(elm_policy_canonical "$1")"
+  home="$(elm_policy_canonical "~")"
+  if [ "$dir" = "$home" ]; then
+    ELM_UNTRUSTED_WHAT="your home folder"; return 0
+  fi
+  up="$home"
+  while [ "$up" != "/" ] && [ -n "$up" ]; do
+    up="$(dirname "$up")"
+    if [ "$dir" = "$up" ]; then ELM_UNTRUSTED_WHAT="a folder that contains your home folder"; return 0; fi
+  done
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    if [ "$dir" = "$(elm_policy_canonical "$entry")" ]; then
+      ELM_UNTRUSTED_WHAT="$entry, which holds far more than one project"; return 0
+    fi
+  done <<< "${ELM_UNTRUSTED_EXACT:-}"
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    entry="$(elm_policy_canonical "$entry")"
+    case "$dir/" in
+      "$entry"/*) ELM_UNTRUSTED_WHAT="inside $entry, which holds credentials or system files"; return 0 ;;
+    esac
+  done <<< "${ELM_UNTRUSTED_TREE:-}"
+  return 1
+}

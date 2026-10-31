@@ -193,6 +193,40 @@ transcripts contain every file and command output seen by the agent.
 `ELM_PI_SHARED_STATE=1` is the explicit opt-out for a deliberately group-shared
 session location. It does not weaken model or network policy.
 
+### Folders that are never a project
+
+The folder pi starts in is the project it works on. The permission gate asks
+before the agent touches anything outside it and nothing inside it, so a
+session started in home has the whole home folder as its project: every
+repository, document and dotfile readable and writable without a prompt, and
+searches that sweep all of it. Two pieces keep that from happening by default,
+both reading `untrustedFolders` in `config/elm-pi.json`:
+
+- **The launcher refuses to start a session** in home, any folder above it,
+  `/`, a container such as `~/Documents`, `~/Downloads`, `~/Library` or the
+  OneDrive and iCloud roots, or anywhere inside a credential or system folder
+  (`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.pi`, `~/Library/Keychains`, `/etc`,
+  `/usr`, ...). `exact` entries are the folder itself, so a project inside
+  `~/Documents` or OneDrive is fine; `tree` entries cover everything beneath.
+  `PI_FORCE=1` starts there anyway. `--version`, `--list-models` and
+  `pi update` run anywhere, and sub-agent children are not checked: they start
+  where their parent already chose.
+- **`trust-guard.ts` keeps project trust off the same folders.** Trust decides
+  whether a folder's own `.pi/` settings and extensions load. A saved decision
+  covers everything below the folder it names, and pi's trust prompt offers
+  "Trust parent folder": accepted once in `~/notes`, that would trust `~`, and
+  every repository cloned anywhere in it. The guard answers "no" for a listed
+  folder and does not let a saved "yes" on one pass down; a project trusted by
+  its own name is unaffected. A command-line `--approve` still wins, because
+  pi applies it before any extension.
+
+Separately, the gate's `path` rules deny reading or writing credential stores
+wherever the session started: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.azure`,
+`~/.config/gh` and `gcloud`, `~/.kube/config`, `~/.docker/config.json`,
+`~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, the macOS keychains,
+browser profiles, Mail and Messages, other agents' state (`~/.pi`,
+`~/.claude`), and `.env` and key files anywhere.
+
 ### 6. Egress proxy (`proxy/egress.py`)
 
 The layers above shape what pi *offers*. This one checks where it *goes*.
@@ -283,6 +317,8 @@ Mac the answer remains `pf` and an administrator.
 | the same with `PI_ELM_WEB=1` | the web tools return |
 | `pi -e ./ssh.ts --ssh host` | refused by layer 2 (exit 2) |
 | agent running `ssh`, `scp` or remote `rsync` in `bash` | denied by the permission gate, with the reason |
+| `pi` started in `~`, `/` or `~/.ssh` | refused (exit 2); `PI_FORCE=1` overrides |
+| a saved "Trust parent folder" on `~` | ignored: projects under `~` stay untrusted unless trusted by name |
 | ELM request through the proxy | allowed; a real `pi -p` round trip works |
 | agent running `curl https://example.com` in `bash` | refused, `exit=56`, logged as `REJECTED example.com:443 not on the allowlist` |
 | `pi update` | runs unproxied, by construction — the proxy starts after the update intercept |

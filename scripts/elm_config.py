@@ -43,6 +43,9 @@ def write_runtime(root: Path) -> None:
         "ELM_BUILTIN_PROVIDERS": " ".join(config["builtinProviders"]),
         "ELM_PROVIDER_CREDENTIALS": " ".join(config["providerCredentials"]),
         "ELM_WEB_TOOLS": ",".join(config["webTools"]),
+        # One path per line: some of them have spaces in them.
+        "ELM_UNTRUSTED_EXACT": "\n".join(config["untrustedFolders"]["exact"]),
+        "ELM_UNTRUSTED_TREE": "\n".join(config["untrustedFolders"]["tree"]),
     }
     path = root / "agent/runtime.env"
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -137,7 +137,7 @@ class ProjectConsistencyTests(unittest.TestCase):
         workflows = json.loads((ROOT / "templates/workflows/settings.json").read_text())
         self.assertIn("pinned-instructions", workflows["providerMiddlewareExtensions"])
         # --fast and --no-extensions both load POLICY_EXTENSIONS
-        self.assertIn('POLICY_EXTENSIONS="elm-only protected-paths pinned-instructions"', (ROOT / "pi").read_text())
+        self.assertIn('POLICY_EXTENSIONS="elm-only protected-paths trust-guard pinned-instructions"', (ROOT / "pi").read_text())
         source = (ROOT / "templates/extensions/pinned-instructions.ts").read_text()
         for needle in ('name: "pin_instruction"', 'name: "unpin_instruction"',
                        "systemPromptOptions.sections.pinned_instructions", "mode: 0o600"):
