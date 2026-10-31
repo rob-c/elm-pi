@@ -142,7 +142,8 @@ it on. `agent/installed-versions.json` records what is installed.
 pinned, and every bootstrap and `pi update` rebuilds it from `templates/`, so a
 package added that way would vanish at the next update. To add one for good,
 see [CONTRIBUTING.md](CONTRIBUTING.md); to try a local extension for one
-session, `pi -e /path/to/extension.ts`.
+session, `PI_ELM_UNLOCK=1 pi -e /path/to/extension.ts` (plain `-e` is refused,
+see [LOCKDOWN.md](LOCKDOWN.md)).
 
 `pi` is a symlink to `~/.local/share/elm-pi/pi`; the launcher resolves symlinks,
 so you can move or re-link it freely. `pi.orig` in the install directory is the

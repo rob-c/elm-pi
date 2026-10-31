@@ -248,7 +248,8 @@ that shape the agent most:
 saying why: every bootstrap and `pi update` rebuilds the set from
 `templates/`, so a package added that way would be removed again. Add one in
 `templates/packages.json` and `templates/settings.json` (CONTRIBUTING.md), or
-try a local extension for one session with `pi -e /path/to/extension.ts`.
+try a local extension for one session with
+`PI_ELM_UNLOCK=1 pi -e /path/to/extension.ts` (plain `-e` is refused; LOCKDOWN.md).
 
 **How sub-agent children find pi.** `pi-subagents` spawns each child by resolving
 the pi CLI from `process.argv[1]`, then from package resolution, and if both fail

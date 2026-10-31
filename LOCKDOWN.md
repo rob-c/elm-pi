@@ -55,6 +55,17 @@ pi --api-key sk-... ...
 credential the scrub just removed. The guard runs before the launcher looks for
 the ELM key, so an install with no key yet refuses these too.
 
+`-e`/`--extension` is refused too, whatever it names. An extension runs inside
+pi with this install's access and brings its own network code, and the ones
+that exist for pi include exactly what this install is meant not to do: pi's
+own `ssh.ts` example sends `read`, `write`, `edit` and `bash` to another
+machine over SSH, which the proxy never sees, and published bridges relay
+whole sessions through Telegram or serve them to the local network. The
+reviewed extensions load without it, and so do the launcher's own `-e`
+arguments (`--fast`, `-ne`). `PI_ELM_UNLOCK=1` lifts this with the rest of the
+guard; project-local extensions in a repository's `.pi/` stay off unless
+`/trust` allows them (`defaultProjectTrust: never`).
+
 ### 3. Catalogue strip (`agent/extensions/elm-only.ts`)
 
 The load-bearing one. pi 1.4 ships 42 built-in providers. Registering a provider with
@@ -234,7 +245,24 @@ noticing it was added.
 **It is still not enforcement.** Proxy variables are honoured by well-behaved
 clients — `curl`, `npm`, `pip`, `requests`, `git` over HTTPS — and ignored by
 `git` over SSH, raw sockets, and anything that unsets them. The `bash` tool can
-do all three. On Linux a network namespace with no other route out
+do all three. So the commands that do it are refused at the gate instead.
+pi-permission-system's `bash` rules deny:
+
+- SSH and what rides on it: `ssh`, `scp`, `sftp`, `rsync` to a remote
+  (`host:path`, `rsync://`; a local `rsync` is fine), `sshfs`, `ssh-copy-id`,
+  `autossh`, `mosh`;
+- raw connections and other transfer clients: `nc`/`ncat`/`netcat`, `socat`,
+  `telnet`, `ftp`, `lftp`, `rclone`;
+- tunnels that open this machine to remote control: `ngrok`, `cloudflared`,
+  `tailscale serve`/`funnel`/`file`.
+
+Each denial tells the model why, so it stops rather than retrying around it.
+The rules see through chains (`cd x && ssh ...`) and through `env`, `xargs`,
+`sudo` and the like; `bash -c "ssh ..."` is not parsed inside and drops to
+asking you. `git push` still asks: over HTTPS the proxy refuses it anyway, and
+over SSH it is your call each time. Like everything here, these are command
+names, not enforcement: a copied or renamed binary gets past them, and so do
+`!` commands you type yourself, which the gate does not judge. On Linux a network namespace with no other route out
 (`unshare -rn`, `bwrap`, `slirp4netns`) turns this into real enforcement;
 macOS has no equivalent without root or a Network Extension, so on a managed
 Mac the answer remains `pf` and an administrator.
@@ -253,6 +281,8 @@ Mac the answer remains `pf` and an administrator.
 | `/share`, `/bug` | absent from autocomplete; both refuse, and their upload paths throw |
 | asking the model to list its tools | none of them web |
 | the same with `PI_ELM_WEB=1` | the web tools return |
+| `pi -e ./ssh.ts --ssh host` | refused by layer 2 (exit 2) |
+| agent running `ssh`, `scp` or remote `rsync` in `bash` | denied by the permission gate, with the reason |
 | ELM request through the proxy | allowed; a real `pi -p` round trip works |
 | agent running `curl https://example.com` in `bash` | refused, `exit=56`, logged as `REJECTED example.com:443 not on the allowlist` |
 | `pi update` | runs unproxied, by construction — the proxy starts after the update intercept |

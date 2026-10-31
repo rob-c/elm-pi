@@ -55,6 +55,7 @@ Useful environment:
   ELM_PI_NO_PROXY=1         run unproxied (debugging)
   ELM_PI_SHARED_STATE=1     preserve existing shared session/memory permissions
   PI_ELM_UNLOCK=1           lift the credential scrub and the argument guard
+                            (which also refuses -e/--extension)
   PI_FORCE=1                skip the busy-machine and inside-the-install warnings
   PI_ELM_STARTUP_CHECKS=1   restore pi's own startup network checks
   PI_CLIPBOARD_OSC52=0      copy to this machine's clipboard only, not also
@@ -266,7 +267,7 @@ case "${1:-}" in
     echo "    so a package added here would be removed again at the next update." >&2
     echo "    To add one for good: list it in templates/packages.json and, as npm:<name>, in" >&2
     echo "    templates/settings.json \"packages\", then run $HERE/bootstrap.sh (CONTRIBUTING.md)." >&2
-    echo "    To try a local extension for one session: pi -e /path/to/extension.ts" >&2
+    echo "    To try a local extension for one session: PI_ELM_UNLOCK=1 pi -e /path/to/extension.ts" >&2
     exit 2 ;;
 esac
 

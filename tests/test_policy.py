@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import unittest
@@ -74,6 +75,40 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(extensions_disabled("--no-extensions"))
         self.assertTrue(extensions_disabled("-ne"))
         self.assertFalse(extensions_disabled("--", "-ne"))
+
+    def test_extensions_of_the_callers_choosing_are_refused(self):
+        for args in (
+            ("-e", "./ssh.ts", "--ssh", "host"),
+            ("--extension", "npm:@llblab/pi-telegram"),
+            ("--extension=./bridge.ts",),
+            ("-p", "hi", "-e", "builtin:mcp"),
+        ):
+            with self.subTest(args=args):
+                allowed, message = policy(*args)
+                self.assertFalse(allowed, message)
+                self.assertIn("--extension is disabled", message)
+        # After -- it is prompt text, and a dangling -e is pi's error to report.
+        self.assertTrue(policy("--", "-e", "./ssh.ts")[0])
+        self.assertTrue(policy("-e")[0])
+
+    def test_launcher_checks_the_callers_arguments_not_its_own(self):
+        launcher = (ROOT / "pi").read_text()
+        # Its own -e arguments (--fast, -ne) go into PRE, which the guard never sees.
+        self.assertIn('elm_policy_check_args "$@"', launcher)
+        self.assertNotIn('elm_policy_check_args "${PRE', launcher)
+
+    def test_tools_that_move_data_past_the_proxy_are_denied(self):
+        config = json.loads((ROOT / "templates/extensions/pi-permission-system/config.json").read_text())
+        bash = config["permission"]["bash"]
+        for pattern in ("ssh *", "scp *", "sftp *", "rsync *:*", "sshfs *", "mosh *",
+                        "nc *", "socat *", "ngrok *", "cloudflared *", "tailscale funnel*"):
+            with self.subTest(pattern=pattern):
+                rule = bash[pattern]
+                self.assertEqual("deny", rule["action"])
+                self.assertIn("LOCKDOWN.md", rule["reason"])
+        # Last match wins: the denials must come after the catch-all.
+        self.assertEqual("*", next(iter(bash)))
+        self.assertNotIn("rsync *", bash)  # a local rsync is an ordinary copy
 
     def test_package_subcommands_do_not_treat_models_as_a_value(self):
         self.assertTrue(policy("update", "--models", "--force")[0])

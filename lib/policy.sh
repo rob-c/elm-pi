@@ -49,10 +49,18 @@ elm_policy_extensions_disabled() {
 }
 
 # Sets ELM_POLICY_ERROR and returns non-zero when the effective final routing
-# arguments leave the allowlist. pi itself uses the last repeated option, so the
-# guard does too. Tokens after -- are prompt text, not options.
+# arguments leave the allowlist, or when they load an extension of the caller's
+# choosing. pi itself uses the last repeated option, so the guard does too.
+# Tokens after -- are prompt text, not options.
+#
+# -e/--extension is refused whatever it names. An extension runs inside pi with
+# this install's access and its own network code: pi's own ssh.ts example sends
+# read, write, edit and bash to another machine over SSH, which the egress proxy
+# never sees, and the bridges published for pi relay whole sessions through
+# Telegram or serve them to the local network. The reviewed extensions load
+# without it; the launcher's own -e arguments are added after this check.
 elm_policy_check_args() {
-  local prev="" arg value="" provider="" model="" models="" api_key=0
+  local prev="" arg value="" provider="" model="" models="" api_key=0 extension=""
   ELM_POLICY_ERROR=""
   export ELM_POLICY_ERROR
 
@@ -71,6 +79,7 @@ elm_policy_check_args() {
         model) model="$arg" ;;
         models) models="$arg" ;;
         api-key) api_key=1 ;;
+        extension) extension="$arg" ;;
       esac
       prev=""
       continue
@@ -86,11 +95,17 @@ elm_policy_check_args() {
       --models=*) models="${arg#*=}" ;;
       --api-key) prev="api-key" ;;
       --api-key=*) api_key=1 ;;
+      -e|--extension) prev="extension" ;;
+      --extension=*) extension="${arg#*=}" ;;
     esac
   done
 
-  if [ "$prev" = "provider" ] || [ "$prev" = "model" ] || [ "$prev" = "models" ] || [ "$prev" = "api-key" ]; then
+  if [ "$prev" = "provider" ] || [ "$prev" = "model" ] || [ "$prev" = "models" ] || [ "$prev" = "api-key" ] || [ "$prev" = "extension" ]; then
     return 0 # pi reports its own missing-value error
+  fi
+  if [ -n "$extension" ]; then
+    ELM_POLICY_ERROR="-e/--extension is disabled: \"$extension\" would run unreviewed, with this install's access and its own network code."
+    return 1
   fi
   if [ "$api_key" = "1" ]; then
     ELM_POLICY_ERROR="--api-key is disabled: it can route a session to another provider."
