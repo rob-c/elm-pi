@@ -66,6 +66,9 @@ interface Converter {
 	to: ".png" | ".pdf";
 }
 const svg: Converter[] = [
+	// Bundled in agent/bin, so the first choice on any host. -z 3: SVG units are
+	// points, and a matplotlib figure at 1x is ~460 px wide - too small to read.
+	{ tool: "resvg", args: (i, o) => ["-z", "3", i, o], to: ".png" },
 	{ tool: "rsvg-convert", args: (i, o) => ["-f", "png", "-o", o, i], to: ".png" },
 	{ tool: "inkscape", args: (i, o) => [i, "--export-type=png", `--export-filename=${o}`], to: ".png" },
 	{ tool: "magick", args: (i, o) => ["-density", "150", i, o], to: ".png" },
@@ -77,10 +80,14 @@ const postscript: Converter[] = [
 	{ tool: "gs", args: (i, o) => ["-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-dEPSCrop", "-sDEVICE=pdfwrite", `-sOutputFile=${o}`, i], to: ".pdf" },
 	{ tool: "epstopdf", args: (i, o) => [i, `--outfile=${o}`], to: ".pdf" },
 	{ tool: "magick", args: (i, o) => ["-density", "150", i, o], to: ".pdf" },
+	// No Ghostscript here: run conda-forge's with pixi (agent/bin), which fetches
+	// it once into agent/pixi's cache and installs nothing.
+	{ tool: "pixi", args: (i, o) => ["exec", "--spec", "ghostscript", "gs", "-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-dEPSCrop", "-sDEVICE=pdfwrite", `-sOutputFile=${o}`, i], to: ".pdf" },
 ];
 const photo: Converter[] = [
 	{ tool: "sips", args: (i, o) => ["-s", "format", "png", i, "--out", o], to: ".png" },
 	{ tool: "magick", args: (i, o) => [i, o], to: ".png" },
+	{ tool: "pixi", args: (i, o) => ["exec", "--spec", "imagemagick", "magick", i, o], to: ".png" },
 ];
 /** Formats MuPDF cannot read: each goes through the first of its tools on PATH that succeeds. */
 const CONVERTERS: Record<string, Converter[]> = {
@@ -93,7 +100,8 @@ const CONVERTERS: Record<string, Converter[]> = {
 	".avif": photo,
 	".psd": photo,
 };
-const CONVERT_TIMEOUT_MS = 60_000;
+// Long enough for pixi's first download of Ghostscript or ImageMagick.
+const CONVERT_TIMEOUT_MS = 180_000;
 
 const kind = (path: string) => extname(path).toLowerCase();
 const viewable = (path: string) => kind(path) in PASSTHROUGH || RENDERED.has(kind(path)) || kind(path) in CONVERTERS;
@@ -388,8 +396,8 @@ export default function (pi: ExtensionAPI) {
 			`text layer, at most ${VIEW_MAX_PAGES} pages per call - ask for further pages with \`pages\`. ` +
 			"Use it on every figure or PDF you produce or are given before you describe it, and on a PDF when its " +
 			"layout, figures, tables or equations matter. PNG/JPEG also work with read. SVG, EPS/PS, HEIC and PSD " +
-			"are converted first with a command-line tool if the machine has one (rsvg-convert, inkscape, " +
-			"ImageMagick, Ghostscript, epstopdf, sips, qlmanage).",
+			"are converted first with a command-line tool if the machine has one (resvg, rsvg-convert, " +
+			"inkscape, ImageMagick, Ghostscript, epstopdf, sips, qlmanage).",
 		parameters: Type.Object({
 			path: Type.String({ description: "File to view, relative to the working directory or absolute." }),
 			pages: Type.Optional(Type.String({ description: 'PDF pages to render, 1-based, e.g. "1-3,7". Default: from page 1.' })),

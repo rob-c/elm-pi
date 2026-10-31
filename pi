@@ -73,6 +73,14 @@ Flags added by this launcher:
                       else, and no other provider becomes reachable
   --help, -h          this text, then pi's own
 
+Optional parts, added or taken back (recorded, so pi update keeps the choice):
+  pi setup --python         the agent's own Python: uv-managed CPython with numpy,
+                            scipy, pandas, matplotlib, Jupyter tools... (~1GB)
+  pi setup --pypi-index     offline PyPI search, `pypi-search` (~1GB download,
+                            ~390MB kept); adds --python
+  pi setup --no-python      remove the agent's Python (and the index)
+  pi setup --no-pypi-index  remove the index
+
 Useful environment:
   PI_ELM_WEB=1              web tools for one run, without opening the proxy
   ELM_PI_PROXY_ALLOW=a,b    let this run reach these hosts and no others
@@ -212,6 +220,21 @@ if [ -x "$AGENT_PY_ENV/bin/python" ]; then
       *) PATH="$HERE/agent/bin:$AGENT_PY_ENV/bin:${PATH#"$HERE/agent/bin:"}"; export PATH ;;
     esac
   fi
+fi
+
+# --- pixi: conda-forge packages, kept in this install ------------------------
+# pixi (agent/bin) installs from conda-forge without sudo. PIXI_HOME puts its
+# global tools and environments in agent/pixi rather than ~/.pixi, and the
+# cache beside them, so nothing lands in the account and rm -rf takes the lot.
+# Tools the agent installs with `pixi global install` come next on PATH after
+# agent/bin; `pixi exec` runs one without installing it.
+if [ -x "$HERE/agent/bin/pixi" ]; then
+  export PIXI_HOME="$HERE/agent/pixi"
+  export PIXI_CACHE_DIR="$HERE/agent/pixi/cache"
+  case ":$PATH:" in
+    *":$PIXI_HOME/bin:"*) ;;
+    *) PATH="$HERE/agent/bin:$PIXI_HOME/bin:${PATH#"$HERE/agent/bin:"}"; export PATH ;;
+  esac
 fi
 
 # --- where jiti keeps its transpile cache -----------------------------------
@@ -367,7 +390,7 @@ fi
 # does `pi update`. Keep them usable when a key has expired or a fresh install
 # still needs configuring; ordinary sessions continue to fail early with guidance.
 NEEDS_ELM_KEY=1
-case "${1:-}" in update|--list-models|--version) NEEDS_ELM_KEY=0 ;; esac
+case "${1:-}" in update|setup|--list-models|--version) NEEDS_ELM_KEY=0 ;; esac
 if [ "$NEEDS_ELM_KEY" = "1" ] && [ -z "${ELM_API_KEY:-}" ]; then
   echo "ELM_API_KEY is not set. Copy $HERE/.env.example to $HERE/.env and add your ELM key." >&2
   echo "Run $HERE/bootstrap.sh if this install has not been set up yet." >&2
@@ -579,7 +602,7 @@ fi
 # `pi update` needs the network by definition, so it is exempt. (install and
 # remove are refused above.)
 case "${1:-}" in
-  update) ;;
+  update|setup) ;;
   *)
     if [ "${PI_ELM_STARTUP_CHECKS:-0}" != "1" ]; then
       export PI_OFFLINE="${PI_OFFLINE:-1}"
@@ -644,6 +667,32 @@ if [ "${1:-}" = "update" ]; then
         echo "pi: update --extensions and --models must be run separately." >&2
         exit 2
     fi
+fi
+# ---------------------------------------------------------------------------
+
+# --- 'pi setup': an optional part, added or taken back ----------------------
+# The agent's Python and the offline PyPI index are opt-in parts of the
+# install, built by bootstrap.sh. This is the way in from the pi command: it
+# runs bootstrap.sh with the matching flag, which records it in
+# agent/install-options so `pi update` keeps it. Like `pi update` it runs before
+# the egress proxy starts - it downloads from PyPI, GitHub and Hugging Face.
+if [ "${1:-}" = "setup" ]; then
+  shift
+  SETUP_FLAGS=()
+  for arg in "$@"; do
+    case "$arg" in
+      --python) SETUP_FLAGS+=(--with-python) ;;
+      --pypi-index) SETUP_FLAGS+=(--with-pypi-index) ;;
+      --no-python|--no-pypi-index) SETUP_FLAGS+=("$arg") ;;
+      *) echo "pi setup: unknown option: $arg" >&2; SETUP_FLAGS=(); break ;;
+    esac
+  done
+  if [ "${#SETUP_FLAGS[@]}" = "0" ]; then
+    elm_usage | sed -n '/^Optional parts/,/^$/p' >&2
+    exit 2
+  fi
+  unset PI_OFFLINE PI_SKIP_VERSION_CHECK
+  exec "$HERE/bootstrap.sh" --non-interactive "${SETUP_FLAGS[@]}"
 fi
 # ---------------------------------------------------------------------------
 
@@ -752,6 +801,10 @@ if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
   case "$PROXY_UPSTREAM" in
     *//127.0.0.1:*|*//localhost:*|*//\[::1\]:*) PROXY_UPSTREAM="" ;;
   esac
+  # For agent/bin/brew, which runs an approved install past this proxy but must
+  # still go through a campus one. A child sees only ours, so it keeps the
+  # parent's value.
+  [ -z "$PROXY_UPSTREAM" ] || export ELM_PI_UPSTREAM_PROXY="$PROXY_UPSTREAM"
 
   # --- is a proxy of ours alive on that port? ----------------------------------
   # A TCP connect proves only that something holds the port. This asks the proxy

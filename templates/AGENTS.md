@@ -159,8 +159,9 @@ Image and PDF files a `bash` command writes in the working directory, or names
 by absolute path, are attached to that command's result automatically
 (`view-outputs` extension); a PDF given to `read` is rendered instead of
 rejected. SVG, EPS/PS and HEIC are converted first with whatever command-line
-tool the machine has (rsvg-convert, Inkscape, ImageMagick, Ghostscript,
-epstopdf; sips and qlmanage on macOS); with none, save PNG or PDF instead.
+tool the machine has: `resvg` for SVG is bundled in agent/bin, then
+rsvg-convert, Inkscape, ImageMagick, Ghostscript, epstopdf, and sips and
+qlmanage on macOS; with none, save PNG or PDF instead.
 
 Only `qwen` can do it. Llama through the shim is text-only, so any task with a
 screenshot, diagram, figure or rendered page in it is a `qwen` task.

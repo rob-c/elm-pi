@@ -101,10 +101,15 @@ from them apply to you too.
   discrepancy; never adjust data to fit. Leave changes already in the files
   alone unless the task names them.
 - **Python 3, then C++**, unless the project uses something else. Use the
-  project's environment if it has one, otherwise `python3` (this install's own
-  environment); `pip install <package>` into that one when something is
-  missing, and report what you installed. Never `sudo`, never install into the
-  system Python or a conda base environment.
+  project's environment if it has one, otherwise `python3`. When
+  `$ELM_PI_AGENT_PYTHON` is set that is this install's own environment:
+  `pip install <package>` into it when something is missing, and report what
+  you installed. Never `sudo`, never install into the system Python or a conda
+  base environment. Anything else missing: the `installing-software` skill -
+  search first (`conda-search`, `pixi search`, `pypi-search`), install the
+  isolated way (`pixi exec`, `pixi global install`, a container), Homebrew asks
+  the user, apt/dnf are the user's to run - and report what you installed,
+  where it lives and how to remove it.
 - **A denied tool call stays denied.** Do not reach the same result through
   another tool or `bash`; report it.
 - **Never weaken, skip or delete a failing check** to get a pass.

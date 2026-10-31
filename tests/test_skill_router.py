@@ -96,6 +96,8 @@ class RoutingTableTests(unittest.TestCase):
         "now plot it": "scientific-python",
         "compile the paper to pdf": "containers",
         "pdflatex is not installed, use docker": "containers",
+        "ModuleNotFoundError: No module named netCDF4": "installing-software",
+        "gdalinfo: command not found": "installing-software",
     }
 
     def test_software_requests_route_nothing(self):

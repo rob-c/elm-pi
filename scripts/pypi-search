@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Search the offline PyPI index (bootstrap.sh --with-pypi-index):
+#   pypi-search spectral line fitting        best matches for any of the words
+#   pypi-search --all hdf5 netcdf -n 10      only packages matching every word, ten results
+# agent/bin/pypi-search links here; the search itself is scripts/pypi_index.py,
+# standard library only, run on this install's Python so it works offline.
+set -euo pipefail
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  target="$(readlink "$SELF")"
+  case "$target" in /*) SELF="$target" ;; *) SELF="$(dirname "$SELF")/$target" ;; esac
+done
+HERE="$(cd "$(dirname "$SELF")/.." && pwd)"
+PY="$HERE/agent/python/env/bin/python"
+[ -x "$PY" ] || PY="$(cat "$HERE/agent/python-path" 2>/dev/null || command -v python3)"
+exec "$PY" -I "$HERE/scripts/pypi_index.py" search "$@"

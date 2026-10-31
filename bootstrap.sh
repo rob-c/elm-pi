@@ -15,10 +15,11 @@ cd "$HERE"
 CONFIG_TOOL="$HERE/scripts/elm_config.py"
 
 WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; FORCE=0
-WITH_TOOLS=1; WITH_PATCH=1; WITH_PYTHON=1; FORCE_PACKAGES=0; RESET_OPTIONS=0
-# The --no-* flags this run was given, for agent/install-options (see below).
-GIVEN_FLAGS=""
-TMP=""; TOOLS_TMP=""; CORE_STAGE=""; PKG_STAGE=""; VERIFY_ERR=""
+WITH_TOOLS=1; WITH_PATCH=1; WITH_PYTHON=0; WITH_PYPI_INDEX=0; FORCE_PACKAGES=0; RESET_OPTIONS=0
+# The --no-* and --with-* flags this run was given, for agent/install-options
+# (see below), and the --with-* ones it takes back.
+GIVEN_FLAGS=""; DROPPED_FLAGS=""
+TMP=""; TOOLS_TMP=""; PYPI_TMP=""; CORE_STAGE=""; PKG_STAGE=""; VERIFY_ERR=""
 # The pi release and the extension tree this run replaced. They are kept until
 # the run has finished and verified, and put back if it fails, so an update
 # whose pi cannot load this install's config leaves the previous working pair
@@ -37,7 +38,7 @@ cleanup() {
     restore "$CORE_OLD" "$HERE/node_modules"
     restore "$PKG_OLD" "$HERE/agent/npm/node_modules"
   fi
-  for path in "$TMP" "$TOOLS_TMP" "$CORE_STAGE" "$PKG_STAGE" "$CORE_OLD" "$PKG_OLD" "$VERIFY_ERR"; do
+  for path in "$TMP" "$TOOLS_TMP" "$PYPI_TMP" "$CORE_STAGE" "$PKG_STAGE" "$CORE_OLD" "$PKG_OLD" "$VERIFY_ERR"; do
     [ -z "$path" ] || rm -rf -- "$path"
   done
 }
@@ -58,7 +59,12 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
 
   --no-packages       pi only: no sub-agents, web access or anchor edit
   --no-tools          skip the bundled fd/rg/jq/yq/shellcheck/ast-grep/uv
-  --no-python         skip the agent's own Python (agent/python, ~1GB)
+  --with-python       give the agent its own Python: uv-managed CPython and the
+                      analysis stack in agent/python (~1GB); `pi setup --python`
+  --with-pypi-index   an offline search index of PyPI for the agent, `pypi-search`
+                      (downloads ~1GB once, keeps ~390MB); implies --with-python
+  --no-python         take --with-python (and --with-pypi-index) back, removing
+                      agent/python; --no-pypi-index takes back the index alone
   --no-shim           skip the Llama tool-call shim
   --no-patch          leave pi's /share and /bug commands in place
   --no-auth-lock      leave agent/auth.json writable, so /login works
@@ -66,7 +72,7 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
                       recorded, and use only what this run is given
   -h, --help          this text
 
-The --no-* flags and ELM_PI_TOOLS are recorded in agent/install-options and
+The --no-* and --with-* flags and ELM_PI_TOOLS are recorded in agent/install-options and
 repeated by every later run - pi update, pi update --extensions, re-running
 the installer - so an update keeps the install you chose.
 
@@ -86,8 +92,12 @@ for arg in "$@"; do
 done
 for arg in "$@"; do
   case "$arg" in
-    --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--no-python)
+    --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--with-python|--with-pypi-index)
       case " $GIVEN_FLAGS " in *" $arg "*) ;; *) GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$arg" ;; esac ;;
+    # Taking an opt-in back: not recorded itself, it removes what it names from
+    # the record. --no-python takes the index with it, which cannot build without.
+    --no-python) DROPPED_FLAGS="$DROPPED_FLAGS --with-python --with-pypi-index" ;;
+    --no-pypi-index) DROPPED_FLAGS="$DROPPED_FLAGS --with-pypi-index" ;;
     --non-interactive) INTERACTIVE=0 ;;
     --update) UPDATE=1 ;;
     --force) FORCE=1 ;;
@@ -103,7 +113,8 @@ apply_flag() {
     --no-auth-lock) AUTH_LOCK=0 ;;
     --no-tools) WITH_TOOLS=0 ;;
     --no-patch) WITH_PATCH=0 ;;
-    --no-python) WITH_PYTHON=0 ;;
+    --with-python) WITH_PYTHON=1 ;;
+    --with-pypi-index) WITH_PYPI_INDEX=1; WITH_PYTHON=1 ;;
   esac
 }
 
@@ -161,10 +172,20 @@ if [ "$RESET_OPTIONS" = "1" ]; then
   [ -z "$SAVED_FLAGS$SAVED_TOOLS" ] || echo "    --reset-options: not repeating $SAVED_FLAGS${SAVED_TOOLS:+ ELM_PI_TOOLS=$SAVED_TOOLS}"
   SAVED_FLAGS=""; SAVED_TOOLS=""
 fi
+# The agent's Python was built by default before --with-python existed. An
+# install that has one keeps it - with the agent's own packages in it - rather
+# than losing it to an update; --no-python removes it.
+if [ -x agent/python/env/bin/python ] && [ "$RESET_OPTIONS" != "1" ]; then
+  case " $SAVED_FLAGS $GIVEN_FLAGS ${DROPPED_FLAGS:-} " in
+    *" --with-python "*) ;;
+    *) SAVED_FLAGS="$SAVED_FLAGS --with-python"; PY_INFERRED=1 ;;
+  esac
+fi
 REPEATED=""
 for flag in $SAVED_FLAGS; do
-  case "$flag" in --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--no-python) ;; *) continue ;; esac
+  case "$flag" in --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--with-python|--with-pypi-index) ;; *) continue ;; esac
   case " $GIVEN_FLAGS " in *" $flag "*) continue ;; esac
+  case " ${DROPPED_FLAGS:-} " in *" $flag "*) continue ;; esac
   GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$flag"; REPEATED="$REPEATED $flag"
 done
 for flag in $GIVEN_FLAGS; do apply_flag "$flag"; done
@@ -177,7 +198,8 @@ if [ -n "$REPEATED" ]; then
   echo "    repeating${REPEATED}, from $OPTIONS_FROM"
   echo "    (to drop one: re-run with --reset-options and only the flags you want)"
 fi
-echo "    this install: ${GIVEN_FLAGS:-all parts}${ELM_PI_TOOLS:+, ELM_PI_TOOLS=$ELM_PI_TOOLS}"
+echo "    this install: ${GIVEN_FLAGS:-the defaults}${ELM_PI_TOOLS:+, ELM_PI_TOOLS=$ELM_PI_TOOLS}"
+[ "${PY_INFERRED:-0}" = "0" ] || echo "    (agent/python was already here, so it is kept as --with-python; --no-python removes it)"
 # install.sh passes the branch and repository it fetched; any other run keeps
 # what was recorded. Values with whitespace in them are not a branch or a URL.
 OPT_BRANCH="${ELM_PI_BRANCH:-$(saved_option branch)}"
@@ -520,7 +542,20 @@ ln -sfn "$HERE/pi" agent/bin/pi
 # workflow-check: the pi-dynamic-workflows parser as a command, so the agent can
 # find a syntax error by line before sending a script to the `workflow` tool.
 ln -sfn "$HERE/scripts/workflow-check" agent/bin/workflow-check
+# conda-search: conda-forge by package name (prefix.dev's API), beside pixi.
+ln -sfn "$HERE/scripts/conda-search" agent/bin/conda-search
 echo "    agent/bin/pi -> $HERE/pi (sub-agent children)"
+# brew: the machine's Homebrew, with approved installs run past the egress proxy
+# (scripts/brew says why). Linked only where Homebrew exists, so `command -v
+# brew` keeps telling the agent the truth.
+rm -f agent/bin/brew
+while IFS= read -r _d; do
+  if [ -n "$_d" ] && [ -x "$_d/brew" ]; then
+    ln -sfn "$HERE/scripts/brew" agent/bin/brew
+    echo "    agent/bin/brew -> scripts/brew (Homebrew at $_d)"
+    break
+  fi
+done < <(elm_clean_path "${ELM_PI_USER_PATH:-$PATH}" | tr ':' '\n'; printf '%s\n' /opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin)
 if [ "$AUTH_LOCK" = "1" ]; then
   # /login writes the credential it obtains to agent/auth.json. Read-only means
   # that write fails, so a commercial subscription cannot be attached to this
@@ -553,6 +588,12 @@ fi
 #   - ast-grep    structural search and rewrite by syntax tree, not by regex
 #   - uv          Python interpreters, environments and packages - builds the
 #                 agent's own Python below, and installs into it later
+#   - mlr         Miller: CSV/TSV/JSON reshaping, sorting and stats in one pass
+#   - resvg       SVG to PNG with no system libraries, so view-outputs can show
+#                 the agent an SVG figure on any host
+#   - pixi        conda-forge packages - GDAL, HDF5, ROOT, Ghostscript, ffmpeg,
+#                 compilers - without sudo, kept in agent/pixi (the launcher
+#                 sets PIXI_HOME); `pixi exec` runs one without installing it
 #
 # (The list marker is not decoration: a comment whose first word is the name of
 # a certain linter is read by that linter as a directive, and it then refuses to
@@ -571,16 +612,17 @@ fi
 #   FD_VERSION=10.5.0   pin any of them      (checksums: templates/tools.sha256)
 #   RG_VERSION=15.2.0   JQ_VERSION=1.8.2     YQ_VERSION=4.53.6
 #   SHELLCHECK_VERSION=0.11.0                ASTGREP_VERSION=0.45.3
-#   UV_VERSION=0.12.24
+#   UV_VERSION=0.12.24  MLR_VERSION=6.22.0   RESVG_VERSION=0.48.1
+#   PIXI_VERSION=0.82.0
 if [ "$WITH_TOOLS" = "1" ]; then
-  TOOLSET="${ELM_PI_TOOLS:-fd,rg,jq,yq,shellcheck,ast-grep,uv}"
+  TOOLSET="${ELM_PI_TOOLS:-fd,rg,jq,yq,shellcheck,ast-grep,uv,mlr,resvg,pixi}"
   want_tool() { case ",$TOOLSET," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
   say "command-line tools (${TOOLSET//,/, })"
   # Three projects, three naming schemes: Rust triples, Go's os_arch, and jq's
   # own spelling of macOS.
   case "$(uname -s)" in
-    Darwin) RUST_OS=apple-darwin      ; GNU_OS=apple-darwin        ; GO_OS=darwin ; JQ_OS=macos ;;
-    Linux)  RUST_OS=unknown-linux-musl; GNU_OS=unknown-linux-gnu   ; GO_OS=linux  ; JQ_OS=linux ;;
+    Darwin) RUST_OS=apple-darwin      ; GNU_OS=apple-darwin        ; GO_OS=darwin ; JQ_OS=macos ; RESVG_OS=macos ; RESVG_EXT=zip ;;
+    Linux)  RUST_OS=unknown-linux-musl; GNU_OS=unknown-linux-gnu   ; GO_OS=linux  ; JQ_OS=linux ; RESVG_OS=linux ; RESVG_EXT=tar.gz ;;
     *) die "unsupported OS: $(uname -s)" ;;
   esac
   case "$(uname -m)" in
@@ -605,6 +647,9 @@ if [ "$WITH_TOOLS" = "1" ]; then
   SHELLCHECK_VERSION="${SHELLCHECK_VERSION:-0.11.0}"
   ASTGREP_VERSION="${ASTGREP_VERSION:-0.45.3}"
   UV_VERSION="${UV_VERSION:-0.12.24}"
+  MLR_VERSION="${MLR_VERSION:-6.22.0}"
+  RESVG_VERSION="${RESVG_VERSION:-0.48.1}"
+  PIXI_VERSION="${PIXI_VERSION:-0.82.0}"
 
   # Archives are cached per user, keyed tool/version/asset, so a second install
   # - a new prefix, another machine account, a rebuilt install - extracts what
@@ -712,6 +757,17 @@ if [ "$WITH_TOOLS" = "1" ]; then
   install_tool uv "$UV_VERSION" "uv-$TRIPLE.tar.gz" \
     "$GH/astral-sh/uv/releases/download/$UV_VERSION/uv-$TRIPLE.tar.gz" \
     "$GH/astral-sh/uv/releases/download/$UV_VERSION/uv-$TRIPLE.tar.gz.sha256"
+  install_tool mlr "$MLR_VERSION" "miller-$MLR_VERSION-$GO_OS-$GO_ARCH.tar.gz" \
+    "$GH/johnkerl/miller/releases/download/v$MLR_VERSION/miller-$MLR_VERSION-$GO_OS-$GO_ARCH.tar.gz" \
+    "$GH/johnkerl/miller/releases/download/v$MLR_VERSION/miller-$MLR_VERSION-checksums.txt"
+  # resvg publishes no build for 64-bit ARM Linux before 0.49; there it is
+  # skipped with a warning and view-outputs falls back to the system's tools.
+  # The Linux build links glibc, like ast-grep's.
+  install_tool resvg "$RESVG_VERSION" "resvg-$RESVG_OS-$RUST_ARCH.$RESVG_EXT" \
+    "$GH/linebender/resvg/releases/download/v$RESVG_VERSION/resvg-$RESVG_OS-$RUST_ARCH.$RESVG_EXT" ""
+  install_tool pixi "$PIXI_VERSION" "pixi-$TRIPLE.tar.gz" \
+    "$GH/prefix-dev/pixi/releases/download/v$PIXI_VERSION/pixi-$TRIPLE.tar.gz" \
+    "$GH/prefix-dev/pixi/releases/download/v$PIXI_VERSION/pixi-$TRIPLE.tar.gz.sha256"
   echo "    agent/bin is $(du -sh agent/bin 2>/dev/null | awk '{print $1}'), cache $(du -sh "$TOOL_CACHE" 2>/dev/null | awk '{print $1}' || echo 0B) in $TOOL_CACHE"
 else
   say "command-line tools"
@@ -732,7 +788,9 @@ fi
 # configured packages are installed again when the list, the Python version or
 # uv changes, upgraded by --update, and reinstalled by --force.
 #
-#   --no-python   skip it; the agent uses whatever python3 is on PATH
+# Opt-in: --with-python (or `pi setup --python`), recorded like the other
+# install options. --no-python takes it back and removes agent/python - the
+# packages the agent installed with it.
 if [ "$WITH_PYTHON" = "1" ]; then
   say "the agent's Python (agent/python)"
   if [ ! -x agent/bin/uv ]; then
@@ -752,7 +810,7 @@ if [ "$WITH_PYTHON" = "1" ]; then
     if [ ! -x "$PY_ENV/bin/python" ]; then
       echo "    CPython $PY_VERSION (uv-managed) and a venv in $PY_ENV"
       agent/bin/uv venv --quiet --seed --managed-python --python "$PY_VERSION" "$PY_ENV" \
-        || die "could not create the agent's Python environment (re-run, or skip it with --no-python)"
+        || die "could not create the agent's Python environment (re-run, or take it back with --no-python)"
     fi
     if [ "$FORCE" = "1" ] || [ "$UPDATE" = "1" ] || [ "$(cat "$PY_STAMP" 2>/dev/null)" != "$PY_WANT" ]; then
       _upgrade=()
@@ -770,9 +828,71 @@ if [ "$WITH_PYTHON" = "1" ]; then
     fi
     echo "    $("$PY_ENV/bin/python" --version 2>&1), $(du -sh agent/python 2>/dev/null | awk '{print $1}') in agent/python"
   fi
-else
+elif [ -d agent/python ]; then
   say "the agent's Python"
-  echo "    skipped (--no-python): the agent uses the python3 on PATH"
+  rm -rf agent/python
+  echo "    removed agent/python (not --with-python): the agent uses the python3 on PATH"
+fi
+
+# --- 3d. an offline search of PyPI (--with-pypi-index) ------------------------
+# PyPI has no search API any more: `pip search` fails, and pypi.org/search is a
+# JavaScript challenge. So "is there a package for X" needed the web, which a
+# normal session does not have. This builds agent/pypi-index.db - name, summary,
+# keywords and classifiers of every package, in an SQLite full-text index - from
+# a published snapshot of PyPI's metadata (pypiIndex in config/elm-pi.json),
+# and links `pypi-search` into agent/bin. The snapshot is pinned to a revision
+# and each file checked against its published sha256; the ~1GB download is
+# deleted once the index is built, and repeated only when the revision changes
+# or with --force. Opt-in, and recorded like the --no-* flags; without it any
+# index an earlier run built is removed.
+if [ "$WITH_PYPI_INDEX" = "1" ]; then
+  say "offline PyPI search (agent/pypi-index.db)"
+  PYPI_DB="agent/pypi-index.db"
+  AGENT_PY="agent/python/env/bin/python"
+  read -r PYPI_DATASET PYPI_REVISION PYPI_FOLDER < <(elm_py -c 'import json; c = json.load(open("config/elm-pi.json"))["pypiIndex"]; print(c["dataset"], c["revision"], c["folder"])') \
+    || die "cannot read pypiIndex from config/elm-pi.json"
+  # The build reads Parquet, which takes pyarrow: the agent's Python has it.
+  if [ ! -x "$AGENT_PY" ]; then
+    warn "needs the agent's Python (it has pyarrow), which did not build - skipped"
+  else
+    # Read-only: a plain connect would create an empty file that then passes for an index.
+    PYPI_HAVE="$("$AGENT_PY" -I -c 'import sqlite3, sys; print(sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True).execute("SELECT value FROM meta WHERE key = ?", ("revision",)).fetchone()[0])' "$PYPI_DB" 2>/dev/null || true)"
+    if [ "$FORCE" != "1" ] && [ "$PYPI_HAVE" = "$PYPI_REVISION" ]; then
+      echo "    $PYPI_DB: $PYPI_DATASET at ${PYPI_REVISION:0:7}, unchanged"
+    else
+      PYPI_TMP="$(mktemp -d "$HERE/agent/.pypi-download.XXXXXX")"
+      mkdir -p "$PYPI_TMP/data"
+      HF=https://huggingface.co
+      pypi_ok=1
+      echo "    downloading $PYPI_DATASET at ${PYPI_REVISION:0:7} (~1GB, deleted after the build)"
+      if curl -q -fsSL -o "$PYPI_TMP/tree.json" "$HF/api/datasets/$PYPI_DATASET/tree/$PYPI_REVISION/$PYPI_FOLDER"; then
+        while read -r want path; do
+          file="$PYPI_TMP/data/${path##*/}"
+          if ! curl -q -fsSL --retry 3 -o "$file" "$HF/datasets/$PYPI_DATASET/resolve/$PYPI_REVISION/$path"; then
+            warn "could not download $path"; pypi_ok=0; break
+          fi
+          [ "$(sha256_of "$file")" = "$want" ] || die "checksum mismatch for $path"
+        done < <(elm_py -c 'import json, sys; [print(f["lfs"]["oid"], f["path"]) for f in json.load(open(sys.argv[1])) if f["path"].endswith(".parquet")]' "$PYPI_TMP/tree.json")
+      else
+        warn "could not list the files of $PYPI_DATASET"; pypi_ok=0
+      fi
+      if [ "$pypi_ok" = "1" ] && ls "$PYPI_TMP"/data/*.parquet >/dev/null 2>&1; then
+        "$AGENT_PY" -I scripts/pypi_index.py build "$PYPI_TMP/data" "$PYPI_DB" \
+          --dataset "$PYPI_DATASET" --revision "$PYPI_REVISION" \
+          || warn "the index did not build; the next run tries again"
+      else
+        warn "no index built this run${PYPI_HAVE:+ (the existing one is kept)}; the next run tries again"
+      fi
+      rm -rf "$PYPI_TMP"; PYPI_TMP=""
+    fi
+    if [ -s "$PYPI_DB" ]; then
+      ln -sfn "$HERE/scripts/pypi-search" agent/bin/pypi-search
+      echo "    agent/bin/pypi-search -> scripts/pypi-search"
+    fi
+  fi
+elif [ -e agent/pypi-index.db ] || [ -L agent/bin/pypi-search ]; then
+  rm -f agent/pypi-index.db agent/bin/pypi-search
+  echo "    removed the offline PyPI index (this install is not --with-pypi-index)"
 fi
 
 # --- installer-owned settings ------------------------------------------------

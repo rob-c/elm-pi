@@ -106,7 +106,9 @@ Two things people get wrong:
 | `--force-packages` | reinstall the extension packages at the tested versions, and pi too if it is not at its tested version (what `pi update --extensions` runs) |
 | `--no-packages` | pi only: no sub-agents, web access or anchor editing |
 | `--no-tools` | do not bundle fd, rg, jq, yq, shellcheck, ast-grep and uv (and so no agent Python either) |
-| `--no-python` | do not build the agent's own Python environment in `agent/python` |
+| `--with-python` | give the agent its own Python environment in `agent/python` (~1 GB); also `pi setup --python` |
+| `--with-pypi-index` | build an offline search index of PyPI for the agent (`pypi-search`); downloads ~1 GB once, keeps ~390 MB; implies `--with-python`; also `pi setup --pypi-index` |
+| `--no-python`, `--no-pypi-index` | take those back: removes `agent/python` (and the index), or the index alone |
 | `--no-shim` | no Llama tool-call shim (Qwen unaffected) |
 | `--no-auth-lock` | leave `agent/auth.json` writable, so `/login` works |
 | `--no-patch` | leave pi's `/share` and `/bug` commands in place |
@@ -222,10 +224,12 @@ pi install.
 | `agent/extensions/pinned-instructions.ts` | `pin_instruction`: standing instructions kept in the system prompt, where compaction cannot summarise them away |
 | `agent/extensions/skill-router.ts` | adds the skills a request needs (see [Skills](#skills-and-the-skill-router)) |
 | `agent/extensions/view-outputs.ts` | shows Qwen its figures: image and PDF files a command writes are attached to its result, `view` renders PDF pages (with their text) and TIFF/BMP, and a PDF given to `read` is rendered. Uses the bundled `mupdf` (WebAssembly; nothing downloaded at run time). SVG, EPS/PS, HEIC and PSD go through a command-line converter first (rsvg-convert, Inkscape, ImageMagick, Ghostscript, epstopdf; sips and qlmanage on macOS) when the machine has one |
+| `agent/extensions/install-notes.ts` | when the agent installs something (pip, pixi, docker pull, brew), adds what, where it lives and how to remove it to that command's result for the report, and logs it in `agent/installs.log` |
 | `agent/extensions/workflow-model-scope.ts` | keeps Dynamic Workflows agents on ELM models |
 | `agent/extensions/subagent/config.json` | fan-out budget: 8 concurrent, 64 per run |
 | `agent/bin/pi` | symlink to the launcher, so sub-agent children find `pi` whatever PATH looks like |
-| `agent/python/` | the agent's Python: uv-managed CPython, `env/` (the venv on PATH), uv's cache |
+| `agent/pixi/` | pixi's global tools, environments and cache (`PIXI_HOME`), when the agent has used it |
+| `agent/python/` | with `--with-python`: the agent's Python - uv-managed CPython, `env/` (the venv on PATH), uv's cache |
 | `agent/helpers/` | the computer-use helper, created on first use in a `pi --remote` session |
 | `agent/web-search.json` | DuckDuckGo then Exa; `unpdf` for PDFs |
 | `agent/install-options` | the options this install was made with, repeated by later runs |
@@ -449,15 +453,40 @@ and not on a login node someone else administers:
 | `shellcheck` | lints shell before it runs | this install is mostly bash; it found a stray character in `install.sh` the first time it was pointed at it |
 | `ast-grep` | structural search and rewrite, by syntax tree rather than by regex | the thing `rg` cannot do |
 | `uv` | Python interpreters, environments and packages | builds the agent's Python, below, and installs into it |
+| `mlr` | Miller: reshape, sort, join and summarise CSV, TSV and JSON | data files too big to read into the context |
+| `pixi` | conda-forge packages without sudo - GDAL, HDF5, ROOT, Ghostscript, ffmpeg, compilers | `pixi exec --spec <pkg> <cmd>` runs one without installing it; `pixi global install` keeps it in `agent/pixi` |
+| `resvg` | SVG to PNG with no system libraries | how the agent sees an SVG figure on any host (64-bit ARM Linux has no 0.48 build and falls back to the system's converters) |
 
-All seven are a single static binary from the project's own GitHub release,
+All ten are a single static binary from the project's own GitHub release,
 pinned and sha256-checked, installed the same way and deleted the same way.
 `ELM_PI_TOOLS=fd,rg,jq` installs a subset: `shellcheck` and `ast-grep` are 35 MB
 and 51 MB, against ~23 MB for the other four.
 
+### Software the machine does not have
+
+The agent works through it in order, preferring whatever changes least (the
+`installing-software` skill). It checks what is already installed, including
+environment modules on a cluster, and searches for an existing package before
+writing one: `pypi-search` (with `--with-pypi-index`), `conda-search` (conda-forge
+package names with their summaries, through prefix.dev's public API),
+`pixi search`, `docker search`. Then the isolated options - a Python package
+into its own environment; **pixi** for anything on conda-forge, run once with
+`pixi exec` or kept with `pixi global install`, all under `agent/pixi`; a
+container for anything large - and then **Homebrew**, where the
+machine has it. Each `brew install`, upgrade or removal asks you first, and,
+once approved, runs past the egress proxy (through a campus proxy if there is
+one) and is logged in `agent/egress.log`: a formula downloads from wherever its
+source lives - on a Mac without a bottle for it, the project's own site - which
+no allowlist can name. Casks, third-party taps and formula files are refused.
+**apt, dnf, yum, zypper, pacman and apk** are refused outright: the agent tells
+you the exact command for your distribution and what it is for. Whatever it
+installs, it says beforehand what and why, and its report lists where each
+thing lives and how to remove it.
+
 ### The agent's Python
 
-With `uv` in place, bootstrap builds `agent/python`: a uv-managed CPython
+Opt-in: `pi setup --python`, or `--with-python` to the installer. Bootstrap
+then builds `agent/python`: a uv-managed CPython
 (`python.version` in `config/elm-pi.json`), a venv with pip, and the packages in
 `python.packages` - numpy, scipy, pandas, matplotlib, openpyxl, xlsxwriter,
 pyarrow, h5py, uproot, iminuit, sympy, jupytext, nbformat, nbconvert and
@@ -466,8 +495,22 @@ ipykernel. The launcher puts it on `PATH` after `agent/bin`, so `python3` and
 active venv or a conda env other than `base`, which then stays first. The egress
 proxy lets PyPI through, so the agent can `pip install` what a task needs into
 it in any session. Re-runs keep what it installed; the configured list is
-upgraded by `--update` and reinstalled by `--force`. `--no-python` skips the
-whole thing.
+upgraded by `--update` and reinstalled by `--force`. The choice is recorded,
+so `pi update` keeps it; `pi setup --no-python` removes `agent/python`, and
+with it whatever the agent installed there. An install without it gives the
+agent the `python3` on PATH, which it does not install into. (An install that
+built `agent/python` before this was opt-in keeps it.)
+
+PyPI no longer has a search API (`pip search` fails, and its search page is a
+JavaScript challenge), so finding a package for a job needs the web.
+`--with-pypi-index` builds one into the install instead: `agent/pypi-index.db`,
+an SQLite full-text index of every package's name, summary, keywords and
+classifiers (682,448 packages), and `pypi-search` to query it, ranked by match
+and then by downloads. It is built from a published snapshot of PyPI's metadata
+(`pypiIndex` in `config/elm-pi.json`, pinned to a revision and checked file by
+file against its sha256): a 1 GB download that is deleted after a one-minute
+build, and fetched again only when the pinned revision changes. A snapshot is
+months old by nature, so the agent confirms versions with `pip index versions`.
 
 ### Containers
 

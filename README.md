@@ -71,8 +71,9 @@ docs/               the GitHub Pages site
 shim/               Llama tool-call shim (Python, loopback only)
 proxy/              egress proxy: allowlists ELM and PyPI, logs and refuses the rest
 agent/              generated: PI_CODING_AGENT_DIR (config, extensions, skills, state)
-agent/bin/          generated: fd rg jq yq shellcheck ast-grep uv, pinned + checksummed
-agent/python/       generated: the agent's own Python (uv-managed CPython + analysis stack)
+agent/bin/          generated: fd rg jq yq shellcheck ast-grep uv mlr resvg pixi, pinned + checksummed
+agent/pixi/         generated on use: conda-forge tools the agent installed with pixi
+agent/python/       generated with --with-python: the agent's own Python (uv-managed CPython + analysis stack)
 .node/ node_modules/  generated: Node 24 + pi, ~650 MB
 ```
 

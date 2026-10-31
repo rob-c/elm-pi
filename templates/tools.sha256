@@ -1,7 +1,7 @@
 # sha256 of the release assets bootstrap.sh installs into agent/bin: fd, rg,
-# jq, yq, shellcheck, ast-grep and uv. Only jq and ripgrep publish checksums in a
-# form this can read at install time, so the pinned versions are recorded here
-# and checked exactly the way the Node tarball is.
+# jq, yq, shellcheck, ast-grep, uv, mlr, resvg and pixi. Not every project publishes
+# checksums in a form this can read at install time, so the pinned versions are
+# recorded here and checked exactly the way the Node tarball is.
 #
 # Keyed `tool/version/asset`, not by asset name alone: jq and yq publish their
 # binaries under names with no version in them (jq-macos-amd64, yq_darwin_amd64),
@@ -49,3 +49,14 @@ b39cfbc58da4b869a88b8a4bc57bd5deb0d24541e704cf7c257da7b53ec81c8f  ast-grep/0.45.
 4fa82e37cb94767661f532b001e470b67a186c7260e305bd84ddb78fd545c0b6  uv/0.12.24/uv-x86_64-apple-darwin.tar.gz
 7f9ab4726d743b6a92e310477a7840c8a8a7b3938cb3c4657d541342fca75011  uv/0.12.24/uv-aarch64-unknown-linux-musl.tar.gz
 48170bd200a5430298c18f3b264485a1f3a8605f01088277daf6e37633edf0f5  uv/0.12.24/uv-x86_64-unknown-linux-musl.tar.gz
+441b486b0c4d89a7465fc958dc6f3bbd0339e270230e5f81a520b04d202a9838  mlr/6.22.0/miller-6.22.0-darwin-amd64.tar.gz
+b99af86bf902c4fd269c28ec4142111dc27815b3ae63801baceaa001d09b9fd7  mlr/6.22.0/miller-6.22.0-darwin-arm64.tar.gz
+0551f8696e8f42dae1c67c782bbe04e0589e718268722fa98561e2566e4623b8  mlr/6.22.0/miller-6.22.0-linux-amd64.tar.gz
+86dbf9078cf4cd96fef7a8306b3786a441cdf7f8526324a233e38c37c4bfe742  mlr/6.22.0/miller-6.22.0-linux-arm64.tar.gz
+0135923e443863db251a26bd78eabc6efb4b59d67b8cdc5469e3e1da26bc0ce2  resvg/0.48.1/resvg-macos-x86_64.zip
+06440eb5aa14a28cbfc7e40ae39e1ffa71adc051b89fbaa913b4f1d9b905d09f  resvg/0.48.1/resvg-macos-aarch64.zip
+fa8c26495a187e592c501db15bf9e8a9fdc051d4b2b336b39703d5b59f912b9d  resvg/0.48.1/resvg-linux-x86_64.tar.gz
+a0e5dc45a2ced8987a4df3c597d96528c87089ea3481ed4bb7c27404699540f1  pixi/0.82.0/pixi-x86_64-apple-darwin.tar.gz
+3b48bd27de4db31381dc1d5b3d069c98852c0e923aefa30dae0452a088c0810e  pixi/0.82.0/pixi-aarch64-apple-darwin.tar.gz
+d305406a7630aab6484419833f9204b2fe9ea40632da8bb536496f123ca86e7f  pixi/0.82.0/pixi-x86_64-unknown-linux-musl.tar.gz
+b18dadba196c0c77781533184ec3e7757422c0ae9bed0047ff7ca1c688c0f62b  pixi/0.82.0/pixi-aarch64-unknown-linux-musl.tar.gz

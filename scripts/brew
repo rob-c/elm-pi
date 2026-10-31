@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Homebrew, as the agent runs it (agent/bin/brew links here when the machine
+# has Homebrew).
+#
+# An install has to download from wherever each formula's source lives - on a
+# Mac with no bottle for it, that is the project's own site - and no allowlist
+# can name those hosts. So the commands that change the Homebrew installation
+# run without this install's egress proxy (through a campus proxy if there is
+# one), and each is written to agent/egress.log. The permission gate asks the
+# user before every one of them; casks, third-party taps and local formula files
+# are refused there. Everything else - info, list, deps, search - runs as usual,
+# through the proxy. Analytics are off: they report to Homebrew's servers.
+set -euo pipefail
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  target="$(readlink "$SELF")"
+  case "$target" in /*) SELF="$target" ;; *) SELF="$(dirname "$SELF")/$target" ;; esac
+done
+HERE="$(cd "$(dirname "$SELF")/.." && pwd)"
+
+real=""
+IFS=: read -r -a dirs <<< "${PATH:-}"
+for dir in "${dirs[@]}" /opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin; do
+  [ "$dir" = "$HERE/agent/bin" ] && continue
+  if [ -x "$dir/brew" ] && [ "$(cd "$dir" && pwd -P)" != "$HERE/agent/bin" ]; then real="$dir/brew"; break; fi
+done
+[ -n "$real" ] || { echo "brew: Homebrew is not installed on this machine." >&2; exit 127; }
+
+export HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_ENV_HINTS=1
+case "${1:-}" in
+  install|reinstall|upgrade|fetch|update|bundle)
+    printf '%s UNPROXIED brew %s (approved in the session; outside the allowlist)\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$HERE/agent/egress.log" 2>/dev/null || true
+    unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy ALL_PROXY all_proxy
+    if [ -n "${ELM_PI_UPSTREAM_PROXY:-}" ]; then
+      export HTTPS_PROXY="$ELM_PI_UPSTREAM_PROXY" HTTP_PROXY="$ELM_PI_UPSTREAM_PROXY"
+    fi
+    exec "$real" "$@" ;;
+esac
+exec "$real" "$@"

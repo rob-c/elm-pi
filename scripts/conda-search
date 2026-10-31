@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Search conda-forge by package name, with each package's summary:
+#   conda-search netcdf            names containing "netcdf", closest first
+#   conda-search -n 30 hdf5        more results (default 15)
+# agent/bin/conda-search links here. It asks prefix.dev's public GraphQL API,
+# which the egress proxy allows, because neither conda-forge nor anaconda.org
+# searches descriptions: this is a name search. For a package's versions and
+# builds on this machine: pixi search NAME -p PLATFORM (`pixi info` prints it).
+set -euo pipefail
+limit=15
+case "${1:-}" in -n) limit="${2:?-n needs a number}"; shift 2 ;; esac
+term="${*:-}"
+if [ -z "$term" ]; then
+  echo "usage: conda-search [-n N] NAME-FRAGMENT    (a package-name search of conda-forge)" >&2
+  exit 2
+fi
+case "$limit" in *[!0-9]*|"") echo "conda-search: -n takes a number" >&2; exit 2 ;; esac
+command -v jq >/dev/null 2>&1 || { echo "conda-search: needs jq (in this install's agent/bin)" >&2; exit 1; }
+
+# GraphQL variables, not shell ones: the single quotes are deliberate.
+# shellcheck disable=SC2016
+query='query($t: String!, $n: Int!) { channel(name: "conda-forge") {
+  packages(filters: {name: {contains: $t}},
+           orderBy: {bySimilarity: {field: NAME, matches: $t, direction: DESC}}, limit: $n) {
+    page { name summary latestVersion { version } } } } }'
+body="$(jq -n --arg q "$query" --arg t "$term" --argjson n "$limit" '{query: $q, variables: {t: $t, n: $n}}')"
+if ! response="$(curl -q -fsS --max-time 30 https://prefix.dev/api/graphql -H 'content-type: application/json' -d "$body")"; then
+  echo "conda-search: prefix.dev did not answer (check agent/egress.log)" >&2
+  exit 1
+fi
+if [ "$(jq -r '.errors // empty | length' <<< "$response")" != "" ]; then
+  jq -r '.errors[].message' <<< "$response" >&2
+  exit 1
+fi
+count="$(jq -r '.data.channel.packages.page | length' <<< "$response")"
+jq -r '.data.channel.packages.page[] | "\(.name) \(.latestVersion.version // "?")\n    \(.summary // "" | gsub("\\s+"; " ") | .[0:200])"' <<< "$response"
+[ "$count" != "0" ] || echo "no conda-forge package name contains \"$term\" - try a shorter or different fragment"
+echo
+echo "[conda-forge, by name. Run one without installing: pixi exec --spec NAME CMD; keep it: pixi global install NAME]"

@@ -252,7 +252,7 @@ not be happening can be stopped at source rather than merely blocked.
 
 **PyPI is on the list** - `pypi.org` and `files.pythonhosted.org`,
 `proxyAllow` in `config/elm-pi.json` - so the agent can install Python packages
-into its own environment (`agent/python`, built by bootstrap with uv) without
+into its own environment (`agent/python`, built with uv when the install asks for it: `pi setup --python`) without
 `--remote`. What that costs, said plainly: every process the agent runs can
 reach those two hosts, subdomains included. Downloads are public and read-only,
 and uploading needs a PyPI token (`~/.pypirc` is on the agent's denied paths),
@@ -261,6 +261,12 @@ the agent chooses - and an installed package runs its own code with this
 install's access. The trade is the same one `pip` on any workstation makes. To
 take it back, empty `proxyAllow.hosts` and re-run `bootstrap.sh`; the agent's
 environment and the packages already in it stay usable offline.
+
+**conda-forge is on it too**: `conda.anaconda.org` for pixi's packages, and
+`api.anaconda.org` and `prefix.dev` for searching them - the same read-only
+trade as PyPI, with the same caveat that a request names a package the agent
+chose. pixi keeps everything in `agent/pixi`; another channel than conda-forge
+asks the user, and `pixi upload`/`auth` are denied.
 
 No certificate, no interception, no decryption: HTTPS through a proxy opens
 with a plaintext `CONNECT host:443`, which is all an allowlist needs. The
@@ -326,6 +332,17 @@ agent's path protections, so the `containers` skill mounts only the project
 folder - a rule of practice, not one the gate can check. The same caveats as
 below apply: `--network=none` is matched as text anywhere in the command, and
 a `DOCKER_HOST` set in the environment is not seen.
+
+Software installs follow the same line. `brew install`, `upgrade`, `fetch` and
+the rest ask the user every time; once approved, `agent/bin/brew` runs that
+one command without the egress proxy, because a formula downloads from wherever
+its source lives, and writes it to `agent/egress.log` as `UNPROXIED`. The
+approval is the control: core formulae only - casks, third-party taps and
+formula files are denied, since their own code would run unfiltered - and
+calling Homebrew by its full path, past the wrapper, is denied too. Read-only
+`brew info`/`list`/`deps` stay behind the proxy. apt, dnf, yum, zypper, pacman,
+apk, snap, flatpak, MacPorts, `dpkg -i` and `rpm -i` are denied outright: they
+need an administrator, and the agent gives the user the command instead.
 
 Each denial tells the model why, so it stops rather than retrying around it.
 The rules see through chains (`cd x && ssh ...`) and through `env`, `xargs`,
