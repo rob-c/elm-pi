@@ -65,31 +65,24 @@ interface RoutingDetails {
 }
 
 /**
- * Words that make "fit", "slope" or "calibrate" about measured data rather than
- * code: "fit the data", "fits the spectrum" - not "fits on one line" or
- * "overrides fit()".
- */
-const DATA = String.raw`data|dataset|points|measure\w*|curves?|spectr\w*|peaks?|counts|events|histograms?|decays?|gaussian|exponential|polynomial|straight line|parameters|residuals|calibration|resonance|lineshape`;
-/** Words that make "simulate" or "prove" about physics or mathematics. */
-const PHYSICS = String.raw`physics|particles?|ODEs?|PDEs?|equations?|trajectories|trajectory|orbits?|time ?steps?|dynamics|lattice|n-body|monte[- ]?carlo|diffusion|ising|spins?|fluid|potential|hamiltonian|lagrangian|integral|identity|formula|operator|theorem|wave ?function|eigenvalues?`;
-
-/**
  * Skill -> what a request that needs it tends to say. Order is priority.
  *
  * Every word here is one that everyday software work does not use the same
  * way. Those that it does ("report", "constant", "integration", "propagate",
  * "systematic", "efficiency", "coupling", "fit", "regression", "simulate",
  * "lifetime") count only with a qualifier or with physics or data in the
- * request. tests/test_skill_router.py runs this table against both kinds of
- * request.
+ * request. A `^(?=...)(?=...)` alternative is that second kind: both words
+ * anywhere in the request - "fit" with "data", "curve", "peak"..., but not
+ * "fits on one line" or "overrides fit()". tests/test_skill_router.py runs this
+ * table against both kinds of request.
  */
 export const ROUTES: Array<[string, RegExp]> = [
-	["data-fitting", new RegExp(String.raw`^(?=[\s\S]*\b(fit|fits|fitting|fitted|slopes?|calibrat\w*)\b(?!\s*\())(?=[\s\S]*\b(${DATA})\b)|\b(half[- ]?li(fe|ves)|decay (constant|curve|rate)s?|chi2|chi-?squared?|χ²|least[- ]squares|curve_fit|iminuit|lmfit|best[- ]fit|goodness[- ]of[- ]fit|fit (function|range|parameters|results?|quality)|(linear|polynomial|logistic|nonlinear|weighted) regression|pulls)\b`, "i")],
+	["data-fitting", /^(?=[\s\S]*\b(fit|fits|fitting|fitted|slopes?|calibrat\w*)\b(?!\s*\())(?=[\s\S]*\b(data|dataset|points|measure\w*|curves?|spectr\w*|peaks?|counts|events|histograms?|decays?|gaussian|exponential|polynomial|straight line|parameters|residuals|calibration|resonance|lineshape)\b)|\b(half[- ]?li(fe|ves)|decay (constant|curve|rate)s?|chi2|chi-?squared?|χ²|least[- ]squares|curve_fit|iminuit|lmfit|best[- ]fit|goodness[- ]of[- ]fit|fit (function|range|parameters|results?|quality)|(linear|polynomial|logistic|nonlinear|weighted) regression|pulls)\b/i],
 	["statistics-and-significance", /\b(p-?values?|\d+(\.\d+)?\s*(σ|sigma)|(statistical|discovery|observed|expected|local|global) significance|statistically significant|confidence (level|interval|belt)s?|credible intervals?|upper limits?|CLs (method|limits?|values?)|exclusion (limit|contour|region)s?|(null|alternative|background[- ]only|signal[- ]plus[- ]background) hypothes[ie]s|likelihood[- ]ratio|test statistic|look[- ]elsewhere|feldman[- ]cousins|(detector|trigger|selection|reconstruction|tagging|signal|cut|event|identification) efficienc(y|ies)|efficiency (correction|map|curve)s?)\b/i],
 	["uncertainty-propagation", /\b(uncertaint(y|ies)|error bars?|error propagation|(statistical|systematic|measurement) (errors?|uncertaint\w*)|systematics|significant figures|sig figs|weighted (average|mean)s?|(in|added in) quadrature|covariance matrix|correlated (errors|inputs|uncertaint\w*))\b/i],
 	["histogram-analysis", /\b(histograms?|binning|(equal|variable|log|fixed|fine|coarse|\d+) bins|bin (width|edges|contents|counts?)|cut ?flow|event selection|uproot|TTree|TH1\w*|ROOT files?)\b/i],
-	["derivation-checks", new RegExp(String.raw`\b(derive(?!\s*(\(|from\b))|deriving(?!\s*(\(|from\b))|derivations?|derivatives?|closed[- ]form|analytic(al)? (solution|result|expression|form|continuation)s?|analytically|dimensional analysis|limiting cases?|natural units|sympy)\b|^(?=[\s\S]*\b(prove|show that)\b)(?=[\s\S]*\b(${PHYSICS})\b)`, "i")],
-	["numerical-methods", new RegExp(String.raw`\b(ODEs?|PDEs?|differential equations?|numerical(ly)? (integrat\w*|solution|methods?|stability|precision|error)|numerically (stable|unstable|solve|integrat\w*|evaluat\w*|comput\w*|approximat\w*)|integrat(e|ing|ion) (this |the |an? )?(ODEs?|PDEs?|equations?|system|trajector(y|ies)|orbits?|over|from)|integrators?|integrals? (of|over|from)|quadrature (rule|method|integration)|monte[- ]?carlo|convergence (stud(y|ies)|tests?|checks?|order|rate|criteri\w*)|(order|rate) of convergence|stiff(ness)?( ODEs?| systems?| equations?| problems?| solvers?)?|eigen(value|vector|state|function|mode|system|problem|decomposition)s?|root[- ]find(ing|er)|newton[- ]raphson|runge[- ]kutta|RK4|solve_ivp|odeint|finite[- ](difference|element|volume)s?|floating[- ]point (error|precision|rounding)|round[- ]?off error|catastrophic cancellation|condition number|ill[- ]conditioned)\b|^(?=[\s\S]*\bsimulat\w*)(?=[\s\S]*\b(${PHYSICS})\b)`, "i")],
+	["derivation-checks", /\b(derive(?!\s*(\(|from\b))|deriving(?!\s*(\(|from\b))|derivations?|derivatives?|closed[- ]form|analytic(al)? (solution|result|expression|form|continuation)s?|analytically|dimensional analysis|limiting cases?|natural units|sympy)\b|^(?=[\s\S]*\b(prove|show that)\b)(?=[\s\S]*\b(equations?|formula|identity|integral|expression|theorem|lemma|operator|commutator|hamiltonian|lagrangian|potential|eigenvalues?|inequality|series)\b)/i],
+	["numerical-methods", /\b(ODEs?|PDEs?|differential equations?|numerical(ly)? (integrat\w*|solution|methods?|stability|precision|error)|numerically (stable|unstable|solve|integrat\w*|evaluat\w*|comput\w*|approximat\w*)|integrat(e|ing|ion) (this |the |an? )?(ODEs?|PDEs?|equations?|system|trajector(y|ies)|orbits?|over|from)|integrators?|integrals? (of|over|from)|quadrature (rule|method|integration)|monte[- ]?carlo|convergence (stud(y|ies)|tests?|checks?|order|rate|criteri\w*)|(order|rate) of convergence|stiff(ness)?( ODEs?| systems?| equations?| problems?| solvers?)?|eigen(value|vector|state|function|mode|system|problem|decomposition)s?|root[- ]find(ing|er)|newton[- ]raphson|runge[- ]kutta|RK4|solve_ivp|odeint|finite[- ](difference|element|volume)s?|floating[- ]point (error|precision|rounding)|round[- ]?off error|catastrophic cancellation|condition number|ill[- ]conditioned)\b|^(?=[\s\S]*\bsimulat\w*)(?=[\s\S]*\b(physics|particles?|ODEs?|PDEs?|equations? of motion|trajector(y|ies)|orbits?|time ?steps?|dynamics|lattice|n-body|monte[- ]?carlo|diffusion|ising|spins?|fluid|heat|waves?|pendulum|oscillators?|planet\w*|molecul\w*)\b)/i],
 	["physical-constants", /\b((physical|fundamental|physics) constants?|(planck|boltzmann|avogadro|gravitational|fine[- ]structure|rydberg|coulomb|stefan[- ]boltzmann|hubble|fermi|coupling) constants?|speed of light|elementary charge|(electron|proton|neutron|muon|pion|kaon|higgs|top quark|[WZ] boson) (mass|charge|lifetime|width)|(masses|mass|lifetimes?|widths?) of (the )?(electron|proton|neutron|muon|tau|pion|kaon|higgs|top|bottom|charm|[a-z]+ quark|[WZ]|[WZ] boson|B meson|D meson|neutrinos?|nucle(us|i)|particles?|mesons?|baryons?|hadrons?|leptons?)|branching (ratio|fraction)s?|(strong|weak|electromagnetic|yukawa|gauge) couplings?|PDG|CODATA|particle data group)\b/i],
 	["physics-documents", /\b(slides|slide ?deck|beamer|lectures?|lecture notes|problem sheets?|lab reports?|(physics|research|scientific|journal|conference) (paper|report|article)s?|(write|draft)( up)? (a |the |my )?(paper|thesis)|thesis|dissertation|latex|\.tex|bibtex|siunitx|overleaf)\b/i],
 	["scientific-cpp", /(\bC\+\+|\bcpp\b|\bcmake\b|\bEigen\b|\bGSL\b|\bg\+\+|\bclang\b|\bROOT macros?\b)/i],
