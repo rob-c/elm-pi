@@ -15,7 +15,7 @@ cd "$HERE"
 CONFIG_TOOL="$HERE/scripts/elm_config.py"
 
 WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; FORCE=0
-WITH_TOOLS=1; WITH_PATCH=1; FORCE_PACKAGES=0; RESET_OPTIONS=0
+WITH_TOOLS=1; WITH_PATCH=1; WITH_PYTHON=1; FORCE_PACKAGES=0; RESET_OPTIONS=0
 # The --no-* flags this run was given, for agent/install-options (see below).
 GIVEN_FLAGS=""
 TMP=""; TOOLS_TMP=""; CORE_STAGE=""; PKG_STAGE=""; VERIFY_ERR=""
@@ -57,7 +57,8 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
                       and pi too if it is not at its tested version
 
   --no-packages       pi only: no sub-agents, web access or anchor edit
-  --no-tools          skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
+  --no-tools          skip the bundled fd/rg/jq/yq/shellcheck/ast-grep/uv
+  --no-python         skip the agent's own Python (agent/python, ~1GB)
   --no-shim           skip the Llama tool-call shim
   --no-patch          leave pi's /share and /bug commands in place
   --no-auth-lock      leave agent/auth.json writable, so /login works
@@ -71,7 +72,7 @@ the installer - so an update keeps the install you chose.
 
 Environment: ELM_PI_PYTHON, ELM_PI_BUNDLED_PYTHON, ELM_PI_NODE_VERSION, ELM_PI_NPM_USERCONFIG,
 PI_VERSION, ELM_PI_TOOLS, FD_VERSION, RG_VERSION, JQ_VERSION, YQ_VERSION,
-SHELLCHECK_VERSION, ASTGREP_VERSION.
+SHELLCHECK_VERSION, ASTGREP_VERSION, UV_VERSION.
 
 Your shell's conda/venv/pyenv Python, nvm/volta Node, ~/.npmrc, ~/.npm and
 PYTHON*/NODE_*/npm_config_* variables are ignored: see lib/sandbox.sh.
@@ -85,7 +86,7 @@ for arg in "$@"; do
 done
 for arg in "$@"; do
   case "$arg" in
-    --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch)
+    --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--no-python)
       case " $GIVEN_FLAGS " in *" $arg "*) ;; *) GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$arg" ;; esac ;;
     --non-interactive) INTERACTIVE=0 ;;
     --update) UPDATE=1 ;;
@@ -102,6 +103,7 @@ apply_flag() {
     --no-auth-lock) AUTH_LOCK=0 ;;
     --no-tools) WITH_TOOLS=0 ;;
     --no-patch) WITH_PATCH=0 ;;
+    --no-python) WITH_PYTHON=0 ;;
   esac
 }
 
@@ -161,7 +163,7 @@ if [ "$RESET_OPTIONS" = "1" ]; then
 fi
 REPEATED=""
 for flag in $SAVED_FLAGS; do
-  case "$flag" in --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch) ;; *) continue ;; esac
+  case "$flag" in --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--no-python) ;; *) continue ;; esac
   case " $GIVEN_FLAGS " in *" $flag "*) continue ;; esac
   GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$flag"; REPEATED="$REPEATED $flag"
 done
@@ -549,6 +551,8 @@ fi
 #   - yq          the same for YAML          - CI configs, k8s, conda envs
 #   - shellcheck  lints shell before it runs - this install is mostly bash
 #   - ast-grep    structural search and rewrite by syntax tree, not by regex
+#   - uv          Python interpreters, environments and packages - builds the
+#                 agent's own Python below, and installs into it later
 #
 # (The list marker is not decoration: a comment whose first word is the name of
 # a certain linter is read by that linter as a directive, and it then refuses to
@@ -567,8 +571,9 @@ fi
 #   FD_VERSION=10.5.0   pin any of them      (checksums: templates/tools.sha256)
 #   RG_VERSION=15.2.0   JQ_VERSION=1.8.2     YQ_VERSION=4.53.6
 #   SHELLCHECK_VERSION=0.11.0                ASTGREP_VERSION=0.45.3
+#   UV_VERSION=0.12.24
 if [ "$WITH_TOOLS" = "1" ]; then
-  TOOLSET="${ELM_PI_TOOLS:-fd,rg,jq,yq,shellcheck,ast-grep}"
+  TOOLSET="${ELM_PI_TOOLS:-fd,rg,jq,yq,shellcheck,ast-grep,uv}"
   want_tool() { case ",$TOOLSET," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
   say "command-line tools (${TOOLSET//,/, })"
   # Three projects, three naming schemes: Rust triples, Go's os_arch, and jq's
@@ -599,6 +604,7 @@ if [ "$WITH_TOOLS" = "1" ]; then
   YQ_VERSION="${YQ_VERSION:-4.53.6}"
   SHELLCHECK_VERSION="${SHELLCHECK_VERSION:-0.11.0}"
   ASTGREP_VERSION="${ASTGREP_VERSION:-0.45.3}"
+  UV_VERSION="${UV_VERSION:-0.12.24}"
 
   # Archives are cached per user, keyed tool/version/asset, so a second install
   # - a new prefix, another machine account, a rebuilt install - extracts what
@@ -702,10 +708,71 @@ if [ "$WITH_TOOLS" = "1" ]; then
   # Only ast-grep is installed; shadowing `sg` on PATH would be rude.
   install_tool ast-grep "$ASTGREP_VERSION" "app-$GNU_TRIPLE.zip" \
     "$GH/ast-grep/ast-grep/releases/download/$ASTGREP_VERSION/app-$GNU_TRIPLE.zip" ""
+  # The archive also has uvx, which is only `uv tool run`.
+  install_tool uv "$UV_VERSION" "uv-$TRIPLE.tar.gz" \
+    "$GH/astral-sh/uv/releases/download/$UV_VERSION/uv-$TRIPLE.tar.gz" \
+    "$GH/astral-sh/uv/releases/download/$UV_VERSION/uv-$TRIPLE.tar.gz.sha256"
   echo "    agent/bin is $(du -sh agent/bin 2>/dev/null | awk '{print $1}'), cache $(du -sh "$TOOL_CACHE" 2>/dev/null | awk '{print $1}' || echo 0B) in $TOOL_CACHE"
 else
   say "command-line tools"
   echo "    skipped (--no-tools): the system's own fd/rg/jq/... are used instead"
+fi
+
+# --- 3c. the agent's Python ---------------------------------------------------
+# A researcher's machine may have no Python with numpy in it, or one that
+# belongs to a conda env the agent should not install into - and nothing could
+# be installed from a session. So the agent gets its own: a CPython that uv
+# downloads (python-build-standalone, no system libraries needed), a venv with
+# pip seeded, and python.packages from config/elm-pi.json. The launcher puts it
+# on PATH unless pi was started from a venv or a non-base conda env, and the
+# egress proxy lets PyPI through (proxyAllow), so the agent can add packages
+# to it in any session. Everything is in agent/python - rm -rf takes the lot.
+#
+# Re-runs keep the environment and whatever the agent installed into it; the
+# configured packages are installed again when the list, the Python version or
+# uv changes, upgraded by --update, and reinstalled by --force.
+#
+#   --no-python   skip it; the agent uses whatever python3 is on PATH
+if [ "$WITH_PYTHON" = "1" ]; then
+  say "the agent's Python (agent/python)"
+  if [ ! -x agent/bin/uv ]; then
+    warn "uv is not in agent/bin (--no-tools, or ELM_PI_TOOLS without uv) - skipped"
+  else
+    # The account's uv settings are not this install's: no uv.toml, no index or
+    # cache variables from the shell.
+    for _v in $(compgen -e | grep '^UV_' || true); do unset "$_v"; done
+    export UV_NO_CONFIG=1
+    export UV_PYTHON_INSTALL_DIR="$HERE/agent/python/interpreters"
+    export UV_CACHE_DIR="$HERE/agent/python/cache"
+    PY_ENV="agent/python/env"
+    PY_VERSION="$(elm_py "$CONFIG_TOOL" --root "$HERE" value pythonVersion)" || die "cannot read python.version"
+    PY_PACKAGES="$(elm_py "$CONFIG_TOOL" --root "$HERE" value pythonPackages)" || die "cannot read python.packages"
+    PY_STAMP="agent/python/.elm-pi-packages"
+    PY_WANT="$PY_VERSION $("agent/bin/uv" --version 2>/dev/null) $PY_PACKAGES"
+    if [ ! -x "$PY_ENV/bin/python" ]; then
+      echo "    CPython $PY_VERSION (uv-managed) and a venv in $PY_ENV"
+      agent/bin/uv venv --quiet --seed --managed-python --python "$PY_VERSION" "$PY_ENV" \
+        || die "could not create the agent's Python environment (re-run, or skip it with --no-python)"
+    fi
+    if [ "$FORCE" = "1" ] || [ "$UPDATE" = "1" ] || [ "$(cat "$PY_STAMP" 2>/dev/null)" != "$PY_WANT" ]; then
+      _upgrade=()
+      [ "$UPDATE" = "1" ] && _upgrade=(--upgrade)
+      [ "$FORCE" = "1" ] && _upgrade=(--reinstall)
+      echo "    installing: $PY_PACKAGES"
+      # shellcheck disable=SC2086 # the package list is words by design
+      if agent/bin/uv pip install --quiet --python "$PY_ENV/bin/python" ${_upgrade[@]+"${_upgrade[@]}"} $PY_PACKAGES; then
+        printf '%s\n' "$PY_WANT" > "$PY_STAMP"
+      else
+        warn "some packages did not install; the environment works, and the next run tries again"
+      fi
+    else
+      echo "    $PY_ENV: Python $PY_VERSION, packages unchanged"
+    fi
+    echo "    $("$PY_ENV/bin/python" --version 2>&1), $(du -sh agent/python 2>/dev/null | awk '{print $1}') in agent/python"
+  fi
+else
+  say "the agent's Python"
+  echo "    skipped (--no-python): the agent uses the python3 on PATH"
 fi
 
 # --- installer-owned settings ------------------------------------------------

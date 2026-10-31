@@ -94,6 +94,8 @@ class RoutingTableTests(unittest.TestCase):
         "use the fine-structure constant from CODATA": "physical-constants",
         "add the systematic uncertainties in quadrature": "uncertainty-propagation",
         "now plot it": "scientific-python",
+        "compile the paper to pdf": "containers",
+        "pdflatex is not installed, use docker": "containers",
     }
 
     def test_software_requests_route_nothing(self):

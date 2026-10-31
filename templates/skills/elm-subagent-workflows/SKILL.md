@@ -143,7 +143,7 @@ that the children succeeded and the script did not.
 
 The routing rule, per child: **whoever has to decide gets Qwen.** Llama is not a
 default and not faster (measured in `elm-delegation`): use it only when Qwen is
-rate-limited or the user asks to save allocation, and only when all three hold:
+rate-limited or the user asks for Llama, and only when all three hold:
 
 1. the task is fully specified, with nothing left to decide
 2. it is confined to one named file, or to no files at all

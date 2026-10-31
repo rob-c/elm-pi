@@ -105,7 +105,8 @@ Two things people get wrong:
 | `--update` | the latest pi and extension packages, kept only if the checks pass; keep configs (what `pi update` runs) |
 | `--force-packages` | reinstall the extension packages at the tested versions, and pi too if it is not at its tested version (what `pi update --extensions` runs) |
 | `--no-packages` | pi only: no sub-agents, web access or anchor editing |
-| `--no-tools` | do not bundle fd, rg, jq, yq, shellcheck and ast-grep |
+| `--no-tools` | do not bundle fd, rg, jq, yq, shellcheck, ast-grep and uv (and so no agent Python either) |
+| `--no-python` | do not build the agent's own Python environment in `agent/python` |
 | `--no-shim` | no Llama tool-call shim (Qwen unaffected) |
 | `--no-auth-lock` | leave `agent/auth.json` writable, so `/login` works |
 | `--no-patch` | leave pi's `/share` and `/bug` commands in place |
@@ -139,7 +140,11 @@ pi --remote --fast -p "..." # open proxy, but --fast loads no web tools
 ```
 
 It lifts exactly two things — the web tools come back on, and the egress proxy
-stops allowing only the ELM gateway. **The model policy is untouched**: the
+stops allowing only the ELM gateway and PyPI — and adds one: computer use
+(`@injaneity/pi-computer-use`), which lets the agent see the screen and drive
+apps and browsers through the accessibility API. It loads in that session
+only, never in its sub-agents; on macOS the first use asks for Accessibility
+and Screen Recording for its helper, which lives in `agent/helpers/`. **The model policy is untouched**: the
 credential scrub, the argument guard and the catalogue strip all stay, so
 inference still goes to ELM, no other provider becomes reachable or visible,
 and Qwen is still the model. Telemetry and the version check stay off, as they
@@ -216,9 +221,12 @@ pi install.
 | `agent/extensions/todo.ts` | adds a `todo` tool for multi-step work |
 | `agent/extensions/pinned-instructions.ts` | `pin_instruction`: standing instructions kept in the system prompt, where compaction cannot summarise them away |
 | `agent/extensions/skill-router.ts` | adds the skills a request needs (see [Skills](#skills-and-the-skill-router)) |
+| `agent/extensions/view-outputs.ts` | shows Qwen its figures: image and PDF files a command writes are attached to its result, `view` renders PDF pages (with their text) and TIFF/BMP, and a PDF given to `read` is rendered. Uses the bundled `mupdf` (WebAssembly; nothing downloaded at run time). SVG, EPS/PS, HEIC and PSD go through a command-line converter first (rsvg-convert, Inkscape, ImageMagick, Ghostscript, epstopdf; sips and qlmanage on macOS) when the machine has one |
 | `agent/extensions/workflow-model-scope.ts` | keeps Dynamic Workflows agents on ELM models |
 | `agent/extensions/subagent/config.json` | fan-out budget: 8 concurrent, 64 per run |
 | `agent/bin/pi` | symlink to the launcher, so sub-agent children find `pi` whatever PATH looks like |
+| `agent/python/` | the agent's Python: uv-managed CPython, `env/` (the venv on PATH), uv's cache |
+| `agent/helpers/` | the computer-use helper, created on first use in a `pi --remote` session |
 | `agent/web-search.json` | DuckDuckGo then Exa; `unpdf` for PDFs |
 | `agent/install-options` | the options this install was made with, repeated by later runs |
 | `agent/installed-versions.json` | the exact pi and package versions installed, written after the checks pass |
@@ -233,7 +241,7 @@ pi resolves `npm:<name>` from `agent/npm/node_modules`. Bootstrap installs
 directory, at the versions in `config/versions.json`, and swaps the tree into
 place once every listed package is present. No package install script runs.
 
-The set is thirteen packages; `templates/packages.json` is the list. The three
+The set is fourteen packages (computer use loads only with `pi --remote`); `templates/packages.json` is the list. The three
 that shape the agent most:
 
 | Package | |
@@ -440,11 +448,39 @@ and not on a login node someone else administers:
 | `yq` | the same for YAML | CI configs, k8s manifests, conda envs |
 | `shellcheck` | lints shell before it runs | this install is mostly bash; it found a stray character in `install.sh` the first time it was pointed at it |
 | `ast-grep` | structural search and rewrite, by syntax tree rather than by regex | the thing `rg` cannot do |
+| `uv` | Python interpreters, environments and packages | builds the agent's Python, below, and installs into it |
 
-All six are a single static binary from the project's own GitHub release,
+All seven are a single static binary from the project's own GitHub release,
 pinned and sha256-checked, installed the same way and deleted the same way.
 `ELM_PI_TOOLS=fd,rg,jq` installs a subset: `shellcheck` and `ast-grep` are 35 MB
 and 51 MB, against ~23 MB for the other four.
+
+### The agent's Python
+
+With `uv` in place, bootstrap builds `agent/python`: a uv-managed CPython
+(`python.version` in `config/elm-pi.json`), a venv with pip, and the packages in
+`python.packages` - numpy, scipy, pandas, matplotlib, openpyxl, xlsxwriter,
+pyarrow, h5py, uproot, iminuit, sympy, jupytext, nbformat, nbconvert and
+ipykernel. The launcher puts it on `PATH` after `agent/bin`, so `python3` and
+`pip` in the agent's shell are this environment - unless pi was started from an
+active venv or a conda env other than `base`, which then stays first. The egress
+proxy lets PyPI through, so the agent can `pip install` what a task needs into
+it in any session. Re-runs keep what it installed; the configured list is
+upgraded by `--update` and reinstalled by `--force`. `--no-python` skips the
+whole thing.
+
+### Containers
+
+Software that pip cannot supply - a full TeX Live, pandoc - the agent runs in
+Docker or Podman, if the machine has one running (Docker Desktop or a Podman
+machine on macOS; either on Linux). Installing the engine is yours to do; elm-pi
+only governs how the agent uses it. Images can be pulled, and every container
+runs with `--network=none` - the permission gate refuses a `run` or `create`
+without it, because a container's traffic does not pass through the egress
+proxy. `push`, `login` and remote engines are refused, `build` and `compose`
+ask. The `containers` skill has the commands and the images (for LaTeX:
+`texlive/texlive:latest-medium`, or `latest` for everything); LOCKDOWN.md has
+the reasoning.
 
 `fd` and `rg` are also the two pi will otherwise download for itself, so they
 are the two that must be there before the first launch. The others only need to

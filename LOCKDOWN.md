@@ -177,6 +177,18 @@ run to HTML and publish it with `gh gist create`. It is off unless
 `agent/extensions/subagent/config.json` sets `"share": true`, and that file now
 says `"share": false` explicitly rather than relying on the default.
 
+**Computer use is `--remote` only.** `@injaneity/pi-computer-use` lets the
+agent see the screen and drive apps through the macOS accessibility API
+(AT-SPI on Linux), browsers included - and a logged-in browser goes anywhere,
+past the proxy entirely. So it is installed with the other packages but is not
+in `settings.json`'s list: the launcher loads it with `-e` only for a
+`pi --remote` session, never for a sub-agent child. Its own setup would put a
+helper app in `~/Applications` and generate a code-signing certificate in the
+login keychain; the launcher points it at `agent/helpers/` instead and has it
+signed ad hoc, so nothing outside the install changes. macOS asks once for
+Accessibility and Screen Recording for that helper, and both can be revoked in
+System Settings > Privacy & Security.
+
 Dynamic Workflows (`@quintinshaw/pi-dynamic-workflows`) **is** loaded by the
 default package set, knowingly: its global model-policy hook can be overridden
 by an individual workflow script. Its guard, `workflow-model-scope.ts`, is a
@@ -232,11 +244,23 @@ browser profiles, Mail and Messages, other agents' state (`~/.pi`,
 The layers above shape what pi *offers*. This one checks where it *goes*.
 
 The launcher starts a small allowlisting proxy on loopback, points pi's
-`HTTPS_PROXY` at it, and refuses to start if it cannot. The allowlist has one
-entry — the ELM host, taken from `ELM_BASE_URL` so it cannot drift from the
-gateway the shim uses. Everything else gets `403` and a line in
+`HTTPS_PROXY` at it, and refuses to start if it cannot. The allowlist is the
+ELM host, taken from `ELM_BASE_URL` so it cannot drift from the gateway the
+shim uses, and PyPI (below). Everything else gets `403` and a line in
 `agent/egress.log`, with the hostname and a timestamp, so a call that should
 not be happening can be stopped at source rather than merely blocked.
+
+**PyPI is on the list** - `pypi.org` and `files.pythonhosted.org`,
+`proxyAllow` in `config/elm-pi.json` - so the agent can install Python packages
+into its own environment (`agent/python`, built by bootstrap with uv) without
+`--remote`. What that costs, said plainly: every process the agent runs can
+reach those two hosts, subdomains included. Downloads are public and read-only,
+and uploading needs a PyPI token (`~/.pypirc` is on the agent's denied paths),
+but a request URL can still carry a little data out - a package name is text
+the agent chooses - and an installed package runs its own code with this
+install's access. The trade is the same one `pip` on any workstation makes. To
+take it back, empty `proxyAllow.hosts` and re-run `bootstrap.sh`; the agent's
+environment and the packages already in it stay usable offline.
 
 No certificate, no interception, no decryption: HTTPS through a proxy opens
 with a plaintext `CONNECT host:443`, which is all an allowlist needs. The
@@ -289,6 +313,19 @@ pi-permission-system's `bash` rules deny:
   `telnet`, `ftp`, `lftp`, `rclone`;
 - tunnels that open this machine to remote control: `ngrok`, `cloudflared`,
   `tailscale serve`/`funnel`/`file`.
+
+Docker and Podman get the same treatment, because a container's network does
+not pass through the proxy (Docker's engine, and Podman on macOS, live in their
+own daemon or VM). The agent may pull images and run them, but every
+`run`/`create` must carry `--network=none`; the rest are denied with that
+reason. `push`, `login` and a remote engine (`-H`, `--context`,
+`podman --remote`/`--connection`) are denied; `build` and `compose` ask,
+since a Dockerfile's `RUN` steps have an open network. The registries are on
+the proxy's list for a Podman that pulls through it. A bind mount bypasses the
+agent's path protections, so the `containers` skill mounts only the project
+folder - a rule of practice, not one the gate can check. The same caveats as
+below apply: `--network=none` is matched as text anywhere in the command, and
+a `DOCKER_HOST` set in the environment is not seen.
 
 Each denial tells the model why, so it stops rather than retrying around it.
 The rules see through chains (`cd x && ssh ...`) and through `env`, `xargs`,

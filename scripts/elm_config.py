@@ -46,6 +46,7 @@ def write_runtime(root: Path) -> None:
         # One path per line: some of them have spaces in them.
         "ELM_UNTRUSTED_EXACT": "\n".join(config["untrustedFolders"]["exact"]),
         "ELM_UNTRUSTED_TREE": "\n".join(config["untrustedFolders"]["tree"]),
+        "ELM_PROXY_ALLOW": ",".join(config["proxyAllow"]["hosts"]),
     }
     path = root / "agent/runtime.env"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -121,6 +122,10 @@ def main() -> int:
         config, models = load(root)
         if args.key == "nodeVersion":
             print(config[args.key])
+        elif args.key == "pythonVersion":
+            print(config["python"]["version"])
+        elif args.key == "pythonPackages":
+            print(" ".join(config["python"]["packages"]))
         elif args.key in models:
             print(models[args.key])
         else:

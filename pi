@@ -190,6 +190,30 @@ elm_select_python "$HERE" fast || {
   exit 1
 }
 
+# --- the agent's Python -------------------------------------------------------
+# bootstrap.sh builds agent/python/env: a uv-managed CPython with the analysis
+# stack (python.packages in config/elm-pi.json), pip seeded, and PyPI reachable
+# through the proxy, so the agent can install what a task needs without
+# touching the system Python. It goes on PATH after agent/bin - so `python3`
+# and `pip` are this environment - unless the researcher started pi from an
+# environment of their own: an active venv, or a conda env other than base,
+# stays first, because that is the one their project uses.
+#
+# uv's interpreters and cache stay inside the install too, as everything else
+# here does; a project's own `uv venv`/`uv run` works as usual on top.
+AGENT_PY_ENV="$HERE/agent/python/env"
+if [ -x "$AGENT_PY_ENV/bin/python" ]; then
+  export ELM_PI_AGENT_PYTHON="$AGENT_PY_ENV/bin/python"
+  export UV_PYTHON_INSTALL_DIR="$HERE/agent/python/interpreters"
+  export UV_CACHE_DIR="$HERE/agent/python/cache"
+  if [ -z "${VIRTUAL_ENV:-}" ] && { [ -z "${CONDA_DEFAULT_ENV:-}" ] || [ "${CONDA_DEFAULT_ENV:-}" = "base" ]; }; then
+    case ":$PATH:" in
+      *":$AGENT_PY_ENV/bin:"*) ;;   # a sub-agent child, started from a session that already has it
+      *) PATH="$HERE/agent/bin:$AGENT_PY_ENV/bin:${PATH#"$HERE/agent/bin:"}"; export PATH ;;
+    esac
+  fi
+fi
+
 # --- where jiti keeps its transpile cache -----------------------------------
 # The npm packages ship raw TypeScript and are transpiled at first use: ~21s of
 # CPU, cached in $TMPDIR/jiti and reused by every later launch. bootstrap.sh
@@ -402,6 +426,27 @@ if [ "$REMOTE" = "1" ]; then
 fi
 
 PRE=()
+
+# --- computer use, with --remote only ----------------------------------------
+# @injaneity/pi-computer-use lets the agent see the screen and drive apps through
+# the macOS accessibility API (and Linux's AT-SPI), browsers included. A logged-in
+# browser reaches anything, past the egress proxy entirely, so it loads only in
+# a run that has already opened the network: it is installed with the other
+# packages but is not in settings.json's list, and sub-agent children never get
+# it. Its helper app is kept inside this install and signed ad hoc - its own
+# setup would otherwise put it in ~/Applications and generate a code-signing
+# certificate in the login keychain. macOS asks once for Accessibility and
+# Screen Recording for that helper (System Settings > Privacy & Security).
+CU_EXT="$HERE/agent/npm/node_modules/@injaneity/pi-computer-use/extensions/computer-use.ts"
+if [ "$REMOTE" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] && [ -f "$CU_EXT" ]; then
+  PRE+=(-e "$CU_EXT")
+  export PI_COMPUTER_USE_HELPER_APP_PATH="$HERE/agent/helpers/pi-computer-use.app"
+  export PI_COMPUTER_USE_LINUX_HELPER_PATH="$HERE/agent/helpers/linux-bridge"
+  export PI_COMPUTER_USE_WINDOWS_HELPER_PATH="$HERE/agent/helpers/windows-bridge.exe"
+  export PI_COMPUTER_USE_CODESIGN_IDENTITY="-"
+  echo "    computer use is on for this run: the agent can see the screen and drive apps." >&2
+fi
+
 LLAMA_MODEL="elm-shim/$ELM_LLAMA_MODEL_ID"
 WANTS_SHIM=$LLAMA
 case " $* " in *" elm-shim"*|*"elm-shim/"*) WANTS_SHIM=1 ;; esac
@@ -688,7 +733,9 @@ if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
   ELM_HOST="$(printf '%s' "${ELM_BASE_URL:-https://elm.edina.ac.uk/api/v1}" \
               | sed -e 's|^[a-zA-Z]*://||' -e 's|[:/].*$||')"
   [ -n "$ELM_HOST" ] || refuse_unproxied "could not work out the ELM host from ELM_BASE_URL."
-  PROXY_ALLOW="$ELM_HOST${ELM_PI_PROXY_ALLOW:+,$ELM_PI_PROXY_ALLOW}"
+  # Plus the hosts every session may reach (proxyAllow in config/elm-pi.json:
+  # PyPI, so the agent can install Python packages), plus any for this run.
+  PROXY_ALLOW="$ELM_HOST${ELM_PROXY_ALLOW:+,$ELM_PROXY_ALLOW}${ELM_PI_PROXY_ALLOW:+,$ELM_PI_PROXY_ALLOW}"
 
   # A proxy already in the environment is a campus proxy, not an obstacle:
   # chain to it rather than routing around it.

@@ -5,6 +5,7 @@
     "@gotgenes/pi-permission-system": "latest",
     "@henryqw/pi-auto-compact": "latest",
     "@henryqw/pi-task-models": "latest",
+    "@injaneity/pi-computer-use": "latest",
     "@juicesharp/rpiv-ask-user-question": "latest",
     "@pify/btw": "latest",
     "@quintinshaw/pi-dynamic-workflows": "latest",

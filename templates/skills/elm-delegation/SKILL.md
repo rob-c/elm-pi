@@ -170,7 +170,7 @@ searches come back 403. Send web research to `researcher` only in a session
 started with `pi --remote`; otherwise say the session cannot reach the web.
 
 **`llama` is for rote execution of a fully specified change**, and only when
-Qwen is rate-limited or the user asks to save allocation. Applying a formatting
+Qwen is rate-limited or the user asks for Llama. Applying a formatting
 convention, generating boilerplate to a stated shape, a mechanical edit confined
 to one named file, running a command and reporting the output.
 

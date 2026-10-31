@@ -1,11 +1,13 @@
 {
   "core": {
-    "@earendil-works/pi-coding-agent": "1.4.0"
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "mupdf": "1.28.1"
   },
   "packages": {
     "@gotgenes/pi-permission-system": "42.0.0",
     "@henryqw/pi-auto-compact": "5.2.8",
     "@henryqw/pi-task-models": "9.2.0",
+    "@injaneity/pi-computer-use": "0.5.1",
     "@juicesharp/rpiv-ask-user-question": "2.15.0",
     "@pify/btw": "0.6.0",
     "@quintinshaw/pi-dynamic-workflows": "3.15.0",

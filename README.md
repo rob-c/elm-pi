@@ -69,9 +69,10 @@ lib/                launcher policy and private-state permission helpers
 scripts/ tests/     config rendering, checks and regression tests
 docs/               the GitHub Pages site
 shim/               Llama tool-call shim (Python, loopback only)
-proxy/              egress proxy: allowlists ELM, logs and refuses the rest
+proxy/              egress proxy: allowlists ELM and PyPI, logs and refuses the rest
 agent/              generated: PI_CODING_AGENT_DIR (config, extensions, skills, state)
-agent/bin/          generated: fd rg jq yq shellcheck ast-grep, pinned + checksummed
+agent/bin/          generated: fd rg jq yq shellcheck ast-grep uv, pinned + checksummed
+agent/python/       generated: the agent's own Python (uv-managed CPython + analysis stack)
 .node/ node_modules/  generated: Node 24 + pi, ~650 MB
 ```
 
@@ -155,7 +156,7 @@ wrapper's fault?".
 |---|---|
 | `--fast` | skip the npm package set, which is most of the startup time. The policy extensions and the permission gate still load. No sub-agents, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
 | `--llama` | Llama 3.3 70B via the local shim. A fallback, **not** a speed-up — Qwen is faster here. |
-| `--remote` | web tools on for this run, and the egress proxy records every destination instead of allowing only ELM. Models are unaffected: still ELM only. `PI_ELM_WEB=1` turns the tools on without opening the proxy. |
+| `--remote` | web tools and computer use (screen and app control) on for this run, and the egress proxy records every destination instead of allowing only ELM and PyPI. Models are unaffected: still ELM only. `PI_ELM_WEB=1` turns the tools on without opening the proxy. |
 | `--help` | the launcher's flags and environment, then pi's own help, run with this install's config, offline and with credentials scrubbed |
 
 | Command | |

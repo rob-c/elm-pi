@@ -47,7 +47,7 @@
     "agentOverrides": {
       "delegate": {
         "model": "elm-shim/@LLAMA_MODEL@",
-        "description": "Runs on Llama 3.3 70B through the shim, not the parent model. Numbered steps over one named file only, and only when Qwen is rate-limited or the user asks to save allocation; anything that needs deciding goes to qwen."
+        "description": "Runs on Llama 3.3 70B through the shim, not the parent model. Numbered steps over one named file only, and only when Qwen is rate-limited or the user asks for Llama; anything that needs deciding goes to qwen."
       },
       "oracle": {
         "model": "elm/@QWEN_MODEL@"

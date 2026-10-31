@@ -1,9 +1,9 @@
 ---
 name: llama
-description: Rote-execution subagent on Llama 3.3 70B via the local tool-call shim. USE ONLY when Qwen is rate-limited or the user asks to save allocation, and only for a fully specified change to one named file, given as numbered steps. Never give it a goal - it reports FINISHED having changed nothing.
+description: Rote-execution subagent on Llama 3.3 70B via the local tool-call shim. USE ONLY when Qwen is rate-limited or the user asks for Llama, and only for a fully specified change to one named file, given as numbered steps. Never give it a goal - it reports FINISHED having changed nothing.
 aliases: llama3, l
 model: elm-shim/@LLAMA_MODEL@
-excludeTools: contact_supervisor, web_search, fetch_content, get_search_content, source_check, web_enable, pin_instruction, unpin_instruction
+excludeTools: contact_supervisor, view, web_search, fetch_content, get_search_content, source_check, web_enable, pin_instruction, unpin_instruction
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false

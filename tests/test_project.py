@@ -192,7 +192,7 @@ class ProjectConsistencyTests(unittest.TestCase):
         routed = set(re.findall(r'\["([a-z-]+)", /', source))
         routed |= set(re.findall(r'return "(elm-[a-z-]+)"', source))
         skills = {p.parent.name for p in (ROOT / "templates/skills").glob("*/SKILL.md")}
-        self.assertEqual(13, len(skills))
+        self.assertEqual(14, len(skills))
         self.assertEqual(set(), routed - skills)          # never routes to a missing skill
         self.assertEqual(skills, routed)                  # and every skill is reachable
 

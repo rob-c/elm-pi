@@ -8,13 +8,21 @@ description: "Working conventions for scientific Python: choosing the right Pyth
 ## Which Python
 
 Use the environment the project uses: an activated conda env, a `.venv`, a
-`pyproject.toml`/`environment.yml`/`requirements.txt` in the project. Check
-before writing code: `python3 -c "import numpy, scipy; print(numpy.__version__, scipy.__version__)"`.
-**Never** `pip install` into the system Python or with `sudo`, and do not
-create environments the user did not ask for - packages cannot be downloaded
-from this session anyway (the egress proxy allows only the model gateway). If
-numpy/scipy are missing, say so and ask which environment to use; fall back to
-the standard library only for small, clearly-labelled calculations.
+`pyproject.toml`/`environment.yml`/`requirements.txt` in the project. Without
+one, `python3` is this install's own environment (`$ELM_PI_AGENT_PYTHON`):
+numpy, scipy, pandas, matplotlib, h5py, uproot, iminuit, sympy, openpyxl,
+xlsxwriter, pyarrow, jupytext, nbformat, nbconvert and ipykernel are already
+in it. Check before writing code:
+`python3 -c "import sys, numpy, scipy; print(sys.executable, numpy.__version__, scipy.__version__)"`.
+
+A package that is missing can be installed: the egress proxy lets PyPI
+through. Into this install's environment: `pip install <package>` (or the
+faster `uv pip install --python "$ELM_PI_AGENT_PYTHON" <package>`); into a
+project's `.venv`: `uv pip install --python .venv/bin/python <package>`. Say in
+the report what you installed and where. **Never** install into the system
+Python or a conda base environment, never with `sudo`, and do not create a new
+environment the user did not ask for. Packages come from PyPI only: a download
+from any other host is refused by the proxy.
 
 ## Code
 

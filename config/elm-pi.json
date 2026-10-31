@@ -1,5 +1,38 @@
 {
   "nodeVersion": "v24.21.0",
+  "proxyAllow": {
+    "_comment": "Hosts the egress proxy lets every session reach besides the ELM gateway (subdomains included). PyPI, so pip and uv can install Python packages into the agent's environment; the container registries, so a Podman that pulls through the proxy can fetch images (Docker's engine pulls by itself, outside it). See LOCKDOWN.md.",
+    "hosts": [
+      "pypi.org",
+      "files.pythonhosted.org",
+      "docker.io",
+      "production.cloudflare.docker.com",
+      "ghcr.io",
+      "pkg-containers.githubusercontent.com",
+      "quay.io"
+    ]
+  },
+  "python": {
+    "_comment": "The agent's own Python: a uv-managed CPython in agent/python, with these packages installed by bootstrap.sh. The agent can pip/uv install more into it from PyPI. --no-python skips it.",
+    "version": "3.12",
+    "packages": [
+      "numpy",
+      "scipy",
+      "pandas",
+      "matplotlib",
+      "openpyxl",
+      "xlsxwriter",
+      "pyarrow",
+      "h5py",
+      "uproot",
+      "iminuit",
+      "sympy",
+      "jupytext",
+      "nbformat",
+      "nbconvert",
+      "ipykernel"
+    ]
+  },
   "models": {
     "qwen": "Qwen/Qwen3.5-397B-A17B-FP8",
     "llama": "meta-llama/Llama-3.3-70B-Instruct"
@@ -124,7 +157,8 @@
     "workflow-model-scope.ts",
     "pinned-instructions.ts",
     "skill-router.ts",
-    "trust-guard.ts"
+    "trust-guard.ts",
+    "view-outputs.ts"
   ],
   "untrustedFolders": {
     "_comment": "Folders that are never a project: pi will not start a session in one (PI_FORCE=1 overrides) and project trust is never granted to one or inherited from one. 'exact' folders are containers - the folder itself, not what is under it; 'tree' folders hold credentials or the system, so everything under them counts. Every ancestor of home is added automatically. ~ is home. See LOCKDOWN.md.",

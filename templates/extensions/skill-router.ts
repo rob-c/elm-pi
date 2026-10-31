@@ -87,6 +87,7 @@ export const ROUTES: Array<[string, RegExp]> = [
 	["physics-documents", /\b(slides|slide ?deck|beamer|lectures?|lecture notes|problem sheets?|lab reports?|(physics|research|scientific|journal|conference) (paper|report|article)s?|(write|draft)( up)? (a |the |my )?(paper|thesis)|thesis|dissertation|latex|\.tex|bibtex|siunitx|overleaf)\b/i],
 	["scientific-cpp", /(\bC\+\+|\bcpp\b|\bcmake\b|\bEigen\b|\bGSL\b|\bg\+\+|\bclang\b|\bROOT macros?\b)/i],
 	["scientific-python", /\b(python|numpy|scipy|matplotlib|pandas|jupyter|ipynb|plot(s|ted|ting)?)\b/i],
+	["containers", /\b(docker|podman|texlive|tex live|latexmk|pdflatex|xelatex|lualatex|compile (the |this |my |a )?(pdf|latex|\.?tex|document|paper|thesis|slides))\b/i],
 ];
 const MAX_ROUTED = 4;
 /** How many of the matches are inlined in full rather than named. */

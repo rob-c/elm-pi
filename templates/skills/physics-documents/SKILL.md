@@ -28,7 +28,8 @@ description: "Producing lecture slides, notes, reports and papers in LaTeX/Beame
   `scientific-python`), included as PDF; the script is part of the
   deliverable.
 - Build with `latexmk -pdf main.tex` (or `pdflatex` twice) and fix every error
-  and undefined reference before reporting; give the page/slide count.
+  and undefined reference before reporting; give the page/slide count. No TeX
+  on the machine: build in a container (the `containers` skill).
 
 ## References
 

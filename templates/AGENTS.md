@@ -9,7 +9,7 @@ comes first.
    yourself when it is smaller than the round trip.
 2. Send a child to `qwen` whenever it has to decide anything. Send it to `llama`
    only with numbered steps over one named file, and only when Qwen is
-   rate-limited or the user asks to save allocation.
+   rate-limited or the user asks for Llama.
 3. Write a child's prompt to stand alone: exact paths, exactly what to do, exactly
    what to report, and whether it may write files. A `qwen` child starts with a
    copy of this conversation and a `llama` child starts empty; either way,
@@ -153,8 +153,17 @@ Told to call it, the same model answered correctly. So do not reason about wheth
 you can see an image - `read` the path and look. `pi-hashline-edit-pro` hands
 image paths to pi's builtin reader for exactly this.
 
+**`view` shows PDFs** - each page as an image with its text layer, up to 12
+pages per call (`pages: "13-24"` for more) - and TIFF/BMP, which `read` cannot.
+Image and PDF files a `bash` command writes in the working directory, or names
+by absolute path, are attached to that command's result automatically
+(`view-outputs` extension); a PDF given to `read` is rendered instead of
+rejected. SVG, EPS/PS and HEIC are converted first with whatever command-line
+tool the machine has (rsvg-convert, Inkscape, ImageMagick, Ghostscript,
+epstopdf; sips and qlmanage on macOS); with none, save PNG or PDF instead.
+
 Only `qwen` can do it. Llama through the shim is text-only, so any task with a
-screenshot, diagram or rendered page in it is a `qwen` task.
+screenshot, diagram, figure or rendered page in it is a `qwen` task.
 
 ## Editing: anchor-based (pi-hashline-edit-pro)
 
@@ -193,12 +202,15 @@ skill has been read. The physics skills: `data-fitting`,
 `uncertainty-propagation`, `statistics-and-significance`, `histogram-analysis`,
 `derivation-checks`, `numerical-methods`, `physical-constants`,
 `scientific-python`, `scientific-cpp`, `physics-documents`. Each is a checked
-procedure; following it is how a result here gets to be trustworthy.
+procedure; following it is how a result here gets to be trustworthy. Software
+the machine lacks and pip cannot supply - TeX Live, pandoc - runs in a Docker
+or Podman container with `--network=none`: the `containers` skill.
 
 ## A 403 from every host is this install, not the internet
 
 Everything pi does leaves through an allowlisting proxy on loopback, and the
-only host on the list is the ELM gateway. A host that is not on it gets **403
+only hosts on the list are the ELM gateway and PyPI (`pypi.org`,
+`files.pythonhosted.org`, for `pip`/`uv`). A host that is not on it gets **403
 Forbidden**, which looks exactly like a site refusing you.
 
 Measured here, the cost of not knowing that: a session downloading images read
