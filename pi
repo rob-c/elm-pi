@@ -23,6 +23,30 @@ HERE="$(cd "$(dirname "$SELF")" && pwd)"
 # name - that is a directive, and it stops the file being checked at all.
 export PATH="$HERE/agent/bin:$HERE/.node/bin:$PATH"
 
+# --- a working folder that no longer exists ----------------------------------
+# A shell keeps its current folder open after the folder is deleted - removed
+# by `rm -rf`, a branch switch or a rebuild, often with a new folder made at the
+# same path - and anything started from it inherits a directory with no path.
+# pi would run there with every write failing, sessions and memory going
+# nowhere, and node's process.cwd() throwing at whatever first asks. getcwd is
+# what notices: `pwd -P` fails for a deleted folder in every bash this runs
+# under (3.2 to 5.3) whichever shell started it. Before everything, --help
+# included, and with no override: there is nothing to work on.
+# bash 5 reports such a folder's $PWD as "."; 3.2 keeps the old path.
+if ! pwd -P >/dev/null 2>&1; then
+  case "${PWD:-}" in
+    /*) echo "pi: the folder this shell is in has been deleted ($PWD)." >&2
+        if [ -d "$PWD" ]; then
+          echo "    A new folder exists at that path; the shell is still in the old one. Run: cd \"$PWD\"" >&2
+        else
+          echo "    cd to a folder that exists, then run pi again." >&2
+        fi ;;
+    *)  echo "pi: the folder this shell is in has been deleted." >&2
+        echo "    cd to a folder that exists - cd \"\$PWD\" in your shell if it was recreated - then run pi again." >&2 ;;
+  esac
+  exit 2
+fi
+
 # --- pi --help ---------------------------------------------------------------
 # Before the key check, the load preflight and the egress proxy: an install
 # that cannot start is exactly the one whose help you want to read. This

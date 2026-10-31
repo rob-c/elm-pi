@@ -192,6 +192,56 @@ class LauncherTests(unittest.TestCase):
         self.assertNotIn("remains active", r.stderr)
 
 
+class DeletedFolderTests(unittest.TestCase):
+    """A shell sitting in a deleted folder must not start pi there."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.fx = Fixture(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def from_shell(self, shell, steps):
+        gone = Path(self.tmp.name) / "gone"
+        gone.mkdir()
+        environ = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(self.fx.home),
+                   "TMPDIR": tempfile.gettempdir(), "PI_FORCE": "1", "ELM_PI_NO_PROXY": "1"}
+        # The launcher runs under the same bash, not whichever `env bash` finds.
+        script = f'cd "$1" && {steps} && exec "$0" "$2" -p hi'
+        return subprocess.run([shell, "-c", script, shell, str(gone), str(self.fx.root / "pi")],
+                              env=environ, capture_output=True, text=True)
+
+    def shells(self):
+        # macOS's /bin/bash is 3.2, a Homebrew or Linux bash is 5.x; they report
+        # a deleted folder differently, and the launcher runs under either.
+        found = {sh for sh in ("/bin/bash", shutil.which("bash") or "") if sh and Path(sh).exists()}
+        return sorted(found)
+
+    def test_a_deleted_folder_is_refused(self):
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                r = self.from_shell(shell, 'rmdir "$1"')
+                self.assertEqual(2, r.returncode, r.stderr)
+                self.assertIn("has been deleted", r.stderr)
+                self.assertNotIn("ARG:", r.stdout)  # pi.orig never ran
+
+    def test_a_folder_recreated_at_the_same_path_is_still_refused(self):
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                r = self.from_shell(shell, 'rmdir "$1" && mkdir "$1"')
+                self.assertEqual(2, r.returncode, r.stderr)
+                self.assertIn("has been deleted", r.stderr)
+                self.assertNotIn("ARG:", r.stdout)
+                gone = Path(self.tmp.name) / "gone"
+                gone.rmdir()
+
+    def test_an_ordinary_folder_starts(self):
+        r = self.fx.run("-p", "hi")
+        self.assertNotIn("has been deleted", r.stderr)
+        self.assertEqual(["-p", "hi"], r.args_seen[-2:])
+
+
 class ConfigureTests(unittest.TestCase):
     GATEWAY = {"data": [{"id": "meta-llama/Llama-3.3-70B-Instruct"}, {"id": "Qwen/Qwen3.5-397B-A17B-FP8-NEW"}]}
 
