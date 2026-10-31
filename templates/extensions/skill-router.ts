@@ -8,38 +8,149 @@
  * asked for a sub-agent workflow, it made two malformed calls before reading
  * `elm-subagent-workflows`. So the routing is not left to the model:
  *
- * 1. Each request is matched against the keyword table below. The two best
- *    matches are put into the system prompt for that request in full, and any
- *    further matches are named with their paths. Naming alone was not enough:
- *    told to read `data-fitting` first, the model still did not, and repeated
- *    the mistakes the skill exists to prevent. A skill is ~1k tokens, paid
- *    only by a request that matches it.
+ * 1. Each user request is matched against the keyword table below. The two best
+ *    matches are added to the conversation in full, right after the request,
+ *    and any further matches are named with their paths. Naming alone was not
+ *    enough: told to read `data-fitting` first, the model still did not, and
+ *    repeated the mistakes the skill exists to prevent.
  * 2. The first `subagent` or `workflow` call of a session is refused until the
  *    orchestration skill it needs has been read, with the path to read. One
  *    `read` per session; after that the call goes through unchanged.
+ *
+ * Why a message and not the system prompt: the ELM gateway's prefix cache is
+ * what makes a long session cheap, and it only helps while every request starts
+ * with the same bytes. pi turns a changed system-prompt section into a system
+ * message, and for openai-completions models (no mid-conversation system
+ * messages) pi-ai folds the current one into the leading system prompt - so a
+ * section that changed with each request ("now plot it" routes one skill, "yes,
+ * go ahead" none) changed the first bytes and re-read the whole history: ~10 s
+ * and ~100k prefill tokens at 100k context. The skill text is now a custom
+ * message returned from before_agent_start. pi stores it in the session after
+ * the user's message and sends it to the model as a user message, so it only
+ * ever appends to the transcript and later requests keep their prefix.
+ *
+ * Each skill goes in once per session. What is already there is read back from
+ * the session's context entries, not kept in memory, so a resumed, forked or
+ * re-opened session does not get a second copy, and a fork (sub-agent) that
+ * inherited its parent's copy does not either. A compaction that summarised an
+ * injected skill away removes it from those entries, and a later request that
+ * needs it gets it again: the compaction has already replaced the start of the
+ * transcript, so re-adding ~1k tokens after the summary costs no cache, and a
+ * summary keeps at most a paraphrase - which is what failed before.
+ *
+ * Only the request itself is matched. A sub-agent's task arrives wrapped in its
+ * own instructions (pi-subagents' `<subagent_instructions>` block, `[Read
+ * from: ...]`, an output-path footer), and the qwen agent prompt alone matches
+ * several routes, so those are cut first. Sub-agents are routed like any
+ * session: the qwen and llama agents set `inheritSkills: false`, so a fresh
+ * child is not even told the skills exist, and this is how its task gets them.
+ * (PI_ELM_CHILD does not mark a child: the launcher exports it for every pi it
+ * starts, the top-level one included.) Runs not started by a user prompt -
+ * auto-compaction resumes, loop drivers, sub-agent completion notices - add
+ * nothing; what was injected earlier stays in the transcript.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, SessionEntry, Theme } from "@earendil-works/pi-coding-agent";
 
-/** Skill -> what a request that needs it tends to say. Order is priority. */
-const ROUTES: Array<[string, RegExp]> = [
-	["data-fitting", /\b(fit|fits|fitting|fitted|regression|half[- ]?li(fe|ves)|decay constant|calibrat\w*|chi2|chi-?squared|χ²|least[- ]squares|curve_fit|iminuit|resistance|slope)\b/i],
-	["statistics-and-significance", /\b(significance|p-?values?|\d\s*σ|sigma|confidence (level|interval)|upper limits?|CLs|exclusion|discovery|efficienc\w*|hypothesis|look[- ]elsewhere)\b/i],
-	["uncertainty-propagation", /\b(uncertaint\w*|error bars?|propagat\w*|systematics?|significant figures|weighted average)\b/i],
-	["histogram-analysis", /\b(histograms?|binning|bins|cut ?flow|event selection|uproot|TTree|TH1\w*|ROOT file)\b/i],
-	["derivation-checks", /\b(deriv(e|ation)|prove|show that|closed[- ]form|analytic(al(ly)?)?|dimensional analysis|limiting case)\b/i],
-	["numerical-methods", /\b(simulat\w*|integrat\w*|ODEs?|differential equations?|numerically|monte ?carlo|convergen\w*|stiff|eigen\w*|root[- ]finding)\b/i],
-	["physical-constants", /\b(constants?|masses|mass of|lifetimes?|branching (ratio|fraction)s?|PDG|CODATA|coupling)\b/i],
-	["physics-documents", /\b(slides?|lectures?|beamer|latex|paper|report|lecture notes|problem sheets?|deck)\b/i],
-	["scientific-cpp", /(\bC\+\+|\bcpp\b|\bcmake\b|\bEigen\b|\bGSL\b|\bg\+\+|\bclang\b)/i],
-	["scientific-python", /\b(python|numpy|scipy|matplotlib|pandas|plot(s|ting)?|\.py\b|csv)\b/i],
+/** The custom message type the routed skills are stored under. */
+const MESSAGE_TYPE = "skill-routing";
+interface RoutingDetails {
+	/** Skills whose full text the message carries. */
+	inlined: string[];
+	/** Skills it only names, with their paths. */
+	named: string[];
+}
+
+/**
+ * Words that make "fit", "slope" or "calibrate" about measured data rather than
+ * code: "fit the data", "fits the spectrum" - not "fits on one line" or
+ * "overrides fit()".
+ */
+const DATA = String.raw`data|dataset|points|measure\w*|curves?|spectr\w*|peaks?|counts|events|histograms?|decays?|gaussian|exponential|polynomial|straight line|parameters|residuals|calibration|resonance|lineshape`;
+/** Words that make "simulate" or "prove" about physics or mathematics. */
+const PHYSICS = String.raw`physics|particles?|ODEs?|PDEs?|equations?|trajectories|trajectory|orbits?|time ?steps?|dynamics|lattice|n-body|monte[- ]?carlo|diffusion|ising|spins?|fluid|potential|hamiltonian|lagrangian|integral|identity|formula|operator|theorem|wave ?function|eigenvalues?`;
+
+/**
+ * Skill -> what a request that needs it tends to say. Order is priority.
+ *
+ * Every word here is one that everyday software work does not use the same
+ * way. Those that it does ("report", "constant", "integration", "propagate",
+ * "systematic", "efficiency", "coupling", "fit", "regression", "simulate",
+ * "lifetime") count only with a qualifier or with physics or data in the
+ * request. tests/test_skill_router.py runs this table against both kinds of
+ * request.
+ */
+export const ROUTES: Array<[string, RegExp]> = [
+	["data-fitting", new RegExp(String.raw`^(?=[\s\S]*\b(fit|fits|fitting|fitted|slopes?|calibrat\w*)\b(?!\s*\())(?=[\s\S]*\b(${DATA})\b)|\b(half[- ]?li(fe|ves)|decay (constant|curve|rate)s?|chi2|chi-?squared?|χ²|least[- ]squares|curve_fit|iminuit|lmfit|best[- ]fit|goodness[- ]of[- ]fit|fit (function|range|parameters|results?|quality)|(linear|polynomial|logistic|nonlinear|weighted) regression|pulls)\b`, "i")],
+	["statistics-and-significance", /\b(p-?values?|\d+(\.\d+)?\s*(σ|sigma)|(statistical|discovery|observed|expected|local|global) significance|statistically significant|confidence (level|interval|belt)s?|credible intervals?|upper limits?|CLs (method|limits?|values?)|exclusion (limit|contour|region)s?|(null|alternative|background[- ]only|signal[- ]plus[- ]background) hypothes[ie]s|likelihood[- ]ratio|test statistic|look[- ]elsewhere|feldman[- ]cousins|(detector|trigger|selection|reconstruction|tagging|signal|cut|event|identification) efficienc(y|ies)|efficiency (correction|map|curve)s?)\b/i],
+	["uncertainty-propagation", /\b(uncertaint(y|ies)|error bars?|error propagation|(statistical|systematic|measurement) (errors?|uncertaint\w*)|systematics|significant figures|sig figs|weighted (average|mean)s?|(in|added in) quadrature|covariance matrix|correlated (errors|inputs|uncertaint\w*))\b/i],
+	["histogram-analysis", /\b(histograms?|binning|(equal|variable|log|fixed|fine|coarse|\d+) bins|bin (width|edges|contents|counts?)|cut ?flow|event selection|uproot|TTree|TH1\w*|ROOT files?)\b/i],
+	["derivation-checks", new RegExp(String.raw`\b(derive(?!\s*(\(|from\b))|deriving(?!\s*(\(|from\b))|derivations?|derivatives?|closed[- ]form|analytic(al)? (solution|result|expression|form|continuation)s?|analytically|dimensional analysis|limiting cases?|natural units|sympy)\b|^(?=[\s\S]*\b(prove|show that)\b)(?=[\s\S]*\b(${PHYSICS})\b)`, "i")],
+	["numerical-methods", new RegExp(String.raw`\b(ODEs?|PDEs?|differential equations?|numerical(ly)? (integrat\w*|solution|methods?|stability|precision|error)|numerically (stable|unstable|solve|integrat\w*|evaluat\w*|comput\w*|approximat\w*)|integrat(e|ing|ion) (this |the |an? )?(ODEs?|PDEs?|equations?|system|trajector(y|ies)|orbits?|over|from)|integrators?|integrals? (of|over|from)|quadrature (rule|method|integration)|monte[- ]?carlo|convergence (stud(y|ies)|tests?|checks?|order|rate|criteri\w*)|(order|rate) of convergence|stiff(ness)?( ODEs?| systems?| equations?| problems?| solvers?)?|eigen(value|vector|state|function|mode|system|problem|decomposition)s?|root[- ]find(ing|er)|newton[- ]raphson|runge[- ]kutta|RK4|solve_ivp|odeint|finite[- ](difference|element|volume)s?|floating[- ]point (error|precision|rounding)|round[- ]?off error|catastrophic cancellation|condition number|ill[- ]conditioned)\b|^(?=[\s\S]*\bsimulat\w*)(?=[\s\S]*\b(${PHYSICS})\b)`, "i")],
+	["physical-constants", /\b((physical|fundamental|physics) constants?|(planck|boltzmann|avogadro|gravitational|fine[- ]structure|rydberg|coulomb|stefan[- ]boltzmann|hubble|fermi|coupling) constants?|speed of light|elementary charge|(electron|proton|neutron|muon|pion|kaon|higgs|top quark|[WZ] boson) (mass|charge|lifetime|width)|(masses|mass|lifetimes?|widths?) of (the )?(electron|proton|neutron|muon|tau|pion|kaon|higgs|top|bottom|charm|[a-z]+ quark|[WZ]|[WZ] boson|B meson|D meson|neutrinos?|nucle(us|i)|particles?|mesons?|baryons?|hadrons?|leptons?)|branching (ratio|fraction)s?|(strong|weak|electromagnetic|yukawa|gauge) couplings?|PDG|CODATA|particle data group)\b/i],
+	["physics-documents", /\b(slides|slide ?deck|beamer|lectures?|lecture notes|problem sheets?|lab reports?|(physics|research|scientific|journal|conference) (paper|report|article)s?|(write|draft)( up)? (a |the |my )?(paper|thesis)|thesis|dissertation|latex|\.tex|bibtex|siunitx|overleaf)\b/i],
+	["scientific-cpp", /(\bC\+\+|\bcpp\b|\bcmake\b|\bEigen\b|\bGSL\b|\bg\+\+|\bclang\b|\bROOT macros?\b)/i],
+	["scientific-python", /\b(python|numpy|scipy|matplotlib|pandas|jupyter|ipynb|plot(s|ted|ting)?)\b/i],
 ];
 const MAX_ROUTED = 4;
 /** How many of the matches are inlined in full rather than named. */
 const MAX_INLINED = 2;
+
+/**
+ * The part of a prompt that is the request. A sub-agent's prompt carries its
+ * agent instructions, read/write paths and an output footer around the task;
+ * a `/skill:` command carries the whole skill. None of that is what was asked.
+ */
+export function requestText(prompt: string): string {
+	return prompt
+		.replace(/<subagent_instructions>[\s\S]*?<\/subagent_instructions>/g, "")
+		.replace(/<skill name="[^"]*"[^>]*>[\s\S]*?<\/skill>/g, "")
+		.replace(/^\s*Task:\s*/, "")
+		.replace(/^\[(Read from|Write to): [^\]\n]*\]$/gm, "")
+		.replace(/\n---\n(\*\*Output:\*\*|Create and maintain progress at:|Update progress at:|Previous step output:)[\s\S]*$/, "")
+		.trim();
+}
+
+/** Skills the request matches, best first. */
+export function routesFor(prompt: string): string[] {
+	const text = requestText(prompt);
+	return ROUTES.filter(([, pattern]) => pattern.test(text)).map(([name]) => name);
+}
+
+/**
+ * Skills whose text is already in these entries: routed in full by this
+ * extension, read with `read`, or expanded from a `/skill:` command.
+ */
+function skillsIn(entries: readonly SessionEntry[]): Set<string> {
+	const seen = new Set<string>();
+	for (const entry of entries) {
+		if (entry.type === "custom_message" && entry.customType === MESSAGE_TYPE) {
+			for (const name of (entry.details as RoutingDetails | undefined)?.inlined ?? []) seen.add(name);
+			continue;
+		}
+		if (entry.type !== "message") continue;
+		const message = entry.message;
+		if (message.role === "assistant") {
+			for (const part of message.content) {
+				if (part.type !== "toolCall" || part.name !== "read") continue;
+				const name = skillFromPath(part.arguments?.path);
+				if (name) seen.add(name);
+			}
+		} else if (message.role === "user") {
+			const content = typeof message.content === "string" ? message.content
+				: message.content.map((part) => (part.type === "text" ? part.text : "")).join("\n");
+			for (const match of content.matchAll(/<skill name="([^"]+)"/g)) seen.add(match[1]);
+		}
+	}
+	return seen;
+}
+
+function skillFromPath(path: unknown): string | undefined {
+	return typeof path === "string" ? /([^/\\]+)[/\\]SKILL\.md$/.exec(path)?.[1] : undefined;
+}
 
 /** A skill's instructions without its frontmatter. */
 function skillBody(name: string): string {
@@ -63,44 +174,73 @@ function skillPath(name: string): string {
 	return join(skillsDir(), name, "SKILL.md");
 }
 
+/** The text the model sees after the request. */
+function routingMessage(inlined: string[], named: string[]): string {
+	return [
+		"# Skills for this request",
+		"",
+		`The request above matches ${inlined.length > 1 ? "these skills" : "this skill"}, included here in full: ` +
+			`${inlined.join(" and ")}. Apply ${inlined.length > 1 ? "them" : "it"} to the parts of the work ` +
+			`${inlined.length > 1 ? "they cover" : "it covers"}; where the request is not about that, ignore ${inlined.length > 1 ? "them" : "it"}.`,
+		...(named.length
+			? ["", "Also possibly relevant - read with `read` before work that they cover:",
+				...named.map((name) => `- ${name}: ${skillPath(name)}`)]
+			: []),
+		...inlined.flatMap((name) => ["", `## Skill: ${name}`, "", skillBody(name)]),
+	].join("\n");
+}
+
+/** One dim line in the conversation, so the user sees what was added; expanded, the paths. */
+function renderRouting(details: RoutingDetails | undefined, expanded: boolean, outputPad: number, theme: Theme) {
+	const inlined = details?.inlined ?? [];
+	const named = details?.named ?? [];
+	const lines = [`skills: ${inlined.join(", ")}${named.length ? ` (also named: ${named.join(", ")})` : ""}`];
+	if (expanded) lines.push(...[...inlined, ...named].map((name) => `  ${skillPath(name)}`));
+	const pad = " ".repeat(outputPad);
+	return {
+		render(width: number): string[] {
+			const room = Math.max(1, width - outputPad);
+			return lines.map((line) => pad + theme.fg("dim", line.length > room ? `${line.slice(0, room - 1)}…` : line));
+		},
+		invalidate(): void {},
+	};
+}
+
 export default function (pi: ExtensionAPI) {
+	/** Skills read with `read` in this runtime; the session's entries cover earlier runtimes. */
 	const read = new Set<string>();
 
-	pi.on("before_agent_start", (event) => {
-		// Since pi 1.2 this also fires for runs an extension starts - a sub-agent
-		// result, a Ralph iteration - which carry a message and no prompt. Routing
-		// is decided by what the user asked, so those runs keep the section as is.
-		if (event.messageType !== "user") return;
-		const matched = ROUTES.filter(([name, pattern]) => pattern.test(event.prompt) && existsSync(skillPath(name)))
-			.slice(0, MAX_ROUTED)
-			.filter(([name]) => !read.has(name));
-		if (matched.length === 0) {
-			delete event.systemPromptOptions.sections.skill_routing;
-			return;
-		}
-		const inlined = matched.slice(0, MAX_INLINED).map(([name]) => name);
-		const named = matched.slice(MAX_INLINED).map(([name]) => name);
-		event.systemPromptOptions.sections.skill_routing = [
-			"# Skills for this request",
-			"",
-			`This request matches the skills below. Follow them: ${inlined.join(" and ")} ${inlined.length > 1 ? "are" : "is"} included here in full.`,
-			...(named.length
-				? ["", "Also relevant - read these with `read` before the parts of the work they cover:",
-					...named.map((name) => `- ${name}: ${skillPath(name)}`)]
-				: []),
-			...inlined.flatMap((name) => ["", `## Skill: ${name}`, "", skillBody(name)]),
-		].join("\n");
+	pi.registerMessageRenderer<RoutingDetails>(MESSAGE_TYPE, (message, { expanded, outputPad }, theme) =>
+		renderRouting(message.details, expanded, outputPad, theme));
+
+	pi.on("before_agent_start", (event, ctx) => {
+		if (event.messageType !== "user") return undefined;
+		// Compaction-aware: a skill summarised away is no longer in these entries.
+		const present = skillsIn(ctx.sessionManager.buildContextEntries());
+		const matched = routesFor(event.prompt)
+			.filter((name) => !present.has(name) && existsSync(skillPath(name)))
+			.slice(0, MAX_ROUTED);
+		if (matched.length === 0) return undefined;
+		const inlined = matched.slice(0, MAX_INLINED);
+		const named = matched.slice(MAX_INLINED);
+		for (const name of inlined) read.add(name);
+		const details: RoutingDetails = { inlined, named };
+		return {
+			message: { customType: MESSAGE_TYPE, content: routingMessage(inlined, named), display: true, details },
+		};
 	});
 
-	pi.on("tool_call", async (event) => {
+	pi.on("tool_call", async (event, ctx) => {
 		const input = (event.input ?? {}) as Record<string, unknown>;
-		if (event.toolName === "read" && typeof input.path === "string") {
-			const match = /([^/\\]+)[/\\]SKILL\.md$/.exec(input.path);
-			if (match) read.add(match[1]);
+		if (event.toolName === "read") {
+			const name = skillFromPath(input.path);
+			if (name) read.add(name);
 			return undefined;
 		}
 		const skill = requiredSkill(event.toolName, input);
 		if (!skill || read.has(skill) || !existsSync(skillPath(skill))) return undefined;
+		// The whole branch, compacted part included: the gate asks for one read per session.
+		if (skillsIn(ctx.sessionManager.getBranch()).has(skill)) return undefined;
 		return {
 			block: true,
 			reason:
