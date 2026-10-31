@@ -1,6 +1,7 @@
 # Core Mandates
 
-A sub-agent reading this file follows its own task and definition first.
+An agent launched by the `workflow` tool reads this file too; its own task
+comes first.
 
 1. Delegate breadth to sub-agents. One child: `subagent({ agent, task })`.
    Several: one `subagent` call that runs a workflow script, which launches the
@@ -157,13 +158,15 @@ screenshot, diagram or rendered page in it is a `qwen` task.
 
 ## Editing: anchor-based (pi-hashline-edit-pro)
 
-The built-in `edit` tool is **disabled**, and so are `grep`, `find` and `ls`:
-this install's tools are `read`, `bash`, `write` and pi-hashline-edit-pro's
-anchor tools. `read` returns every line as `anchor│content`; edit with
+pi's own `edit`, `find` and `ls` are **off**: this install's tools are `read`,
+`bash`, `write` and pi-hashline-edit-pro's anchor tools. `read` returns every
+line as `anchor│content`, the anchor being five lowercase letters; edit with
 `replace` (whole lines), `replace_match` (part of a line) or `insert`, giving
-the file's `path` and the 4-character anchors rather than reproducing text.
-`anchor_grep` searches and returns anchors. `undo_last_change` reverts the last
-anchor edit on a file - one level, it survives a restart, and a `write` clears it.
+the file's `path` and the anchors rather than reproducing text. `grep` is the
+package's search, not pi's: under a `=== path ===` header each hit comes back as
+`lineNumber:│ anchor│content`, and those anchors can be edited without a `read`.
+`undo_last_change` reverts the last anchor edit on a file - one level, it
+survives a restart, and a `write` clears it.
 
 Every anchor edit must name its file (`path`): this install turns on the
 package's `requirePath`, because the protected-paths guard can only refuse an
@@ -171,7 +174,7 @@ edit to `.git`, `node_modules` or a `.env` file whose path it can see. `copy`
 and `move` are switched off for the same reason - a move's destination comes
 from an anchor, not from the path it names. Copy lines with `read` and `insert`.
 
-Use `read` to read and `anchor_grep` to search, not `bash`. Use `bash` to list
+Use `read` to read and `grep` to search, not `bash`. Use `bash` to list
 files (`ls`, `fd`) and to run things.
 
 Anchors matter most for Llama. The old `edit` tool required reproducing
@@ -210,7 +213,7 @@ Three things identify it in one call each:
 
 ```bash
 curl -sI https://example.com | grep -i x-elm-pi    # X-Elm-Pi-Egress: refused
-tail -5 ~/.local/share/elm-pi/agent/egress.log      # REJECTED <host> not on the allowlist
+tail -5 "$PI_CODING_AGENT_DIR/egress.log"          # REJECTED <host> not on the allowlist
 ```
 
 The refusal carries `X-Elm-Pi-Egress`, `X-Elm-Pi-Reason` and `X-Elm-Pi-Remedy`
@@ -337,7 +340,7 @@ where they are read last:
 - Write each child's prompt to stand alone: exact paths, exactly what to do,
   exactly what to report, whether it may write. Check an implementation child's
   files yourself; a report is not evidence.
-- Use `read` and `anchor_grep`, not `bash`, to inspect; `bash` to list and run.
+- Use `read` and `grep`, not `bash`, to inspect; `bash` to list and run.
   Anchor edits name their file. Call independent tools in parallel.
 - Run the check, watch it pass, report the command and its output. Evidence, not a
   grade.

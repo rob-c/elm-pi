@@ -33,12 +33,20 @@ const WRITING_TOOLS = new Set([
 const BLOCKED_DIRS = new Set([".git", "node_modules"]);
 
 /**
+ * Dotenv templates hold variable names, not values, and the permission config
+ * (pi-permission-system/config.json) allows `*.env.example`; refusing it here
+ * would undo that rule for every writing tool.
+ */
+const DOTENV_TEMPLATES = new Set([".env.example"]);
+
+/**
  * True for `.env` and for `.env.local`, `.env.production` and the like, but not
  * for a file that merely contains the string - `config.environment` is fine.
  * Substring matching was the previous behaviour and produced both misses and
  * false positives.
  */
 function isDotenv(name: string): boolean {
+	if (DOTENV_TEMPLATES.has(name)) return false;
 	return name === ".env" || name.startsWith(".env.");
 }
 

@@ -35,7 +35,9 @@ description: "Producing lecture slides, notes, reports and papers in LaTeX/Beame
 Cite only works you can identify exactly: from the user's files or bibliography,
 or read in this session. Never invent a BibTeX entry, DOI, arXiv number, page
 or equation number. If a citation is needed and you cannot verify it, leave a
-visible `\textbf{[ref needed: ...]}` and list it in the report.
+visible `\textbf{[ref needed: ...]}` and list it in the report. That marker is
+the one exception to the rule against placeholders: it shows in the output and
+is named in the report, so it cannot pass for a finished citation.
 
 ## Content for students
 

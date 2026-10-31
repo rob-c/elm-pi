@@ -169,9 +169,10 @@ it. The builtin `researcher` keeps them and is pinned to Qwen, but outside
 searches come back 403. Send web research to `researcher` only in a session
 started with `pi --remote`; otherwise say the session cannot reach the web.
 
-**`llama` is for rote execution of a fully specified change.** Applying a
-formatting convention, generating boilerplate to a stated shape, a mechanical
-edit confined to one named file, running a command and reporting the output.
+**`llama` is for rote execution of a fully specified change**, and only when
+Qwen is rate-limited or the user asks to save allocation. Applying a formatting
+convention, generating boilerplate to a stated shape, a mechanical edit confined
+to one named file, running a command and reporting the output.
 
 **Anything judged by eye goes to `qwen`**: HTML and CSS, layout, styling, SVG
 and diagrams, prose that has to read well. Output with implicit criteria — it
@@ -239,7 +240,7 @@ Turn it on per call, for a fan-out that writes in a repo you have committed:
 ```js
 await runs.all([
   { key: "api", agent: "qwen",  task: "...", worktree: true },
-  { key: "ui",  agent: "llama", task: "...", worktree: true },
+  { key: "ui",  agent: "qwen",  task: "...", worktree: true },
 ]);
 ```
 

@@ -38,7 +38,7 @@ the model travels with the agent name:
 ```js
 const [survey, edits] = await runs.all([
   { key: "survey", agent: "qwen",  task: "Read src/api/*.ts and return, per file, the exported names and one line on what each does. Read-only." },
-  { key: "fmt",    agent: "llama", task: "Step 1: read src/util/date.ts. Step 2: replace the body of formatDate with the version below. Step 3: read it back and report the new body.\n\n<exact code>" },
+  { key: "fmt",    agent: "qwen",  task: "Step 1: read src/util/date.ts. Step 2: replace the body of formatDate with the version below. Step 3: read it back and report the new body.\n\n<exact code>" },
 ]);
 return { survey: survey.output, edits: edits.output };
 ```
@@ -98,7 +98,7 @@ const task = [
   "npm test",
   "```",
 ].join("\n");
-return runs.run("test", { agent: "llama", task });
+return runs.run("test", { agent: "qwen", task });
 ````
 </good-example>
 
@@ -142,8 +142,8 @@ Read the outputs back, finish the aggregation yourself, and say in the report
 that the children succeeded and the script did not.
 
 The routing rule, per child: **whoever has to decide gets Qwen.** Llama is not a
-default: use it only when Qwen is rate-limited or the user asks to save
-allocation, and only when all three hold:
+default and not faster (measured in `elm-delegation`): use it only when Qwen is
+rate-limited or the user asks to save allocation, and only when all three hold:
 
 1. the task is fully specified, with nothing left to decide
 2. it is confined to one named file, or to no files at all
@@ -165,6 +165,3 @@ Two settings back this up, in `agent/settings.json` under `subagents`:
 - `modelScope` is `enforce: true, strict: true` with `allow: elm/*,
   elm-shim/*, inherit`. The ELM-only policy strips commercial catalogues in the
   parent; this closes the same door for children.
-
-**This split is not a speed optimisation.** Llama is the slower model here, and a
-fan-out split across both is slower end to end than sending all of it to Qwen.
