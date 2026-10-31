@@ -15,7 +15,9 @@ cd "$HERE"
 CONFIG_TOOL="$HERE/scripts/elm_config.py"
 
 WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; FORCE=0
-WITH_TOOLS=1; WITH_PATCH=1; FORCE_PACKAGES=0
+WITH_TOOLS=1; WITH_PATCH=1; FORCE_PACKAGES=0; RESET_OPTIONS=0
+# The --no-* flags this run was given, for agent/install-options (see below).
+GIVEN_FLAGS=""
 TMP=""; TOOLS_TMP=""; CORE_STAGE=""; PKG_STAGE=""; VERIFY_ERR=""
 # The pi release and the extension tree this run replaced. They are kept until
 # the run has finished and verified, and put back if it fails, so an update
@@ -51,14 +53,21 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
   --non-interactive   take the key from $ELM_API_KEY, never prompt
   --update            refresh pi, packages and extensions; keep your configs
   --force             re-download the tools and reinstall the npm packages
-  --force-packages    reinstall only the locked extension dependency tree
+  --force-packages    reinstall the extension packages at the tested versions,
+                      and pi too if it is not at its tested version
 
   --no-packages       pi only: no sub-agents, web access or anchor edit
   --no-tools          skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
   --no-shim           skip the Llama tool-call shim
   --no-patch          leave pi's /share and /bug commands in place
   --no-auth-lock      leave agent/auth.json writable, so /login works
+  --reset-options     forget the --no-* flags and ELM_PI_TOOLS earlier runs
+                      recorded, and use only what this run is given
   -h, --help          this text
+
+The --no-* flags and ELM_PI_TOOLS are recorded in agent/install-options and
+repeated by every later run - pi update, pi update --extensions, re-running
+the installer - so an update keeps the install you chose.
 
 Environment: ELM_PI_PYTHON, ELM_PI_BUNDLED_PYTHON, ELM_PI_NODE_VERSION, ELM_PI_NPM_USERCONFIG,
 PI_VERSION, ELM_PI_TOOLS, FD_VERSION, RG_VERSION, JQ_VERSION, YQ_VERSION,
@@ -76,18 +85,25 @@ for arg in "$@"; do
 done
 for arg in "$@"; do
   case "$arg" in
-    --no-shim) WITH_SHIM=0 ;;
-    --no-packages) WITH_PACKAGES=0 ;;
+    --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch)
+      case " $GIVEN_FLAGS " in *" $arg "*) ;; *) GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$arg" ;; esac ;;
     --non-interactive) INTERACTIVE=0 ;;
     --update) UPDATE=1 ;;
     --force) FORCE=1 ;;
     --force-packages) FORCE_PACKAGES=1 ;;
-    --no-auth-lock) AUTH_LOCK=0 ;;
-    --no-tools) WITH_TOOLS=0 ;;
-    --no-patch) WITH_PATCH=0 ;;
+    --reset-options) RESET_OPTIONS=1 ;;
     *) echo "unknown option: $arg" >&2; echo "try: $0 --help" >&2; exit 2 ;;
   esac
 done
+apply_flag() {
+  case "$1" in
+    --no-shim) WITH_SHIM=0 ;;
+    --no-packages) WITH_PACKAGES=0 ;;
+    --no-auth-lock) AUTH_LOCK=0 ;;
+    --no-tools) WITH_TOOLS=0 ;;
+    --no-patch) WITH_PATCH=0 ;;
+  esac
+}
 
 
 say()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
@@ -110,6 +126,72 @@ USER_PY="$(PATH="$ELM_PI_USER_PATH" command -v python3 2>/dev/null || true)"
 if [ -n "$USER_PY" ] && [ "$USER_PY" != "$ELM_PI_PYTHON" ]; then
   echo "    (not $USER_PY from your PATH: elm-pi always runs its own choice, isolated)"
 fi
+
+# --- the options this install was made with ----------------------------------
+# --no-packages, --no-shim and the rest describe the install, not one run, and
+# `pi update` and `pi update --extensions` used to call this script without
+# them - so an update quietly installed the packages, the shim and the tools
+# someone had declined, and re-locked auth.json. They are recorded here, with
+# ELM_PI_TOOLS and the branch and repository install.sh fetched, and every
+# later run repeats them. Flags on the command line are added to the record;
+# --reset-options starts it again from this run's flags alone, which is the
+# way to take one back. Read as data: key=value lines, nothing is sourced.
+OPTIONS_FILE="$HERE/agent/install-options"
+saved_option() { [ -f "$OPTIONS_FILE" ] && sed -n "s/^$1=//p" "$OPTIONS_FILE" | tail -1; return 0; }
+SAVED_FLAGS=""; SAVED_TOOLS=""; OPTIONS_FROM=""
+if [ -f "$OPTIONS_FILE" ]; then
+  SAVED_FLAGS="$(saved_option flags)"; SAVED_TOOLS="$(saved_option tools)"
+  OPTIONS_FROM="agent/install-options"
+elif [ -f agent/settings.json ]; then
+  # An install from before the record existed. What the flags left behind is
+  # unambiguous for four of them; --no-patch and a tool subset are not inferred.
+  grep -q '"packages": \[\]' agent/settings.json && SAVED_FLAGS="$SAVED_FLAGS --no-packages"
+  [ -d agent/extensions ] && [ ! -f agent/extensions/elm-shim.ts ] && SAVED_FLAGS="$SAVED_FLAGS --no-shim"
+  [ -f agent/auth.json ] && [ -w agent/auth.json ] && SAVED_FLAGS="$SAVED_FLAGS --no-auth-lock"
+  if [ -d agent/bin ]; then
+    _any_tool=0
+    for _t in fd rg jq yq shellcheck ast-grep; do [ -x "agent/bin/$_t" ] && _any_tool=1; done
+    [ "$_any_tool" = "1" ] || SAVED_FLAGS="$SAVED_FLAGS --no-tools"
+  fi
+  OPTIONS_FROM="this install (it has no agent/install-options yet)"
+fi
+if [ "$RESET_OPTIONS" = "1" ]; then
+  [ -z "$SAVED_FLAGS$SAVED_TOOLS" ] || echo "    --reset-options: not repeating $SAVED_FLAGS${SAVED_TOOLS:+ ELM_PI_TOOLS=$SAVED_TOOLS}"
+  SAVED_FLAGS=""; SAVED_TOOLS=""
+fi
+REPEATED=""
+for flag in $SAVED_FLAGS; do
+  case "$flag" in --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch) ;; *) continue ;; esac
+  case " $GIVEN_FLAGS " in *" $flag "*) continue ;; esac
+  GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$flag"; REPEATED="$REPEATED $flag"
+done
+for flag in $GIVEN_FLAGS; do apply_flag "$flag"; done
+case "$SAVED_TOOLS" in *[!a-z,-]*) SAVED_TOOLS="" ;; esac
+if [ -z "${ELM_PI_TOOLS:-}" ] && [ -n "$SAVED_TOOLS" ]; then
+  ELM_PI_TOOLS="$SAVED_TOOLS"; REPEATED="$REPEATED ELM_PI_TOOLS=$SAVED_TOOLS"
+fi
+say "install options"
+if [ -n "$REPEATED" ]; then
+  echo "    repeating${REPEATED}, from $OPTIONS_FROM"
+  echo "    (to drop one: re-run with --reset-options and only the flags you want)"
+fi
+echo "    this install: ${GIVEN_FLAGS:-all parts}${ELM_PI_TOOLS:+, ELM_PI_TOOLS=$ELM_PI_TOOLS}"
+# install.sh passes the branch and repository it fetched; any other run keeps
+# what was recorded. Values with whitespace in them are not a branch or a URL.
+OPT_BRANCH="${ELM_PI_BRANCH:-$(saved_option branch)}"
+OPT_REPO="${ELM_PI_REPO:-$(saved_option repo)}"
+case "$OPT_BRANCH" in *[[:space:]]*) OPT_BRANCH="" ;; esac
+case "$OPT_REPO" in *[[:space:]]*) OPT_REPO="" ;; esac
+mkdir -p agent
+{
+  echo "# The options this install was made with. Written by bootstrap.sh and repeated"
+  echo "# by every later run (pi update, pi update --extensions, the installer)."
+  echo "# To change them: ./bootstrap.sh --reset-options [the flags you want]"
+  echo "flags=$GIVEN_FLAGS"
+  echo "tools=${ELM_PI_TOOLS:-}"
+  echo "branch=$OPT_BRANCH"
+  echo "repo=$OPT_REPO"
+} > "$OPTIONS_FILE.tmp" && mv -f "$OPTIONS_FILE.tmp" "$OPTIONS_FILE"
 
 # Before anything runs pi: jiti searches every ancestor of the install for
 # packages, so a node_modules above it would be loaded into pi - by the cache
@@ -203,45 +285,40 @@ fi
 # The versions this repo last ran its checks against are in config/versions.json,
 # and every install takes them except --update - which is what `pi update` runs,
 # and takes whatever npm calls latest. PI_VERSION overrides pi itself for one
-# run. Nothing is reinstalled to apply them: a run that would not otherwise
-# rebuild a tree leaves it on whatever it has.
+# run. A pin is part of what each tree is stamped with (manifest_digest), so a
+# pull that moves one rebuilds that tree at the next run; one that moves none
+# leaves a tree on whatever it has, `pi update`'s latest included.
+PINS=(elm_py "$HERE/scripts/pin_versions.py" --versions "$HERE/config/versions.json")
 stage_manifest() {   # $1 = manifest, $2 = staging dir, $3 = section of versions.json
-  elm_py - "$HERE/$1" "$2/package.json" "$3" "$UPDATE" "$PI_VERSION" "$HERE/config/versions.json" <<'PYM'
-import json, os, sys
-
-src, dest, section, update, pi_version, versions = sys.argv[1:7]
-manifest = json.load(open(src))
-deps = manifest.get("dependencies", {})
-pins = {}
-if update != "1" and os.path.exists(versions):
-    pins = json.load(open(versions)).get(section, {})
-if pi_version and section == "core":
-    pins["@earendil-works/pi-coding-agent"] = pi_version
-pinned = sorted(name for name in deps if name in pins)
-for name in pinned:
-    deps[name] = pins[name]
-with open(dest, "w") as fh:
-    json.dump(manifest, fh, indent=2)
-if not pinned:
-    print("    versions: the latest of each" + (", as --update asks" if update == "1" else ""))
-elif len(pinned) == len(deps):
-    print("    versions: all %d at the tested versions" % len(deps))
-else:
-    print("    versions: %d of %d at the tested versions, the rest latest" % (len(pinned), len(deps)))
-PYM
+  local update=()
+  [ "$UPDATE" != "1" ] || update=(--update)
+  "${PINS[@]}" stage "$HERE/$1" "$2/package.json" "$3" ${update[@]+"${update[@]}"} --pi-version "$PI_VERSION"
+}
+# What a tree was built from: its manifest and its section of versions.json.
+# Each tree is stamped with this, so a pull that moves only a pin rebuilds it.
+manifest_digest() {   # $1 = manifest, $2 = section of versions.json
+  "${PINS[@]}" digest "$HERE/$1" "$2"
 }
 
 # Reinstalling pi is the slowest step in this script, so it runs only when
-# something changed. The manifest digest catches an edited dependency list;
-# nothing can catch "latest" moving on the registry, which is what --update
-# and --force are for.
-CORE_MANIFEST_DIGEST="$(sha256_of package.json)" || die "cannot hash package.json"
+# something changed. The digest catches an edited dependency list or a moved
+# pin in config/versions.json; nothing can catch "latest" moving on the
+# registry, which is what --update and --force are for.
+#
+# --force-packages (`pi update --extensions`) means "back to the tested set",
+# and extension packages tested against one pi are not a tested set beside
+# another: so it also brings pi back to its pin when `pi update` moved it on.
+CORE_MANIFEST_DIGEST="$(manifest_digest package.json core)" || die "cannot hash package.json"
 CORE_STAMP="node_modules/.elm-pi-lock.sha256"
+PI_TESTED="$("${PINS[@]}" pinned core @earendil-works/pi-coding-agent)" || die "cannot read config/versions.json"
 NEED_PI=0
 if [ "$FORCE" = "1" ] || [ "$UPDATE" = "1" ] || [ -z "$PI_INSTALLED" ]; then
   NEED_PI=1
 elif [ -n "$PI_VERSION" ] && [ "$PI_VERSION" != "$PI_INSTALLED" ]; then
   echo "    $PI_INSTALLED -> $PI_VERSION"
+  NEED_PI=1
+elif [ "$FORCE_PACKAGES" = "1" ] && [ -n "$PI_TESTED" ] && [ "$PI_TESTED" != "$PI_INSTALLED" ]; then
+  echo "    $PI_INSTALLED -> $PI_TESTED, the tested version (--force-packages)"
   NEED_PI=1
 elif [ ! -f "$CORE_STAMP" ] || [ "$(cat "$CORE_STAMP" 2>/dev/null)" != "$CORE_MANIFEST_DIGEST" ]; then
   echo "    dependency list changed"
@@ -269,7 +346,7 @@ if [ "$NEED_PI" = "1" ]; then
   rm -rf "$CORE_STAGE"
   CORE_STAGE=""
 else
-  echo "    pi $PI_INSTALLED, dependency list unchanged (pi update moves to the latest release)"
+  echo "    pi $PI_INSTALLED, dependency list and pins unchanged (pi update moves to the latest release)"
 fi
 
 
@@ -322,12 +399,26 @@ install_if_absent() {   # never clobber a config someone has tuned
 # web-search.json, the extension configs) is install_if_absent instead, with
 # only the keys this repo decides reapplied over the top further down.
 REQUIRED_EXTENSIONS="$(elm_py -c 'import json; print(" ".join(json.load(open("config/elm-pi.json"))["requiredExtensions"]))')"
+# --no-shim removes the shim's extension here, before anything loads or checks
+# the set: it used to be rendered, loaded by the warm-up and passed by the
+# checks, and only then deleted. scripts/verify_install.py reads --no-shim
+# from agent/install-options and does not count it missing.
+if [ "$WITH_SHIM" != "1" ]; then
+  _kept=""
+  for f in $REQUIRED_EXTENSIONS; do [ "$f" = "elm-shim.ts" ] || _kept="$_kept $f"; done
+  REQUIRED_EXTENSIONS="$_kept"
+  rm -f agent/extensions/elm-shim.ts
+fi
 for f in $REQUIRED_EXTENSIONS; do
   [ -f "templates/extensions/$f" ] || continue
   elm_py "$CONFIG_TOOL" --root "$HERE" render \
     "templates/extensions/$f" "agent/extensions/$f"
 done
-echo "    refreshed required agent extensions (policy, protections, tools, shim)"
+if [ "$WITH_SHIM" = "1" ]; then
+  echo "    refreshed required agent extensions (policy, protections, tools, shim)"
+else
+  echo "    refreshed required agent extensions (policy, protections, tools; no shim)"
+fi
 for f in $REQUIRED_EXTENSIONS; do
   [ -f "agent/extensions/$f" ] || die "required policy extension was not installed: $f"
 done
@@ -893,6 +984,14 @@ json.dump(s, open("agent/settings.json", "w"), indent=2); open("agent/settings.j
 print("    loading: " + (", ".join(name(p) for p in chosen) or "none"))
 if sorted(map(json.dumps, was)) != sorted(map(json.dumps, chosen)):
     print("    (agent/settings.json listed %d package(s); corrected to match)" % len(was))
+    # Named, not counted: a package added by hand (or by `pi install`, which
+    # the launcher now refuses) stops loading here, and its files go with the
+    # next rebuild of agent/npm.
+    wanted = set(name(p) for p in chosen)
+    dropped = sorted(set(name(p) for p in was) - wanted)
+    if dropped:
+        print("    not in templates/: %s - removed. Packages come from templates/packages.json" % ", ".join(dropped))
+        print("      and templates/settings.json; add one there to keep it (CONTRIBUTING.md)")
 PYX
   CHOSEN="$(elm_py - <<'PYC'
 import json
@@ -907,7 +1006,7 @@ PYC
   # checks each listed package and every extension and skill its pi manifest
   # declares (scripts/verify_install.py). A broken or half-installed tree is
   # repaired here rather than discovered as a silently missing tool later.
-  PACKAGE_MANIFEST_DIGEST="$(sha256_of templates/packages.json)" || die "cannot hash the package manifest"
+  PACKAGE_MANIFEST_DIGEST="$(manifest_digest templates/packages.json packages)" || die "cannot hash the package manifest"
   PACKAGE_STAMP="agent/npm/node_modules/.elm-pi-lock.sha256"
   NEED_PACKAGES=0
   if [ "$FORCE" = "1" ] || [ "$UPDATE" = "1" ] || [ "$FORCE_PACKAGES" = "1" ] \
@@ -979,7 +1078,7 @@ if [ "$WITH_PACKAGES" = "1" ] && [ -d agent/npm/node_modules ]; then
   if grep -q "Failed to load extension" "$WARM_LOG"; then
     warn "pi could not load an extension - reinstalling the packages once:"
     grep "Failed to load extension" "$WARM_LOG" | sed 's/^/      /' | head -5
-    PACKAGE_MANIFEST_DIGEST="$(sha256_of templates/packages.json)" || die "cannot hash the package manifest"
+    PACKAGE_MANIFEST_DIGEST="$(manifest_digest templates/packages.json packages)" || die "cannot hash the package manifest"
     install_packages
     WARM_OK=0; warm_up && WARM_OK=1
     if grep -q "Failed to load extension" "$WARM_LOG"; then
@@ -1013,8 +1112,8 @@ if [ "$WITH_SHIM" = "1" ]; then
   say "Llama tool-call shim"
   echo "    $ELM_PI_PYTHON - shim will start on demand (127.0.0.1:8811)"
 else
-  rm -f agent/extensions/elm-shim.ts
-  echo "    shim skipped (agent/extensions/elm-shim.ts removed)"
+  say "Llama tool-call shim"
+  echo "    skipped (--no-shim): agent/extensions/elm-shim.ts was not installed"
 fi
 
 # Existing installs may contain state created under the account's ordinary 022
@@ -1153,7 +1252,9 @@ if stale:
 PYW
 # Match the sentence both refusal paths share. lib/policy.sh says "is not
 # available" for --provider and "is outside the allowed providers" for --model,
-# so probing for the first reported a working guard as broken.
+# so probing for the first reported a working guard as broken. The launcher
+# checks arguments before it looks for the key, so on an install with no key
+# yet this still probes the guard rather than the key check.
 GUARD="$(PI_FORCE=1 ELM_PI_NO_PROXY=1 ./pi --model anthropic/claude-opus-5 -p x </dev/null 2>&1 || true)"
 case "$GUARD" in
   *"restricted to the University"*) echo "    argument guard: --model anthropic/... refused" ;;

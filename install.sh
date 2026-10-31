@@ -6,13 +6,17 @@
 # installed system-wide and nothing needs sudo. The only file touched outside
 # those two paths is your shell profile, and only to put ~/.local/bin on PATH
 # when it is not already there - skip that with --no-path. Re-running is safe.
-# Re-running the installer on an existing installation automatically updates
-# pi and npm packages while preserving your configs and sessions.
+# Re-running it on an existing install brings the source up to date, and pi
+# and the npm packages to the tested versions in config/versions.json when
+# those changed; `pi update` (this script with --update) takes the latest of
+# each instead. Your key, configs and sessions are kept either way, and so are
+# the options the install was made with: --no-packages and the rest, and the
+# branch and repository, are recorded in agent/install-options and repeated.
 # Environment overrides:
 #   ELM_PI_PREFIX=/path      where to install        (default ~/.local/share/elm-pi)
 #   ELM_PI_BINDIR=/path      where to link pi         (default ~/.local/bin)
-#   ELM_PI_REPO=url          source repository
-#   ELM_PI_BRANCH=name       branch to install       (default main)
+#   ELM_PI_REPO=url          source repository       (default: as last installed)
+#   ELM_PI_BRANCH=name       branch to install       (default: as last installed, else main)
 #   ELM_API_KEY=elm-...      skip the interactive key prompt
 #   ELM_PI_UPDATE=1          refresh pi and the extensions, keeping your configs
 #   ELM_PI_NO_PATH=1         do not touch any shell profile
@@ -55,9 +59,20 @@ PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 export PATH
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 
-REPO="${ELM_PI_REPO:-https://github.com/rob-c/elm-pi.git}"
-BRANCH="${ELM_PI_BRANCH:-main}"
 PREFIX="${ELM_PI_PREFIX:-$HOME/.local/share/elm-pi}"
+# The branch and repository an existing install came from, recorded by its
+# bootstrap.sh in agent/install-options, so `pi update` follows the branch it
+# was installed from rather than main. Read as data; an explicit ELM_PI_BRANCH
+# or ELM_PI_REPO still wins.
+saved_option() {
+  [ -f "$PREFIX/agent/install-options" ] || return 0
+  sed -n "s/^$1=//p" "$PREFIX/agent/install-options" | tail -1
+}
+REPO="${ELM_PI_REPO:-$(saved_option repo)}"
+REPO="${REPO:-https://github.com/rob-c/elm-pi.git}"
+BRANCH="${ELM_PI_BRANCH:-$(saved_option branch)}"
+BRANCH_GIVEN="$BRANCH"
+BRANCH="${BRANCH:-main}"
 BINDIR="${ELM_PI_BINDIR:-$HOME/.local/bin}"
 UPDATE="${ELM_PI_UPDATE:-0}"
 SLUG="$(printf '%s' "$REPO" | sed -e 's#^.*github\.com[:/]##' -e 's#\.git$##')"
@@ -88,7 +103,11 @@ Passed through to bootstrap.sh:
   --no-patch          leave pi's /share and /bug commands in place
   --no-auth-lock      leave agent/auth.json writable, so /login works
   --force             re-download the tools and reinstall the npm packages
-  --force-packages    reinstall only the locked extension dependency tree
+  --force-packages    reinstall the extension packages at the tested versions
+  --reset-options     forget the --no-* flags the install recorded; use only these
+
+The --no-* flags, ELM_PI_TOOLS, the branch and the repository are recorded in
+agent/install-options and repeated by later runs and by pi update.
 
 Environment: ELM_PI_PREFIX, ELM_PI_BINDIR, ELM_PI_REPO, ELM_PI_BRANCH,
 ELM_PI_DOCS, ELM_PI_UPDATE, ELM_PI_NO_PATH, ELM_PI_NO_LINK,
@@ -114,7 +133,7 @@ for arg in "$@"; do
     --force-link) FORCE_LINK=1 ;;
     # Forwarded verbatim. A flag missing from this list used to be dropped in
     # silence, so `install.sh --no-tools` installed the tools anyway.
-    --no-packages|--no-shim|--no-auth-lock|--no-tools|--no-patch|--force|--force-packages)
+    --no-packages|--no-shim|--no-auth-lock|--no-tools|--no-patch|--force|--force-packages|--reset-options)
       PASS_ARGS+=("$arg") ;;
     *) echo "unknown option: $arg" >&2; echo "try: --help" >&2; exit 2 ;;
   esac
@@ -225,7 +244,8 @@ validate_source() { # $1 = candidate source tree
 import ast, json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 for path in [root / "patch-pi.py", root / "proxy/egress.py", root / "shim/shim.py",
-             root / "scripts/elm_config.py", root / "scripts/verify_install.py"]:
+             root / "scripts/elm_config.py", root / "scripts/verify_install.py",
+             root / "scripts/pin_versions.py"]:
     ast.parse(path.read_text(), filename=str(path))
 for path in list((root / "config").glob("*.json")) + list((root / "templates").rglob("*.json")):
     json.loads(path.read_text())
@@ -236,7 +256,12 @@ PY
   fi
 }
 
+OLD_HEAD=""
 if [ -e "$PREFIX/.git" ] && [ "$HAVE_GIT" = "1" ]; then
+  # A git install from before agent/install-options: the branch it is on.
+  if [ -z "$BRANCH_GIVEN" ]; then
+    BRANCH="$(git -C "$PREFIX" symbolic-ref --quiet --short HEAD 2>/dev/null || echo main)"
+  fi
   echo "    existing git install — pulling $BRANCH"
   if ! git -C "$PREFIX" diff --quiet || ! git -C "$PREFIX" diff --cached --quiet; then
     die "tracked local changes prevent a safe update; commit or stash them first"
@@ -245,6 +270,7 @@ if [ -e "$PREFIX/.git" ] && [ "$HAVE_GIT" = "1" ]; then
   CANDIDATE="$(mktemp -d)"; trap 'rm -rf "$CANDIDATE"' EXIT
   git -C "$PREFIX" archive "origin/$BRANCH" | tar -xf - -C "$CANDIDATE"
   validate_source "$CANDIDATE"
+  OLD_HEAD="$(git -C "$PREFIX" rev-parse --short HEAD)"
   git -C "$PREFIX" merge --ff-only "origin/$BRANCH" --quiet \
     || die "the install cannot fast-forward to origin/$BRANCH"
   echo "    now at $(git -C "$PREFIX" rev-parse --short HEAD)"
@@ -294,13 +320,37 @@ BOOT_ARGS=(${PASS_ARGS[@]+"${PASS_ARGS[@]}"})
 #
 # Reinstalling the packages is what `--update` is for, and `pi update` passes
 # it. An install that is actually broken is a `rm -rf` away from a clean one.
+# The branch and repository go to bootstrap.sh, which records them with the
+# rest of the options in agent/install-options for the next update.
+BOOT_STATUS=0
 if [ -t 0 ]; then
   # Invoked as bash -c "$(curl ...)", so stdin is still the terminal and
   # bootstrap can prompt for the ELM key.
-  "$PREFIX/bootstrap.sh" ${BOOT_ARGS[@]+"${BOOT_ARGS[@]}"}
+  ELM_PI_BRANCH="$BRANCH" ELM_PI_REPO="$REPO" \
+    "$PREFIX/bootstrap.sh" ${BOOT_ARGS[@]+"${BOOT_ARGS[@]}"} || BOOT_STATUS=$?
 else
   warn "not running on a terminal — bootstrap cannot prompt for your ELM key"
-  "$PREFIX/bootstrap.sh" ${BOOT_ARGS[@]+"${BOOT_ARGS[@]}"} --non-interactive
+  ELM_PI_BRANCH="$BRANCH" ELM_PI_REPO="$REPO" \
+    "$PREFIX/bootstrap.sh" ${BOOT_ARGS[@]+"${BOOT_ARGS[@]}"} --non-interactive || BOOT_STATUS=$?
+fi
+if [ "$BOOT_STATUS" != "0" ]; then
+  # Say exactly what is and is not as it was. bootstrap.sh puts back the pi
+  # and extension trees it replaced (it says so above when it does), but the
+  # source was replaced before it ran and the files it regenerates under
+  # agent/ are not restored. Going back is not automatic: an old source over
+  # agent/ files the new one wrote is not a state anything was tested in.
+  printf '\n' >&2
+  warn "bootstrap failed (above). What this left:"
+  warn "  pi and the extension packages: the previous ones, if they had been replaced"
+  warn "    (bootstrap says 'put back the previous ...' when it does)"
+  warn "  agent/ (generated extensions, agents, skills, settings it owns): rewritten, not rolled back"
+  if [ -n "$OLD_HEAD" ]; then
+    warn "  the elm-pi source: now $(git -C "$PREFIX" rev-parse --short HEAD), was $OLD_HEAD - not rolled back"
+    warn "To go back:  git -C $PREFIX reset --hard $OLD_HEAD && $PREFIX/bootstrap.sh"
+  else
+    warn "  the elm-pi source: replaced by $SLUG@$BRANCH - not rolled back"
+  fi
+  die "fix the cause above and re-run, or run $PREFIX/bootstrap.sh"
 fi
 
 # --- 4. put pi on the PATH --------------------------------------------------
@@ -427,7 +477,8 @@ fi
 cat <<EOM
 ${PATH_NOTE}    Start it:      $RUN
     One-shot:      $RUN -p "explain this repo"
-    Update later:  $PREFIX/bootstrap.sh --update   (or re-run this install command)
+    Update later:  $RUN update             (elm-pi, then pi and the packages at their latest)
+                   $RUN update --extensions  (back to the tested versions)
 
     Installed in:  $PREFIX
     Your key:      $PREFIX/.env   (mode 600, never committed)

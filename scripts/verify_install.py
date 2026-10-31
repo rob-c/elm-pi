@@ -6,7 +6,8 @@ extension packages when it fails. It checks, for the install at --root:
 
 - every package listed in agent/settings.json "packages": its directory, its
   package.json, and every extension and skill path its "pi" manifest declares;
-- every required local extension in config/elm-pi.json;
+- every required local extension in config/elm-pi.json, except one an
+  install option in agent/install-options leaves out (--no-shim);
 - every skill in agent/skills: a SKILL.md whose frontmatter parses and whose
   name matches its directory (pi drops a skill whose frontmatter is invalid).
 
@@ -56,12 +57,29 @@ def package_problems(root: Path) -> list[str]:
     return problems
 
 
+def install_flags(root: Path) -> list[str]:
+    """The --no-* flags recorded in agent/install-options by bootstrap.sh."""
+    path = root / "agent/install-options"
+    flags: list[str] = []
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            if line.startswith("flags="):
+                flags = line[len("flags="):].split()
+    return flags
+
+
+# Required extensions an install option leaves out on purpose.
+OPTIONAL_UNDER = {"elm-shim.ts": "--no-shim"}
+
+
 def extension_problems(root: Path) -> list[str]:
     config = json.loads((root / "config/elm-pi.json").read_text())
+    flags = install_flags(root)
     return [
         f"required extension {name} is missing from agent/extensions"
         for name in config.get("requiredExtensions", [])
         if not (root / "agent/extensions" / name).is_file()
+        and OPTIONAL_UNDER.get(name) not in flags
     ]
 
 
