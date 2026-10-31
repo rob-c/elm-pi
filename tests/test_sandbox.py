@@ -268,12 +268,26 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn('"defaultProjectTrust",', (ROOT / "bootstrap.sh").read_text())
 
 
+def guard_capable_node():
+    """The bundled node, or else one on PATH new enough for the guard
+    (module.registerHooks, Node 22.15+): CI and a fresh clone have no .node."""
+    import shutil
+    bundled = ROOT / ".node/bin/node"
+    if bundled.exists():
+        return bundled
+    found = shutil.which("node")
+    if found and subprocess.run([found, "-e", "process.exit(typeof require('node:module').registerHooks === 'function' ? 0 : 1)"],
+                                capture_output=True).returncode == 0:
+        return Path(found)
+    return None
+
+
 class NodeGuardTests(unittest.TestCase):
-    NODE = ROOT / ".node/bin/node"
+    NODE = guard_capable_node()
 
     def setUp(self):
-        if not self.NODE.exists():
-            self.skipTest("no bundled node (run bootstrap.sh)")
+        if self.NODE is None:
+            self.skipTest("no node with module.registerHooks (bundled or on PATH)")
 
     def test_guard_refuses_packages_outside_and_restores_the_stash(self):
         with tempfile.TemporaryDirectory() as directory:
