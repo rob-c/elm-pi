@@ -472,7 +472,9 @@ install_if_absent templates/models.json                agent/models.json
 elm_py "$CONFIG_TOOL" --root "$HERE" render templates/AGENTS.md agent/AGENTS.md
 # Who the users are and how to work with them (peers, Python 3/C++, evidence
 # over assumption, ask about unknowns, report with units and uncertainty).
-# pi appends it to its system prompt, ahead of AGENTS.md; sub-agents get it too.
+# pi appends it to the main session's system prompt, ahead of AGENTS.md, and
+# workflow agents load it too; pi-subagents children do not (since 0.79.2), so
+# templates/agents/*.md carry the rules they need.
 elm_py "$CONFIG_TOOL" --root "$HERE" render templates/APPEND_SYSTEM.md agent/APPEND_SYSTEM.md
 # Skills: pi lists each one's name and description in the system prompt and
 # loads the body only when a task calls for it, so the orchestration detail and
@@ -948,9 +950,9 @@ if [ "$WITH_PACKAGES" = "1" ]; then
   say "pi packages (sub-agents, web access, anchor editing)"
   mkdir -p agent/npm
   # Every loaded package is transpiled and imported at each launch. Measured CPU
-  # cost per launch on this install: subagents+hashline ~1.6s, web-access ~0.2s,
-  # against ~1.4s for pi and the local extensions alone. `pi --fast` skips all of
-  # them for one-shot work.
+  # cost per launch when three packages shipped: subagents+hashline ~1.6s,
+  # web-access ~0.2s, against ~1.4s for pi and the local extensions alone; the
+  # set is larger now. `pi --fast` skips all of them for one-shot work.
   #
   # Two lists, and they are not the same list. templates/packages.json is what
   # npm installs; templates/settings.json is what pi loads.
@@ -958,7 +960,7 @@ if [ "$WITH_PACKAGES" = "1" ]; then
   # agent/settings.json's "packages" is derived from the template every run
   # rather than filtered in place. Filtering in place could only ever remove:
   # an install that had once been run with --no-packages kept an empty list for
-  # ever after, so a later run installed all four packages into agent/npm and
+  # ever after, so a later run installed every package into agent/npm and
   # then loaded none of them. Everything else in that file is yours and is left
   # exactly as you left it.
   #

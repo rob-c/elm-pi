@@ -103,7 +103,8 @@ Passed through to bootstrap.sh:
   --no-patch          leave pi's /share and /bug commands in place
   --no-auth-lock      leave agent/auth.json writable, so /login works
   --force             re-download the tools and reinstall the npm packages
-  --force-packages    reinstall the extension packages at the tested versions
+  --force-packages    reinstall the extension packages at the tested versions,
+                      and pi too if it is not at its tested version
   --reset-options     forget the --no-* flags the install recorded; use only these
 
 The --no-* flags, ELM_PI_TOOLS, the branch and the repository are recorded in
