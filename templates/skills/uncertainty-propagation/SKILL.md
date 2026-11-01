@@ -1,6 +1,6 @@
 ---
 name: uncertainty-propagation
-description: "Propagating and quoting uncertainties: linear propagation with covariance, correlated inputs, Monte Carlo propagation when linearisation fails, combining statistical and systematic errors, weighted averages, and rounding results to the PDG convention. Use whenever a reported number needs an error bar."
+description: "Propagating and quoting uncertainties - linear propagation with covariance, correlated inputs, Monte Carlo propagation, combining measurements, significant figures."
 ---
 
 # Uncertainty propagation

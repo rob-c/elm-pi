@@ -157,6 +157,7 @@ wrapper's fault?".
 |---|---|
 | `--fast` | skip the npm package set, which is most of the startup time. The policy extensions and the permission gate still load. No sub-agents, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
 | `--llama` | Llama 3.3 70B via the local shim. A fallback, **not** a speed-up — Qwen is faster here. |
+| `--workflows` | offer the `workflow` tool (pi-dynamic-workflows) for this run. Left out otherwise: it is used only on request, and its definition would go with every request. |
 | `--remote` | web tools and computer use (screen and app control) on for this run, and the egress proxy records every destination instead of allowing only ELM and PyPI. Models are unaffected: still ELM only. `PI_ELM_WEB=1` turns the tools on without opening the proxy. |
 | `--help` | the launcher's flags and environment, then pi's own help, run with this install's config, offline and with credentials scrubbed |
 

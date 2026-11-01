@@ -1,6 +1,6 @@
 ---
 name: derivation-checks
-description: "Checking an analytic derivation or formula before trusting it: dimensional analysis, natural-unit bookkeeping, limiting and special cases, symmetries, independent symbolic verification with sympy, and numerical spot checks. Use for any derivation, formula manipulation, or result stated in closed form."
+description: "Checking an analytic derivation before trusting it - dimensions, natural units, limiting cases, symmetries, numerical spot checks, sympy."
 ---
 
 # Checking a derivation

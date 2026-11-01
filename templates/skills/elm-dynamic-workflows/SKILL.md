@@ -1,6 +1,6 @@
 ---
 name: elm-dynamic-workflows
-description: "Using the `workflow` tool (pi-dynamic-workflows) on this install: when it may be used, checking a script with workflow-check before running it, getting the result back with background:false, model rules, and recovering a run without relaunching. Load it before any `workflow` tool call. Not for subagent workflow scripts (see elm-subagent-workflows)."
+description: "The `workflow` tool (pi --workflows sessions only) - when it may be used, checking a script with workflow-check, getting results back. Read before any workflow call."
 ---
 
 # The `workflow` tool (pi-dynamic-workflows)
@@ -10,7 +10,10 @@ description: "Using the `workflow` tool (pi-dynamic-workflows) on this install: 
 `@quintinshaw/pi-dynamic-workflows` provides the `workflow` and
 `workflow_control` tools and the commands `/ultracode`, `/effort`,
 `/deep-research`, `/adversarial-review`, `/code-review`, `/multi-perspective`,
-`/codebase-audit` and `/workflows`. Use it only when the user asks for it; its
+`/codebase-audit` and `/workflows`. The two tools are offered only in a session
+started with `pi --workflows` (or `PI_ELM_WORKFLOWS=1`): their definitions would
+otherwise travel with every request. Asked for a workflow in any other session,
+say that it needs a restart with that flag. Use it only when the user asks; its
 keyword trigger is switched off here, and `/ultracode` arms an exhaustive fan-out
 for every message until `/ultracode off`. `/deep-research` needs the web: do not
 use it unless the session was started with `pi --remote` (otherwise every

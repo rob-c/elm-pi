@@ -555,5 +555,107 @@ class NotebookToolTests(unittest.TestCase):
             self.assertIn(needle, skill)
 
 
+class PromptCacheTests(unittest.TestCase):
+    """What keeps the gateway's prefix cache warm (profiled through a logging relay)."""
+
+    RUNNER = r"""
+const mod = await import(process.argv[1]);
+const h = {}; const tools = {};
+mod.default({ on: (e, f) => { (h[e] ??= []).push(f); }, registerTool: (t) => { tools[t.name] = t; } });
+const ctx = { cwd: process.argv[2] };
+const fire = async (e, ev) => { for (const f of h[e] ?? []) await f(ev, ctx); };
+const prompt = async () => { const ev = { systemPromptOptions: { sections: {} } }; await fire("before_agent_start", ev); return ev.systemPromptOptions.sections.pinned_instructions ?? ""; };
+const out = [];
+await fire("session_start", {});
+await tools.pin_instruction.execute("1", { instruction: "Use SI units." }, undefined, undefined, ctx);
+out.push(await prompt());                     // pinned mid-session: system prompt unchanged
+await tools.pin_instruction.execute("2", { instruction: "run7.csv is calibrated." }, undefined, undefined, ctx);
+out.push(await prompt());
+await fire("session_compact", {});
+out.push(await prompt());                     // after compaction: both
+await tools.unpin_instruction.execute("3", { number: 1 }, undefined, undefined, ctx);
+out.push(await prompt());                     // unpin: at once
+console.log(JSON.stringify(out));
+"""
+
+    def test_a_new_pin_waits_for_compaction_and_an_unpin_does_not(self):
+        binary = shutil.which("node") or str(Path.home() / "sandboxes/elm-pi/.node/bin/node")
+        tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)])
+        ext = tmp / "ext"
+        (ext / "node_modules/typebox").mkdir(parents=True)
+        (ext / "node_modules/typebox/package.json").write_text('{"name":"typebox","type":"module","main":"index.js"}')
+        (ext / "node_modules/typebox/index.js").write_text("const f = (...a) => ({ a }); export const Type = { Object: f, String: f, Number: f };")
+        shutil.copy(ROOT / "templates/extensions/pinned-instructions.ts", ext / "pinned.ts")
+        (tmp / "proj").mkdir()
+        run = subprocess.run([binary, "--no-warnings", "--input-type=module", "-e", self.RUNNER, str(ext / "pinned.ts"), str(tmp / "proj")],
+                             env={**os.environ, "PI_CODING_AGENT_DIR": str(tmp / "agent")}, capture_output=True, text=True)
+        if run.returncode != 0 and "ERR_UNKNOWN_FILE_EXTENSION" in run.stderr:
+            self.skipTest("this node cannot load TypeScript")
+        self.assertEqual(0, run.returncode, run.stderr)
+        first, second, compacted, unpinned = json.loads(run.stdout)
+        self.assertEqual("", first)                   # the session started with none: the prefix stays put
+        self.assertEqual("", second)
+        self.assertIn("Use SI units.", compacted)
+        self.assertIn("run7.csv is calibrated.", compacted)
+        self.assertNotIn("Use SI units.", unpinned)    # withdrawn: never still asserted
+        self.assertIn("run7.csv is calibrated.", unpinned)
+
+    def test_retries_start_at_the_second_the_gateway_asks_for(self):
+        retry = json.loads((ROOT / "templates/settings.json").read_text())["retry"]
+        self.assertEqual(1000, retry["baseDelayMs"])   # 429s carry Retry-After: 1
+        self.assertEqual(6, retry["maxRetries"])       # 1+2+4+8+16+32 = 63s for a long storm
+        self.assertEqual(0, retry["provider"]["maxRetries"])
+        self.assertIn('"retry",', BOOTSTRAP)            # installer-owned: reaches existing installs
+
+
+class FixedPromptTests(unittest.TestCase):
+    """Every request carries AGENTS.md, APPEND_SYSTEM.md, the skill list and the tool
+    definitions (~24k tokens before trimming); detail needed now and then is read on demand."""
+
+    def test_every_reference_agents_md_points_to_exists_and_renders_to_a_real_path(self):
+        agents = (ROOT / "templates/AGENTS.md").read_text()
+        named = set(re.findall(r"@AGENT_DIR@/reference/([a-z0-9-]+\.md)", agents))
+        shipped = {p.name for p in (ROOT / "templates/reference").glob("*.md")}
+        self.assertEqual(shipped, named)                 # none missing, none unreferenced
+        out = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(out)])
+        subprocess.run([sys.executable, str(ROOT / "scripts/elm_config.py"), "--root", str(ROOT), "render",
+                        str(ROOT / "templates/AGENTS.md"), str(out / "AGENTS.md")], check=True)
+        rendered = (out / "AGENTS.md").read_text()
+        self.assertNotIn("@AGENT_DIR@", rendered)
+        self.assertIn(f"{ROOT / 'agent'}/reference/finished-work.md", rendered)
+        self.assertIn("rm -rf agent/reference && mkdir -p agent/reference", BOOTSTRAP)
+
+    def test_the_rules_stay_and_only_the_detail_moved(self):
+        agents = (ROOT / "templates/AGENTS.md").read_text()
+        for rule in (".pi/.gitignore", "`## Facts`", ".pi/tmp/", "five lowercase letters",
+                     '"$PI_CODING_AGENT_DIR/egress.log"', "pi --remote", "(from memory,", "pi --workflows"):
+            self.assertIn(rule, agents)
+        detail = "".join(p.read_text() for p in (ROOT / "templates/reference").glob("*.md"))
+        for moved in ("git rm -r --cached", "pi-hermes-memory", "requirePath", "X-Elm-Pi-Remedy", "__pycache__"):
+            self.assertIn(moved, detail)
+            self.assertNotIn(moved, agents)
+
+    def test_sizes_do_not_creep_back(self):
+        self.assertLess(len((ROOT / "templates/AGENTS.md").read_text()), 10000)
+        self.assertLess(len((ROOT / "templates/APPEND_SYSTEM.md").read_text()), 11500)
+        for skill in (ROOT / "templates/skills").glob("*/SKILL.md"):
+            description = re.search(r"^description: (.*)$", skill.read_text(), re.M).group(1)
+            self.assertLessEqual(len(description), 230, skill.parent.name)
+
+    def test_rarely_used_tools_are_left_out_and_workflows_come_back_on_request(self):
+        excluded = CONFIG["excludedTools"]
+        self.assertEqual(["workflow", "workflow_control"], excluded["workflows"])
+        self.assertIn("notebook_merge", excluded["always"])
+        env = (ROOT / "scripts/elm_config.py").read_text()
+        self.assertIn('"ELM_EXCLUDED_TOOLS"', env)
+        self.assertIn('"ELM_WORKFLOW_TOOLS"', env)
+        self.assertIn("--workflows) WORKFLOWS=1", LAUNCHER)
+        skill = (ROOT / "templates/skills/scientific-python/SKILL.md").read_text()
+        for tool in excluded["always"]:
+            self.assertNotIn(f"`{tool}`", skill)          # never advertise a tool that is not offered
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 ---
 name: numerical-methods
-description: "Getting numerically trustworthy results: floating-point pitfalls, ODE/PDE integration and stiffness, quadrature, root finding, linear algebra conditioning, convergence studies, Monte Carlo error, and reproducible random numbers. Use when writing or checking any numerical computation or simulation."
+description: "Numerically trustworthy results - floating point, ODE/PDE integration and stiffness, quadrature, root finding, conditioning, convergence checks."
 ---
 
 # Numerical methods

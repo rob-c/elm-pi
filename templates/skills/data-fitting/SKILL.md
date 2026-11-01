@@ -1,6 +1,6 @@
 ---
 name: data-fitting
-description: "Fitting a model to measured data and reporting it properly: choosing least squares vs likelihood, weights and Poisson counts, curve_fit/iminuit usage, chi2/ndf and p-values, residuals and pulls, parameter covariance, and derived quantities with uncertainties. Use for any fit, regression, calibration, decay curve, peak or spectrum."
+description: "Fitting a model to measured data and reporting it properly - least squares or likelihood, weights and Poisson counts, chi2/ndf, residuals, parameter uncertainties."
 ---
 
 # Fitting data

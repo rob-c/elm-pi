@@ -1,6 +1,6 @@
 ---
 name: scientific-cpp
-description: "Writing, building and checking C++ for numerical physics: compiler flags and warnings, sanitizers, floating-point and -ffast-math pitfalls, reproducible random numbers, Eigen/GSL/ROOT usage, CMake, and verifying C++ results against a reference. Use for any C++ simulation, numerical code or ROOT macro."
+description: "C++ for numerical physics - compiler flags and warnings, sanitizers, floating-point pitfalls, reproducible builds, testing."
 ---
 
 # Scientific C++

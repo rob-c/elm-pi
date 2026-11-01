@@ -1,6 +1,6 @@
 ---
 name: scientific-python
-description: "Working conventions for scientific Python: choosing the right Python environment, numpy/scipy/pandas idioms, physics-quality plots, reproducible analysis scripts, and reading ROOT/HDF5/CSV data. Use whenever writing or running Python for analysis, simulation or plotting."
+description: "Scientific Python - which environment, numpy/scipy/pandas idioms, plots, notebooks and the python tool, reproducible scripts, reading ROOT/HDF5/CSV."
 ---
 
 # Scientific Python
@@ -62,7 +62,8 @@ report from it - kernel state is not a result.
 - Read and edit an `.ipynb` cell by cell with the `notebook_*` tools:
   `notebook_summary` first (cells, ids, output previews), then
   `notebook_read_cell`, `notebook_edit_cell` or `notebook_write_cell`,
-  `notebook_insert`, `notebook_delete`, `notebook_move`. Never edit the JSON
+  `notebook_insert`, `notebook_delete` (delete and insert to move a cell;
+  `notebook_write_cell` changes its type). Never edit the JSON
   with `write`, which loses outputs and ids.
 - Run the whole notebook, top to bottom, in a fresh kernel:
   `jupyter nbconvert --to notebook --execute --inplace analysis.ipynb`

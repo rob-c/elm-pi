@@ -1,6 +1,6 @@
 ---
 name: elm-subagent-workflows
-description: "Writing, validating and launching a pi-subagents workflow script - one subagent call that launches several qwen/llama children with runs.all - and recovering when one fails. Load it before any subagent call that uses `workflow`. Not for the separate `workflow` tool (see elm-dynamic-workflows)."
+description: "Writing, validating and launching a subagent workflow script that runs several qwen/llama children with runs.all, and collecting the results."
 ---
 
 # pi-subagents workflow scripts

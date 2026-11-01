@@ -1,6 +1,6 @@
 ---
 name: installing-software
-description: "What to do when a tool, library or program the task needs is not installed: check, search the package indexes for an existing solution, then install the most isolated way (the agent's Python, pixi from conda-forge, a container), then Homebrew with the user's approval, and on Linux give the user the apt/dnf/yum command. Always tell the user what was installed, where, and how to undo it. Use whenever something is missing - command not found, ImportError, a missing library or compiler - or before writing something a package may already do."
+description: "When something the task needs is not installed - search the package indexes, install the isolated way (pip, pixi, containers), Homebrew with approval, apt/dnf for the user, and report what went where."
 ---
 
 # Installing software

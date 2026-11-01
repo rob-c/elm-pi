@@ -1,6 +1,6 @@
 ---
 name: physics-documents
-description: "Producing lecture slides, notes, reports and papers in LaTeX/Beamer (or Markdown) for physics: outline and notation first, consistent symbols across a long document, equations and units with siunitx, figures, references without fabrication, and compiling to check. Use for slides, lecture notes, problem sheets, reports or papers."
+description: "Slides, notes, reports and papers in LaTeX/Beamer or Markdown - outline and notation first, consistent symbols, siunitx, figures, honest references, compiling to check."
 ---
 
 # Physics slides, notes and papers

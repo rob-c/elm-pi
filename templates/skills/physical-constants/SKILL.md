@@ -1,6 +1,6 @@
 ---
 name: physical-constants
-description: "Getting the value of a physical constant, particle mass, lifetime, branching ratio, coupling or other reference number right, with its source. Use whenever a numerical result depends on a measured constant or reference value, and before quoting any such value."
+description: "Getting a physical constant, particle mass, lifetime, branching ratio or coupling right, with its source. Use whenever a reference value enters a result."
 ---
 
 # Physical constants and reference values

@@ -31,7 +31,10 @@ def rendered(text: str, models: dict) -> str:
 def render_file(root: Path, source: Path, destination: Path) -> None:
     _, models = load(root)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(rendered(source.read_text(), models))
+    # @AGENT_DIR@: where a prompt points the model at a file of this install,
+    # such as agent/reference/, which it reads by its real path.
+    text = rendered(source.read_text(), models).replace("@AGENT_DIR@", str(root / "agent"))
+    destination.write_text(text)
 
 
 def write_runtime(root: Path) -> None:
@@ -43,6 +46,8 @@ def write_runtime(root: Path) -> None:
         "ELM_BUILTIN_PROVIDERS": " ".join(config["builtinProviders"]),
         "ELM_PROVIDER_CREDENTIALS": " ".join(config["providerCredentials"]),
         "ELM_WEB_TOOLS": ",".join(config["webTools"]),
+        "ELM_EXCLUDED_TOOLS": ",".join(config["excludedTools"]["always"]),
+        "ELM_WORKFLOW_TOOLS": ",".join(config["excludedTools"]["workflows"]),
         # One path per line: some of them have spaces in them.
         "ELM_UNTRUSTED_EXACT": "\n".join(config["untrustedFolders"]["exact"]),
         "ELM_UNTRUSTED_TREE": "\n".join(config["untrustedFolders"]["tree"]),

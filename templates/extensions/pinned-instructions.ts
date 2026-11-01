@@ -12,6 +12,21 @@
  * 0%. This extension does that: the model records a standing instruction with
  * `pin_instruction`, and every run puts the list back into the system prompt.
  *
+ * The system prompt's copy is fixed for a stretch of conversation: it is read
+ * when a session starts and again after each compaction, not on every request.
+ * Why: pi folds a changed system-prompt section into the very start of the
+ * request, and the ELM gateway's prefix cache only helps while every request
+ * starts with the same bytes. Profiled through a logging relay: pinning one
+ * instruction mid-session left the next request sharing 54% of its start with
+ * any earlier one, so the tool definitions and the whole history (28k tokens
+ * there; ~100k late in a long session) were processed again. A pin or unpin
+ * reaches the model at once anyway - the tool's result lists the new set and
+ * stays in the transcript - and a compaction has already replaced the start of
+ * the request, so that is when the system prompt catches up, for free. Which is
+ * also exactly when it matters: compaction is what the pins survive. An unpin
+ * is the exception: it updates the system prompt at once, so a withdrawn
+ * instruction is never still asserted there.
+ *
  * Stored per project in agent/pinned/<hash of the working directory>.md, mode
  * 600 - inside the install, not the project, so a cloned repository cannot ship
  * its own "pinned instructions". Sub-agents started in the same directory get
@@ -91,8 +106,17 @@ function text(message: string) {
 }
 
 export default function (pi: ExtensionAPI) {
+	/** The pins in the system prompt: as read at session start or the last compaction. */
+	let inPrompt: string[] | undefined;
+	const refresh = (_event: unknown, ctx: { cwd?: string } | undefined) => {
+		inPrompt = readPins(ctx?.cwd ?? process.cwd());
+	};
+	pi.on("session_start", refresh);
+	pi.on("session_compact", refresh);
+
 	pi.on("before_agent_start", (event, ctx) => {
-		const pins = readPins(ctx?.cwd ?? process.cwd());
+		inPrompt ??= readPins(ctx?.cwd ?? process.cwd());
+		const pins = inPrompt;
 		if (pins.length > 0) {
 			event.systemPromptOptions.sections.pinned_instructions = render(pins);
 		} else {
@@ -123,7 +147,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			pins.push(instruction);
 			writePins(cwd, pins);
-			return text(`Pinned.\n${render(pins)}`);
+			return text(`Pinned - it holds from now on, through compaction.\n${render(pins)}`);
 		},
 	});
 
@@ -142,6 +166,10 @@ export default function (pi: ExtensionAPI) {
 			}
 			const [removed] = pins.splice(index, 1);
 			writePins(cwd, pins);
+			// Unlike a new pin, a withdrawn one cannot wait for the next compaction:
+			// the system prompt would go on asserting it over this result. Rare
+			// enough that the one re-read of the prefix it costs is the right trade.
+			inPrompt = pins;
 			return text(`Removed: ${removed}${pins.length ? `\n${render(pins)}` : "\nNo instructions pinned."}`);
 		},
 	});

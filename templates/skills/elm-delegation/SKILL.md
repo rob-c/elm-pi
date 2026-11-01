@@ -1,6 +1,6 @@
 ---
 name: elm-delegation
-description: "How to delegate to sub-agents on this install: when to fan out, routing between the qwen and llama sub-agents and the builtin agents, writing a child's prompt, budgets, checking a child's work, concurrent writers and worktrees, and answering a child's supervisor request. Load it before the first subagent call in a session."
+description: "Delegating to sub-agents here - when to fan out, qwen or llama, writing a child's prompt, budgets, checking its work. Read before the first subagent call."
 ---
 
 # Delegating to sub-agents

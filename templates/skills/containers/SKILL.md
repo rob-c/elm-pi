@@ -1,6 +1,6 @@
 ---
 name: containers
-description: "Running software the machine does not have - a full TeX Live, pandoc, a toolchain - in a Docker or Podman container, offline: finding the engine, pulling an image, --network=none, mounting only the project, files owned by the user. Use when a tool is missing and pip cannot supply it, e.g. compiling LaTeX to PDF without TeX installed."
+description: "Run software the machine lacks (TeX Live, pandoc, toolchains) in Docker or Podman, offline, with --network=none. Use when a tool is missing and pip cannot supply it."
 ---
 
 # Containers

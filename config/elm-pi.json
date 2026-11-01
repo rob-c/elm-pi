@@ -158,6 +158,20 @@
     "get_search_content",
     "web_enable"
   ],
+  "excludedTools": {
+    "_comment": "Tools not sent to the model, beside the web tools: every tool's definition goes with every request, so one rarely used costs its length on all of them. 'always': never offered (notebook edits with simple substitutes: write_cell sets a cell's type, nbconvert clears outputs, delete and insert move). 'workflows': offered only in a session started with `pi --workflows` (or PI_ELM_WORKFLOWS=1). pi ignores an exclusion for a tool that does not exist, so a renamed tool must be renamed here too.",
+    "always": [
+      "notebook_merge",
+      "notebook_change_cell_type",
+      "notebook_read_cell_attachment",
+      "notebook_clear_outputs",
+      "notebook_move"
+    ],
+    "workflows": [
+      "workflow",
+      "workflow_control"
+    ]
+  },
   "requiredExtensions": [
     "elm-only.ts",
     "protected-paths.ts",

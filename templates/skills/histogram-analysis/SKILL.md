@@ -1,6 +1,6 @@
 ---
 name: histogram-analysis
-description: "Building and analysing histograms and event selections correctly: binning, per-bin Poisson errors, normalisation and densities, weighted events, background subtraction, efficiency-corrected yields, and ROOT/uproot/hist usage. Use for any binned data, spectra, event selections or particle-physics style analysis."
+description: "Histograms and event selections - binning, per-bin Poisson errors, normalisation, weighted events, background subtraction, cut flows."
 ---
 
 # Histograms and event selections

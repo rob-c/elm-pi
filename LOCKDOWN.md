@@ -190,7 +190,8 @@ Accessibility and Screen Recording for that helper, and both can be revoked in
 System Settings > Privacy & Security.
 
 Dynamic Workflows (`@quintinshaw/pi-dynamic-workflows`) **is** loaded by the
-default package set, knowingly: its global model-policy hook can be overridden
+default package set, knowingly, though its `workflow` tools are offered only in
+a session started with `pi --workflows`: its global model-policy hook can be overridden
 by an individual workflow script. Its guard, `workflow-model-scope.ts`, is a
 required extension and refuses models outside the ELM providers, but that is
 weaker than strict `pi-subagents` model scope. INSTALL.md, "Dynamic Workflows,

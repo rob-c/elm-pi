@@ -66,6 +66,8 @@ Flags added by this launcher:
                       no sub-agents, web access or anchor editing. Much
                       quicker to start
   --llama             run on Llama 3.3 70B through the tool-call shim
+  --workflows         offer the `workflow` tool (pi-dynamic-workflows) this run;
+                      it is left out otherwise, being used only on request
   --remote            allow this run to reach the internet: the web tools come
                       back on and the egress proxy records every destination
                       instead of allowing only the ELM gateway. The model is
@@ -327,12 +329,13 @@ export PI_SUBAGENT_PI_BINARY="${PI_SUBAGENT_PI_BINARY:-$HERE/pi}"
 # instructions and the permission gate), todo and the skill router, and pi's
 # built-in edit tool; it drops anchor editing, subagent/bg_wait and web search.
 # Use a plain `pi` for real multi-step work.
-FAST=0; LLAMA=0; REMOTE=0; ARGS=()
+FAST=0; LLAMA=0; REMOTE=0; WORKFLOWS="${PI_ELM_WORKFLOWS:-0}"; ARGS=()
 for a in "$@"; do
   case "$a" in
     --fast) FAST=1 ;;
     --llama) LLAMA=1 ;;
     --remote) REMOTE=1 ;;
+    --workflows) WORKFLOWS=1 ;;
     *) ARGS+=("$a") ;;
   esac
 done
@@ -570,12 +573,22 @@ fi
 # needs the same edit - pi silently ignores an exclusion for a tool that does
 # not exist. bootstrap.sh compares the two lists on every run.
 #
+# Other tools are left out too (excludedTools in config/elm-pi.json): every
+# tool's definition goes with every request, so a rarely used one costs its
+# length on all of them. Five notebook tools with simple substitutes always, and
+# the `workflow` tools unless this run asks for them (--workflows), since they
+# are used only on request - together ~10k characters of each request.
+#
 # pi keeps only the last --exclude-tools it is given (a comma-separated list,
 # split once), so a caller's own `-xt bash` used to replace this exclusion and
 # turn the web tools back on. The caller's lists are folded into this one
 # instead, as one flag. An explicit --tools/-t allowlist is still left alone:
 # naming a web tool there is asking for it.
-if [ "${PI_ELM_WEB:-0}" != "1" ]; then
+XT_LIST="${ELM_EXCLUDED_TOOLS:-}"
+[ "${PI_ELM_WEB:-0}" = "1" ] || XT_LIST="${XT_LIST:+$XT_LIST,}$ELM_WEB_TOOLS"
+[ "$WORKFLOWS" = "1" ] || XT_LIST="${XT_LIST:+$XT_LIST,}${ELM_WORKFLOW_TOOLS:-}"
+XT_LIST="${XT_LIST%,}"
+if [ -n "$XT_LIST" ]; then
   XT_ARGS=(); XT_USER=""; XT_TOOLS=0; xt_prev=""
   for a in "$@"; do
     if [ "$xt_prev" = "stop" ]; then XT_ARGS+=("$a"); continue; fi
@@ -591,7 +604,7 @@ if [ "${PI_ELM_WEB:-0}" != "1" ]; then
   [ "$xt_prev" != "value" ] || XT_ARGS+=("--exclude-tools")
   if [ "$XT_TOOLS" = "0" ]; then
     set -- ${XT_ARGS[@]+"${XT_ARGS[@]}"}
-    PRE+=(--exclude-tools "$ELM_WEB_TOOLS${XT_USER:+,$XT_USER}")
+    PRE+=(--exclude-tools "$XT_LIST${XT_USER:+,$XT_USER}")
   fi
 fi
 # ---------------------------------------------------------------------------

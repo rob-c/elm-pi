@@ -145,21 +145,30 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(0, self.fx.run("--fast", "-p", "x").returncode)
 
     def test_callers_exclude_tools_is_merged_not_obeyed_instead(self):
-        web = ",".join(json.loads((ROOT / "config/elm-pi.json").read_text())["webTools"])
+        config = json.loads((ROOT / "config/elm-pi.json").read_text())
+        web = ",".join(config["webTools"])
+        always = ",".join(config["excludedTools"]["always"])
+        workflows = ",".join(config["excludedTools"]["workflows"])
+        default = f"{always},{web},{workflows}"
+        excluded = lambda r: r.args_seen[r.args_seen.index("--exclude-tools") + 1]
         r = self.fx.run("-xt", "bash", "--exclude-tools", "edit", "-p", "x")
         args = r.args_seen
         self.assertEqual(1, args.count("--exclude-tools") + args.count("-xt"), args)
-        self.assertEqual(f"{web},bash,edit", args[args.index("--exclude-tools") + 1])
+        self.assertEqual(f"{default},bash,edit", excluded(r))
         self.assertEqual(["-p", "x"], args[args.index("--exclude-tools") + 2:])
         # prompt text after -- is not an option
         r = self.fx.run("-p", "--", "-xt", "bash")
-        self.assertEqual(web, r.args_seen[r.args_seen.index("--exclude-tools") + 1])
+        self.assertEqual(default, excluded(r))
         self.assertEqual(["--", "-xt", "bash"], r.args_seen[-3:])
-        # an explicit allowlist, or PI_ELM_WEB=1, is left exactly as given
+        # an explicit allowlist is left exactly as given
         r = self.fx.run("--tools", "read", "-p", "x")
         self.assertNotIn("--exclude-tools", r.args_seen)
+        # PI_ELM_WEB=1 brings back the web tools only; --workflows the workflow tools only
         r = self.fx.run("-xt", "bash", "-p", "x", env={"PI_ELM_WEB": "1"})
-        self.assertEqual(["-xt", "bash", "-p", "x"], r.args_seen)
+        self.assertEqual(f"{always},{workflows},bash", excluded(r))
+        r = self.fx.run("--workflows", "-p", "x")
+        self.assertEqual(f"{always},{web}", excluded(r))
+        self.assertNotIn("--workflows", r.args_seen)     # the launcher's flag, not pi's
 
     # --- item 9: the guard answers before the key check ------------------------------
     def test_guard_refuses_on_an_install_with_no_key(self):

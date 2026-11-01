@@ -216,7 +216,8 @@ pi install.
 |---|---|
 | `agent/models.json` | the ELM provider: base URL, `$ELM_API_KEY`, the two models |
 | `agent/settings.json` | defaults, packages, extensions, retry, `sessionDir` |
-| `agent/AGENTS.md` | loaded by every top-level session: delegation policy, model choice, project-memory rules. Sub-agents do not see it (nor `APPEND_SYSTEM.md`); their rules are in `agent/agents/*.md` |
+| `agent/AGENTS.md` | loaded by every top-level session: delegation policy, model choice, the short form of every working rule. Sub-agents do not see it (nor `APPEND_SYSTEM.md`); their rules are in `agent/agents/*.md` |
+| `agent/reference/` | the detail behind AGENTS.md's short rules (finished work, `.pi` and git, project memory, anchor editing, the egress proxy), read by the model when the situation comes up rather than sent with every request |
 | `agent/extensions/elm-only.ts` | the ELM-only policy — always refreshed |
 | `agent/extensions/elm-shim.ts` | registers the Llama tool-shim provider |
 | `agent/extensions/protected-paths.ts` | blocks writes to `.env`, `.git/`, `node_modules/` |
@@ -825,9 +826,40 @@ agent run continued as if nothing had happened.
 
 The default `maxRetries: 3` gives ~14s of tolerance; against a 429 storm on a
 shared university gateway pi surfaced `429: Rate limit exceeded` after ~15s.
-**5** gives ~62s. `retry.provider.maxRetries` stays at **0** — SDK-level retries
-can swallow out-of-quota errors before pi sees them, blocking the agent until the
-provider quota resets. pi uses its own backoff and ignores `Retry-After`.
+`retry.provider.maxRetries` stays at **0** — SDK-level retries can swallow
+out-of-quota errors before pi sees them, blocking the agent until the provider
+quota resets. pi uses its own backoff and ignores `Retry-After`.
+
+The gateway's 429s say `Retry-After: 1`, and profiled through a logging relay
+they come after a burst of large requests - ~100k prompt tokens inside a minute,
+which three or four steps of a session at 25-30k tokens each reach. With a 2s
+base the waits were 2, 4, 8 and 16s: one turn lost 30s to a refusal the gateway
+had asked to be retried after one. So `baseDelayMs` is **1000** and
+`maxRetries` **6**: 1, 2, 4, 8, 16, 32s - a short refusal clears in a second or
+three, and a long storm still gets ~63s.
+
+### What every request carries
+
+Every request to ELM starts with the same fixed part: pi's own instructions,
+`APPEND_SYSTEM.md`, `AGENTS.md`, the list of skills, and the definition of every
+tool. Measured through a logging relay, that was ~24k tokens before a word of
+the conversation - 56.5k characters of system prompt and 35 tools (36.3k) - on
+every step of every session and sub-agent. Cached, it costs little time; it
+still fills the context window and counts against the gateway's limits.
+
+So the fixed part holds rules, and detail lives where it is read on demand:
+
+- `AGENTS.md` carries the short form of each rule and points to
+  `agent/reference/` (finished-work checklist, `.pi` and git, project memory,
+  anchor editing, the egress proxy) for the rest - 20.3k characters to 8.5k.
+- Skill descriptions are one line each (4.9k characters to 2.3k); the skill
+  router adds a skill's full text when a request needs it.
+- Tools used only on request are not offered (`excludedTools` in
+  `config/elm-pi.json`): the `workflow` tools unless `pi --workflows`, and five
+  notebook tools with simple substitutes.
+
+Result, same first request: system prompt 56.5k to 40.4k characters, 35 tools to
+28, **~24.0k prompt tokens to 17.8k** as counted by the gateway.
 
 ### Latency variance is pi, not ELM
 

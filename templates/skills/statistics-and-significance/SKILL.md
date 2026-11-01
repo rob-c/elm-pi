@@ -1,6 +1,6 @@
 ---
 name: statistics-and-significance
-description: "Statistical inference for physics results: hypothesis tests and p-values, discovery significance, confidence intervals and upper limits, efficiencies, look-elsewhere effect, and what each claim means. Use when stating a significance, a limit, an interval, an efficiency, or whether two results agree."
+description: "Statistical inference for physics results - p-values and significance, confidence intervals and upper limits, efficiencies, the look-elsewhere effect."
 ---
 
 # Statistics and significance

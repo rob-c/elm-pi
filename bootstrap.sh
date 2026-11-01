@@ -494,6 +494,13 @@ install_if_absent templates/config/pi-auto-compact/config.json agent/config/pi-a
 install_if_absent templates/settings.json              agent/settings.json
 install_if_absent templates/models.json                agent/models.json
 elm_py "$CONFIG_TOOL" --root "$HERE" render templates/AGENTS.md agent/AGENTS.md
+# Detail AGENTS.md points to rather than carries: it is sent with every request,
+# so a section needed now and then costs its length on all of them. Replaced
+# whole each run, so a file the repo drops does not linger.
+rm -rf agent/reference && mkdir -p agent/reference
+for ref in templates/reference/*.md; do
+  elm_py "$CONFIG_TOOL" --root "$HERE" render "$ref" "agent/reference/${ref##*/}"
+done
 # Who the users are and how to work with them (peers, Python 3/C++, evidence
 # over assumption, ask about unknowns, report with units and uncertainty).
 # pi appends it to the main session's system prompt, ahead of AGENTS.md, and
@@ -524,7 +531,7 @@ for skill_dir in templates/skills/*/; do
   printf '%s\n' "$skill" >> "$SKILLS_MANIFEST"
 done
 echo "    refreshed agent/skills ($(wc -l < "$SKILLS_MANIFEST" | tr -d ' ') skills)"
-echo "    refreshed agent/AGENTS.md"
+echo "    refreshed agent/AGENTS.md and agent/reference/"
 install_if_absent templates/web-search.json            agent/web-search.json
 [ -f agent/auth.json ] || printf '{}\n' > agent/auth.json
 
@@ -1439,6 +1446,21 @@ if stale:
     print("    web tools: %s excluded but no longer registered - harmless, tidy when convenient"
           % ", ".join(sorted(stale)))
 PYW
+# The other excluded tools (excludedTools): the same failure mode - pi ignores
+# an exclusion for a tool that does not exist, so a package that renamed one
+# would put it back in every request with nothing said.
+if [ -d agent/npm/node_modules ]; then
+  _xt_missing=""; _xt_n=0
+  for _t in $(elm_py -c 'import json; c = json.load(open("config/elm-pi.json"))["excludedTools"]; print(" ".join(c["always"] + c["workflows"]))'); do
+    _xt_n=$((_xt_n + 1))
+    grep -rqsF --include='*.ts' --include='*.js' "\"$_t\"" agent/npm/node_modules || _xt_missing="$_xt_missing $_t"
+  done
+  if [ -n "$_xt_missing" ]; then
+    warn "excluded tools that no installed package registers:$_xt_missing - a renamed tool is back in every request; update excludedTools in config/elm-pi.json"
+  else
+    echo "    other excluded tools: all $_xt_n still registered, left out by default (pi --workflows brings back the workflow tools)"
+  fi
+fi
 # Match the sentence both refusal paths share. lib/policy.sh says "is not
 # available" for --provider and "is outside the allowed providers" for --model,
 # so probing for the first reported a working guard as broken. The launcher
