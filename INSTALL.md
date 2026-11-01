@@ -232,6 +232,7 @@ pi install.
 | `agent/extensions/skill-router.ts` | adds the skills a request needs (see [Skills](#skills-and-the-skill-router)) |
 | `agent/extensions/view-outputs.ts` | shows Qwen its figures: image and PDF files a command writes are attached to its result, `view` renders PDF pages (with their text) and TIFF/BMP, and a PDF given to `read` is rendered. Uses the bundled `mupdf` (WebAssembly; nothing downloaded at run time). SVG, EPS/PS, HEIC and PSD go through a command-line converter first (rsvg-convert, Inkscape, ImageMagick, Ghostscript, epstopdf; sips and qlmanage on macOS) when the machine has one |
 | `agent/extensions/install-notes.ts` | when the agent installs something (pip, pixi, docker pull, brew), adds what, where it lives and how to remove it to that command's result for the report, and logs it in `agent/installs.log` |
+| `agent/extensions/command-output.ts` | draws a finished `bash` result for people: a coloured exit line (`✓ exit 0 · 1.2s · 40 lines`), the first 4 and last 12 lines with a count of the error and warning lines hidden between them, and colour by kind of line (errors, warnings, passes, diffs, `file:line`); display only, so what the model receives is unchanged. Ctrl+O shows everything |
 | `agent/extensions/workflow-model-scope.ts` | keeps Dynamic Workflows agents on ELM models |
 | `agent/extensions/subagent/config.json` | fan-out budget: 12 concurrent, 64 per run |
 | `agent/bin/pi` | symlink to the launcher, so sub-agent children find `pi` whatever PATH looks like |

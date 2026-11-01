@@ -182,7 +182,8 @@
     "skill-router.ts",
     "trust-guard.ts",
     "view-outputs.ts",
-    "install-notes.ts"
+    "install-notes.ts",
+    "command-output.ts"
   ],
   "untrustedFolders": {
     "_comment": "Folders that are never a project: pi will not start a session in one (PI_FORCE=1 overrides) and project trust is never granted to one or inherited from one. 'exact' folders are containers - the folder itself, not what is under it; 'tree' folders hold credentials or the system, so everything under them counts. Every ancestor of home is added automatically. ~ is home. See LOCKDOWN.md.",
