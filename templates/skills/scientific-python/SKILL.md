@@ -46,6 +46,37 @@ reader" does not), and check a candidate's current version with
   release depends on the installed scipy, so record `scipy.__version__` (see
   `physical-constants`).
 
+## Exploring: the `python` tool
+
+`python` (pi-python) runs cells in one long-lived interpreter, so a dataset
+loaded once stays loaded while you look at it from several sides - the way to
+explore, not the way to deliver. Its interpreter is the project's `.venv` if
+there is one, otherwise `python3` (`/python-status` says which). It returns
+text only: to see a plot, `fig.savefig("name.png")` in the working directory
+and it is attached to the call's result. Once the analysis is settled, write it
+into a script or notebook that runs top to bottom on its own, run that, and
+report from it - kernel state is not a result.
+
+## Notebooks
+
+- Read and edit an `.ipynb` cell by cell with the `notebook_*` tools:
+  `notebook_summary` first (cells, ids, output previews), then
+  `notebook_read_cell`, `notebook_edit_cell` or `notebook_write_cell`,
+  `notebook_insert`, `notebook_delete`, `notebook_move`. Never edit the JSON
+  with `write`, which loses outputs and ids.
+- Run the whole notebook, top to bottom, in a fresh kernel:
+  `jupyter nbconvert --to notebook --execute --inplace analysis.ipynb`
+  (`--ExecutePreprocessor.timeout=600` for slow cells). A failing cell stops
+  it with the traceback.
+- Then look at what it produced: `notebook_read_cell_output` returns a cell's
+  output, plots as images you can see. Check every figure as you would a saved
+  one.
+- A notebook the user will keep can be paired with a plain script
+  (`jupytext --set-formats ipynb,py:percent analysis.ipynb`), which diffs and
+  reviews cleanly; edit either and `jupytext --sync`.
+- `jupyter`, `nbconvert` and `jupytext` are in this install's Python when it
+  has one (`$ELM_PI_AGENT_PYTHON`); otherwise use the project's environment.
+
 ## Plots
 
 Axis labels with units (`r"$E$ [MeV]"`), error bars on data, the model as a

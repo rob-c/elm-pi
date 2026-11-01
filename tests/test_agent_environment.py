@@ -510,5 +510,50 @@ class InstallNotesTests(unittest.TestCase):
         self.assertIn("install-notes.ts", CONFIG["requiredExtensions"])
 
 
+class NotebookToolTests(unittest.TestCase):
+    PACKAGES = ("pi-python", "@xl0/pi-lovely-notebook")
+
+    def test_installed_pinned_and_loaded(self):
+        manifest = json.loads((ROOT / "templates/packages.json").read_text())["dependencies"]
+        pins = json.loads((ROOT / "config/versions.json").read_text())["packages"]
+        loaded = json.loads((ROOT / "templates/settings.json").read_text())["packages"]
+        for name in self.PACKAGES:
+            with self.subTest(name=name):
+                self.assertIn(name, manifest)
+                self.assertRegex(pins[name], r"^\d+\.\d+\.\d+$")
+                self.assertIn(f"npm:{name}", loaded)
+
+    def test_llama_does_not_get_the_persistent_kernel(self):
+        meta = (ROOT / "templates/agents/llama.md").read_text().split("---")[1]
+        excluded = next(l for l in meta.splitlines() if l.startswith("excludeTools:"))
+        self.assertIn(" python,", excluded)
+        self.assertIn("python_set_interpreter", excluded)
+
+    def test_scripts_get_agg_and_notebooks_keep_inline_figures(self):
+        # MPLBACKEND=Agg stopped Jupyter's inline backend (measured: plots came out as a
+        # warning). A matplotlibrc ranks below MPLBACKEND, which ipykernel sets when unset.
+        self.assertNotIn("export MPLBACKEND", LAUNCHER)
+        self.assertIn("backend: Agg", (ROOT / "config/matplotlibrc").read_text())
+        snippet = block(LAUNCHER, "# Figures go to files", "# pi's half of --help")
+        def rc(home_rc=False, **env):
+            home = Path(tempfile.mkdtemp()).resolve()
+            self.addCleanup(subprocess.run, ["rm", "-rf", str(home)])
+            if home_rc:
+                (home / ".config/matplotlib").mkdir(parents=True)
+                (home / ".config/matplotlib/matplotlibrc").write_text("backend: TkAgg\n")
+            clean = {k: v for k, v in os.environ.items() if k not in ("MPLBACKEND", "MATPLOTLIBRC", "MPLCONFIGDIR", "XDG_CONFIG_HOME")}
+            return subprocess.run(["bash", "-c", f'HERE="$1"\n{snippet}\nprintf %s "${{MATPLOTLIBRC:-}}"', "t", str(ROOT)],
+                                  env={**clean, "HOME": str(home), **env}, capture_output=True, text=True, check=True).stdout
+        self.assertEqual(str(ROOT / "config/matplotlibrc"), rc())
+        self.assertEqual("", rc(home_rc=True))
+        self.assertEqual("", rc(MPLBACKEND="QtAgg"))
+
+    def test_the_skill_says_how_to_explore_edit_run_and_look(self):
+        skill = (ROOT / "templates/skills/scientific-python/SKILL.md").read_text()
+        for needle in ("## Exploring: the `python` tool", "notebook_summary", "notebook_read_cell_output",
+                       "nbconvert --to notebook --execute --inplace", "kernel state is not a result"):
+            self.assertIn(needle, skill)
+
+
 if __name__ == "__main__":
     unittest.main()

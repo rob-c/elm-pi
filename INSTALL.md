@@ -245,7 +245,7 @@ pi resolves `npm:<name>` from `agent/npm/node_modules`. Bootstrap installs
 directory, at the versions in `config/versions.json`, and swaps the tree into
 place once every listed package is present. No package install script runs.
 
-The set is fourteen packages (computer use loads only with `pi --remote`); `templates/packages.json` is the list. The three
+The set is sixteen packages (computer use loads only with `pi --remote`); `templates/packages.json` is the list. The ones
 that shape the agent most:
 
 | Package | |
@@ -253,6 +253,8 @@ that shape the agent most:
 | `pi-subagents` | sub-agent fan-out (`subagent`, `bg_wait`, `subagent_supervisor`) |
 | `pi-hashline-edit-pro` | anchor-based editing: its own `read` and `grep` (with 5-letter line anchors), `replace`, `replace_match`, `insert` and `undo_last_change`. pi's built-in `edit` is turned off |
 | `pi-web-access` | web search and fetch — off by default, see `pi --remote` above |
+| `pi-python` | a persistent Python interpreter as a tool (`python`): cells run in one long-lived process, so data stays loaded between steps. Project `.venv` first, else `python3`; figures it saves are shown to the model like any others |
+| `@xl0/pi-lovely-notebook` | `.ipynb` editing cell by cell (`notebook_summary`, `notebook_edit_cell`, `notebook_insert`, ...) without breaking ids or outputs; `notebook_read_cell_output` shows a cell's plots as images |
 
 > pi packages run with full system access. Review before adding more.
 

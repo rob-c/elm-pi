@@ -9,8 +9,9 @@
  * rendered paper, a matplotlib PDF or a LaTeX build was text-only or nothing.
  *
  * Two parts:
- * - After every `bash` call, image and PDF files in the working directory (and
- *   any absolute path the command names) written during the call are rendered
+ * - After every `bash` call - and every `python` call, pi-python's persistent
+ *   kernel - image and PDF files in the working directory (and any absolute
+ *   path the command or cell names) written during the call are rendered
  *   and attached to that call's result, with a note to examine them. A PDF
  *   handed to `read` is rendered the same way, in place of what read returned.
  * - A `view` tool renders the pages of a PDF, or an image, on request.
@@ -50,6 +51,8 @@ const MAX_FILE_BYTES = 64 * 1024 * 1024;
 /** Bounds on the scan of the working directory after each command. */
 const SCAN_MAX_DEPTH = 6;
 const SCAN_MAX_ENTRIES = 20_000;
+/** Tools whose calls can write figures: the shell, and pi-python's persistent kernel (which returns text only). */
+const WATCHED = new Set(["bash", "python"]);
 const SKIP_DIRS = new Set(["node_modules", "__pycache__", "venv", "site-packages", "dist-packages"]);
 
 const PASSTHROUGH: Record<string, string> = {
@@ -307,7 +310,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", (event) => {
 		// Coarse filesystem timestamps (1 s on some) can put a file written at
 		// the very start of the call just before it.
-		if (event.toolName === "bash") started.set(event.toolCallId, Date.now() - 1500);
+		if (WATCHED.has(event.toolName)) started.set(event.toolCallId, Date.now() - 1500);
 	});
 
 	pi.on("tool_result", async (event, ctx) => {
@@ -326,12 +329,18 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		if (event.toolName !== "bash") return;
+		if (!WATCHED.has(event.toolName)) return;
 		const since = started.get(event.toolCallId);
 		started.delete(event.toolCallId);
 		if (since === undefined) return;
 
-		const command = typeof event.input.command === "string" ? event.input.command : "";
+		// bash's command, or the cells pi-python ran: either may name an absolute path.
+		const command =
+			typeof event.input.command === "string"
+				? event.input.command
+				: Array.isArray(event.input.cells)
+					? event.input.cells.map((cell: { code?: unknown }) => (typeof cell?.code === "string" ? cell.code : "")).join("\n")
+					: "";
 		const candidates = new Set(changedUnder(cwd, since));
 		for (const path of namedPaths(command)) if (recent(path, since)) candidates.add(path);
 		const fresh = [...candidates]

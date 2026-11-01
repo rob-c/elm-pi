@@ -1,0 +1,9 @@
+## matplotlib settings for what the agent runs (the launcher points MATPLOTLIBRC
+## here when the account has no matplotlibrc of its own).
+##
+## Agg: figures are saved to files, which view-outputs shows the model, and a
+## stray plt.show() returns instead of opening a window - on macOS the default
+## GUI backend can hang a command until it is closed. A Jupyter kernel is not
+## affected: ipykernel sets MPLBACKEND to its inline backend when it is unset,
+## and MPLBACKEND outranks this file, so notebooks keep their inline figures.
+backend: Agg

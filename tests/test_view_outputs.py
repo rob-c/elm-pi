@@ -176,6 +176,18 @@ class ViewOutputsTests(unittest.TestCase):
         self.assertTrue(heic["isError"])
         self.assertIn("any of: sips, magick", heic["text"])
 
+    def test_a_figure_saved_from_the_python_kernel_is_attached_too(self):
+        # pi-python returns text only; its cells are watched like bash commands.
+        out_of_tree = self.tmp / "kernel.png"
+        result, = self.run_steps([{
+            "tool": "python", "id": "p1", "output": "ok",
+            "input": {"cells": [{"code": "import numpy as np"}, {"code": f"fig.savefig('{out_of_tree}')"}]},
+            "write": {"fit.png": self.b64(png(12, 12)), str(out_of_tree): self.b64(png(9, 9))},
+        }])
+        self.assertEqual(2, len(result["images"]))
+        self.assertIn("fit.png", result["text"])
+        self.assertIn(str(out_of_tree), result["text"])
+
     def test_an_unchanged_figure_is_not_attached_twice(self):
         steps = [{"tool": "bash", "id": "b1", "input": {"command": "make"}, "write": {"a.png": self.b64(png(9, 9))}},
                  {"tool": "bash", "id": "b2", "input": {"command": "ls"}}]

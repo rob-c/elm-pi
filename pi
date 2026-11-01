@@ -121,6 +121,22 @@ export PI_CLIPBOARD_OSC52="${PI_CLIPBOARD_OSC52:-1}"
 # keep config, sessions and credentials inside this directory, not ~/.pi
 export PI_CODING_AGENT_DIR="$HERE/agent"
 
+# Figures go to files, which view-outputs shows the model; nothing the agent
+# runs should open a window - on macOS a plt.show() with the GUI backend can
+# hang the command, the persistent python kernel included. Not MPLBACKEND: a
+# Jupyter kernel picks its inline backend only when that is unset, and with it
+# set to Agg a notebook's plots came out as a warning and no image. A
+# matplotlibrc saying Agg ranks below both, so notebooks keep inline figures and
+# scripts get Agg. Only where the researcher has no matplotlib setup of their
+# own; a matplotlibrc in the project folder still wins.
+mpl_user_rc=0
+for rc in "${MPLCONFIGDIR:-}/matplotlibrc" "${XDG_CONFIG_HOME:-$HOME/.config}/matplotlib/matplotlibrc" "$HOME/.matplotlib/matplotlibrc"; do
+  [ -f "$rc" ] && mpl_user_rc=1
+done
+if [ -z "${MPLBACKEND:-}" ] && [ -z "${MATPLOTLIBRC:-}" ] && [ "$mpl_user_rc" = "0" ] && [ -f "$HERE/config/matplotlibrc" ]; then
+  export MATPLOTLIBRC="$HERE/config/matplotlibrc"
+fi
+
 # pi's half of --help gets what a session gets, as far as an install that may
 # not start allows: this agent/ (above), no startup network work, and no
 # provider credentials. runtime.env has the credential list; an install that
