@@ -99,4 +99,10 @@ scripts.
 - ROOT: `uproot` (`uproot.open(path)["tree"].arrays(["px", "py"], library="np")`),
   awkward arrays for jagged data; `uproot` writes histograms too.
 - HDF5: `h5py`. Large data: read only the columns needed.
+- CSV or Parquet too large for pandas, or a question best put as SQL (joins,
+  group-bys over many files): `duckdb` - `pip install duckdb` when it is not
+  there - which queries the files in place, larger than memory:
+  `duckdb.sql("SELECT run, avg(e) FROM 'runs/*.parquet' GROUP BY run").df()`.
+  Its Excel and remote-file extensions download themselves and the proxy
+  blocks that: read `.xlsx` with pandas/openpyxl instead.
 - Never modify the user's input data in place; write derived data to a new file.
