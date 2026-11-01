@@ -63,6 +63,9 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
                       analysis stack in agent/python (~1GB); `pi setup --python`
   --with-pypi-index   an offline search index of PyPI for the agent, `pypi-search`
                       (downloads ~1GB once, keeps ~390MB); implies --with-python
+  --with-all          every optional part: --with-python and --with-pypi-index
+                      (recorded as those two; nothing here opens the network -
+                      that is `pi --remote`, per run); `pi setup --all`
   --no-python         take --with-python (and --with-pypi-index) back, removing
                       agent/python; --no-pypi-index takes back the index alone
   --no-shim           skip the Llama tool-call shim
@@ -97,6 +100,11 @@ for arg in "$@"; do
     # Taking an opt-in back: not recorded itself, it removes what it names from
     # the record. --no-python takes the index with it, which cannot build without.
     --no-python) DROPPED_FLAGS="$DROPPED_FLAGS --with-python --with-pypi-index" ;;
+    # Recorded as the parts it stands for, so --no-pypi-index can take one back.
+    --with-all)
+      for _f in --with-python --with-pypi-index; do
+        case " $GIVEN_FLAGS " in *" $_f "*) ;; *) GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$_f" ;; esac
+      done ;;
     --no-pypi-index) DROPPED_FLAGS="$DROPPED_FLAGS --with-pypi-index" ;;
     --non-interactive) INTERACTIVE=0 ;;
     --update) UPDATE=1 ;;
@@ -259,6 +267,46 @@ sha256_of() {
   fi
   "${SHA256_CMD[@]}" "$1" | awk '{print $1}'
 }
+
+# --- disk space ---------------------------------------------------------------
+# What this run is about to download and keep, said before any of it starts:
+# a new install, and the optional parts an existing one is gaining. Measured on
+# a working install - base 975 MB (Node 202, pi 175, packages 344, tools 144,
+# the tool and transpile caches 110), the agent's Python 1.0 GB, the PyPI index
+# 390 MB kept after a 1 GB download that is deleted once it is built.
+# install.sh says it for a new install before fetching anything and sets
+# ELM_PI_DISK_NOTED, so it is not said twice. Too little room stops the run
+# before the first download rather than halfway through; ELM_PI_IGNORE_DISK_SPACE=1
+# goes ahead anyway. The same figures are in install.sh.
+DISK_BASE_MB=1000; DISK_PYTHON_MB=1000; DISK_PYPI_KEPT_MB=400; DISK_PYPI_TEMP_MB=1000
+disk_keep=0; disk_temp=0; disk_parts=()
+if [ ! -d node_modules ] && [ ! -d .node ]; then
+  disk_keep=$((disk_keep + DISK_BASE_MB)); disk_parts+=("Node, pi, its packages and the command-line tools (~1.0 GB)")
+fi
+if [ "$WITH_PYTHON" = "1" ] && [ ! -x agent/python/env/bin/python ]; then
+  disk_keep=$((disk_keep + DISK_PYTHON_MB)); disk_parts+=("the agent's Python (~1.0 GB)")
+fi
+if [ "$WITH_PYPI_INDEX" = "1" ] && [ ! -s agent/pypi-index.db ]; then
+  disk_keep=$((disk_keep + DISK_PYPI_KEPT_MB)); disk_temp=$DISK_PYPI_TEMP_MB
+  disk_parts+=("the offline PyPI index (~0.4 GB, after a ~1 GB download deleted once it is built)")
+fi
+if [ "$disk_keep" -gt 0 ]; then
+  gb() { awk -v m="$1" 'BEGIN { printf "%.1f", m / 1000 }'; }
+  if [ -z "${ELM_PI_DISK_NOTED:-}" ]; then
+    say "disk space"
+    echo "    This run downloads and keeps about $(gb "$disk_keep") GB in $HERE:"
+    for _p in "${disk_parts[@]}"; do echo "      - $_p"; done
+    [ "$disk_temp" = "0" ] || echo "    and needs about $(gb "$disk_temp") GB more while it runs."
+  fi
+  disk_free_kb="$(df -Pk "$HERE" 2>/dev/null | awk 'NR==2 {print $4}' || true)"
+  if [ -n "$disk_free_kb" ] && [ "$disk_free_kb" -lt $(( (disk_keep + disk_temp) * 1024 )) ] 2>/dev/null; then
+    if [ "${ELM_PI_IGNORE_DISK_SPACE:-0}" = "1" ]; then
+      warn "only $(gb $((disk_free_kb / 1024))) GB free here; going ahead (ELM_PI_IGNORE_DISK_SPACE=1)"
+    else
+      die "only $(gb $((disk_free_kb / 1024))) GB free on this filesystem, and this run needs about $(gb $((disk_keep + disk_temp))) GB. Free some space, install elsewhere (ELM_PI_PREFIX), or go ahead anyway with ELM_PI_IGNORE_DISK_SPACE=1"
+    fi
+  fi
+fi
 
 # --- 1. Node ----------------------------------------------------------------
 # Bundled inside the install: no brew, no system Node, no version conflict.
@@ -598,6 +646,8 @@ fi
 #   - mlr         Miller: CSV/TSV/JSON reshaping, sorting and stats in one pass
 #   - resvg       SVG to PNG with no system libraries, so view-outputs can show
 #                 the agent an SVG figure on any host
+#   - ruff        lints and formats Python - the check for every script the
+#                 agent writes, in milliseconds
 #   - pixi        conda-forge packages - GDAL, HDF5, ROOT, Ghostscript, ffmpeg,
 #                 compilers - without sudo, kept in agent/pixi (the launcher
 #                 sets PIXI_HOME); `pixi exec` runs one without installing it
@@ -620,9 +670,9 @@ fi
 #   RG_VERSION=15.2.0   JQ_VERSION=1.8.2     YQ_VERSION=4.53.6
 #   SHELLCHECK_VERSION=0.11.0                ASTGREP_VERSION=0.45.3
 #   UV_VERSION=0.12.24  MLR_VERSION=6.22.0   RESVG_VERSION=0.48.1
-#   PIXI_VERSION=0.82.0
+#   PIXI_VERSION=0.82.0 RUFF_VERSION=0.17.1
 if [ "$WITH_TOOLS" = "1" ]; then
-  TOOLSET="${ELM_PI_TOOLS:-fd,rg,jq,yq,shellcheck,ast-grep,uv,mlr,resvg,pixi}"
+  TOOLSET="${ELM_PI_TOOLS:-fd,rg,jq,yq,shellcheck,ast-grep,uv,mlr,resvg,pixi,ruff}"
   want_tool() { case ",$TOOLSET," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
   say "command-line tools (${TOOLSET//,/, })"
   # Three projects, three naming schemes: Rust triples, Go's os_arch, and jq's
@@ -657,6 +707,7 @@ if [ "$WITH_TOOLS" = "1" ]; then
   MLR_VERSION="${MLR_VERSION:-6.22.0}"
   RESVG_VERSION="${RESVG_VERSION:-0.48.1}"
   PIXI_VERSION="${PIXI_VERSION:-0.82.0}"
+  RUFF_VERSION="${RUFF_VERSION:-0.17.1}"
 
   # Archives are cached per user, keyed tool/version/asset, so a second install
   # - a new prefix, another machine account, a rebuilt install - extracts what
@@ -775,6 +826,9 @@ if [ "$WITH_TOOLS" = "1" ]; then
   install_tool pixi "$PIXI_VERSION" "pixi-$TRIPLE.tar.gz" \
     "$GH/prefix-dev/pixi/releases/download/v$PIXI_VERSION/pixi-$TRIPLE.tar.gz" \
     "$GH/prefix-dev/pixi/releases/download/v$PIXI_VERSION/pixi-$TRIPLE.tar.gz.sha256"
+  install_tool ruff "$RUFF_VERSION" "ruff-$TRIPLE.tar.gz" \
+    "$GH/astral-sh/ruff/releases/download/$RUFF_VERSION/ruff-$TRIPLE.tar.gz" \
+    "$GH/astral-sh/ruff/releases/download/$RUFF_VERSION/ruff-$TRIPLE.tar.gz.sha256"
   echo "    agent/bin is $(du -sh agent/bin 2>/dev/null | awk '{print $1}'), cache $(du -sh "$TOOL_CACHE" 2>/dev/null | awk '{print $1}' || echo 0B) in $TOOL_CACHE"
 else
   say "command-line tools"

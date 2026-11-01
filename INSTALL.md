@@ -35,7 +35,12 @@ state, so the repository is safe to push.
 Bootstrap installs Node into `.node/`, pi into `node_modules/`, the pi packages
 into `agent/npm/`, generates `agent/` from `templates/`, asks for your ELM key,
 resolves the model id from the gateway, smoke-tests a completion, and verifies
-the ELM-only policy. Roughly 650 MB and 3 minutes on a warm network.
+the ELM-only policy. About 1.0 GB on disk and 3 minutes on a warm network;
+`--with-all` adds the agent's Python (~1.0 GB) and the offline PyPI index
+(~0.4 GB, after a ~1 GB download it deletes) - ~2.4 GB in all. A new install
+says this before it downloads anything, and stops there if the filesystem has
+too little room (`ELM_PI_IGNORE_DISK_SPACE=1` goes ahead anyway); so does an
+existing install that gains an optional part.
 
 Unattended:
 
@@ -108,6 +113,7 @@ Two things people get wrong:
 | `--no-tools` | do not bundle fd, rg, jq, yq, shellcheck, ast-grep and uv (and so no agent Python either) |
 | `--with-python` | give the agent its own Python environment in `agent/python` (~1 GB); also `pi setup --python` |
 | `--with-pypi-index` | build an offline search index of PyPI for the agent (`pypi-search`); downloads ~1 GB once, keeps ~390 MB; implies `--with-python`; also `pi setup --pypi-index` |
+| `--with-all` | every optional part: `--with-python` and `--with-pypi-index` (recorded as those two). Nothing that opens the network - that is `pi --remote`, per run. Also `pi setup --all`, and `pi --with-all` sets it up on first use |
 | `--no-python`, `--no-pypi-index` | take those back: removes `agent/python` (and the index), or the index alone |
 | `--no-shim` | no Llama tool-call shim (Qwen unaffected) |
 | `--no-auth-lock` | leave `agent/auth.json` writable, so `/login` works |
@@ -457,10 +463,11 @@ and not on a login node someone else administers:
 | `ast-grep` | structural search and rewrite, by syntax tree rather than by regex | the thing `rg` cannot do |
 | `uv` | Python interpreters, environments and packages | builds the agent's Python, below, and installs into it |
 | `mlr` | Miller: reshape, sort, join and summarise CSV, TSV and JSON | data files too big to read into the context |
+| `ruff` | Python linter and formatter | the check run on every script the agent writes |
 | `pixi` | conda-forge packages without sudo - GDAL, HDF5, ROOT, Ghostscript, ffmpeg, compilers | `pixi exec --spec <pkg> <cmd>` runs one without installing it; `pixi global install` keeps it in `agent/pixi` |
 | `resvg` | SVG to PNG with no system libraries | how the agent sees an SVG figure on any host (64-bit ARM Linux has no 0.48 build and falls back to the system's converters) |
 
-All ten are a single static binary from the project's own GitHub release,
+All eleven are a single static binary from the project's own GitHub release,
 pinned and sha256-checked, installed the same way and deleted the same way.
 `ELM_PI_TOOLS=fd,rg,jq` installs a subset: `shellcheck` and `ast-grep` are 35 MB
 and 51 MB, against ~23 MB for the other four.

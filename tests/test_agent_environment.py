@@ -279,6 +279,11 @@ class InstallOptionTests(unittest.TestCase):
         flags, python, index = out.stdout.split("|")
         return set(flags.split()), python == "1", index == "1"
 
+    def test_with_all_records_the_parts_it_stands_for(self):
+        self.assertEqual(({"--with-python", "--with-pypi-index"}, True, True), self.options("--with-all"))
+        self.assertEqual(({"--with-python"}, True, False),
+                         self.options("--no-pypi-index", record="--with-python --with-pypi-index"))
+
     def test_the_agents_python_is_opt_in(self):
         self.assertEqual((set(), False, False), self.options())
         self.assertEqual(({"--with-python"}, True, False), self.options("--with-python"))
@@ -316,10 +321,11 @@ class InstallOptionTests(unittest.TestCase):
 
 
 class SoftwareInstallTests(unittest.TestCase):
-    def test_mlr_and_resvg_are_pinned_and_checksummed(self):
+    def test_mlr_resvg_and_ruff_are_pinned_and_checksummed(self):
         self.assertIn("uv,mlr,resvg,", BOOTSTRAP)
+        self.assertIn("pixi,ruff}", BOOTSTRAP)
         sums = (ROOT / "templates/tools.sha256").read_text()
-        for tool, version in (("mlr", "6.22.0"), ("resvg", "0.48.1")):
+        for tool, version in (("mlr", "6.22.0"), ("resvg", "0.48.1"), ("ruff", "0.17.1")):
             self.assertIn(f'{tool.upper()}_VERSION="${{{tool.upper()}_VERSION:-{version}}}"', BOOTSTRAP)
             self.assertGreaterEqual(sums.count(f"{tool}/{version}/"), 3)
 
@@ -383,7 +389,7 @@ class SoftwareInstallTests(unittest.TestCase):
 
 class PixiTests(unittest.TestCase):
     def test_pinned_checksummed_and_kept_in_the_install(self):
-        self.assertIn("resvg,pixi}", BOOTSTRAP)
+        self.assertIn("resvg,pixi,", BOOTSTRAP)
         self.assertIn('PIXI_VERSION="${PIXI_VERSION:-0.82.0}"', BOOTSTRAP)
         self.assertEqual(4, (ROOT / "templates/tools.sha256").read_text().count("pixi/0.82.0/"))
         snippet = block(LAUNCHER, "# --- pixi: conda-forge packages", "# --- where jiti")
@@ -655,6 +661,83 @@ class FixedPromptTests(unittest.TestCase):
         skill = (ROOT / "templates/skills/scientific-python/SKILL.md").read_text()
         for tool in excluded["always"]:
             self.assertNotIn(f"`{tool}`", skill)          # never advertise a tool that is not offered
+
+
+class DiskSpaceTests(unittest.TestCase):
+    """A new install, or a part being added, says what it will download and keep, and
+    stops before the first download when the filesystem cannot hold it."""
+
+    INSTALLER = (ROOT / "install.sh").read_text()
+    STUBS = ('say() { echo "== $*"; }; warn() { echo "WARN $*"; }; '
+             'die() { echo "DIE $*"; exit 1; }\n')
+
+    def run_block(self, source, start, end, prelude, free_kb, **env):
+        tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)])
+        (tmp / "bin").mkdir()
+        (tmp / "bin/df").write_text(f"#!/bin/sh\necho 'Filesystem 1024-blocks Used Available Capacity Mounted'\n"
+                                     f"echo 'disk 999999999 1 {free_kb} 1% /'\n")
+        (tmp / "bin/df").chmod(0o755)
+        snippet = source[source.index(start):source.index(end)]
+        script = f'set -u\nT="$1"; cd "$T"\n{self.STUBS}{prelude}\n{snippet}\necho "NOTED=${{ELM_PI_DISK_NOTED:-}}"'
+        clean = {k: v for k, v in os.environ.items() if not k.startswith("ELM_PI_")}
+        return subprocess.run(["bash", "-c", script, "t", str(tmp)], capture_output=True, text=True,
+                              env={**clean, "PATH": f"{tmp}/bin:/usr/bin:/bin", **env}), tmp
+
+    def installer(self, args="", free_kb=50_000_000, existing=False, **env):
+        prelude = f'PREFIX="$T/elm-pi"; PASS_ARGS=({args})'
+        if existing:
+            prelude += '; mkdir -p "$PREFIX" && touch "$PREFIX/bootstrap.sh"'
+        return self.run_block(self.INSTALLER, "# A new install: say what it will download",
+                              "# --- 2. get the source", prelude, free_kb, **env)[0]
+
+    def test_a_new_install_says_what_it_takes_and_tells_bootstrap_it_did(self):
+        r = self.installer("--with-all")
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertIn("This is a new install. It downloads and keeps about 2.4 GB", r.stdout)
+        self.assertIn("the agent's Python", r.stdout)
+        self.assertIn("about 1.0 GB more while it runs", r.stdout)
+        self.assertIn("NOTED=1", r.stdout)
+        plain = self.installer()
+        self.assertIn("about 1.0 GB in", plain.stdout)
+        self.assertNotIn("Python", plain.stdout)
+
+    def test_too_little_room_stops_before_any_download(self):
+        r = self.installer("--with-all", free_kb=2_000_000)          # 2 GB free, 3.4 GB needed
+        self.assertEqual(1, r.returncode)
+        self.assertIn("DIE only 2.0 GB free", r.stdout)
+        self.assertIn("needs about 3.4 GB", r.stdout)
+        r = self.installer("--with-all", free_kb=2_000_000, ELM_PI_IGNORE_DISK_SPACE="1")
+        self.assertEqual(0, r.returncode)
+        self.assertIn("going ahead", r.stdout)
+
+    def test_an_existing_install_is_not_told_again(self):
+        r = self.installer("--with-all", existing=True)
+        self.assertNotIn("new install", r.stdout)
+
+    def bootstrap(self, free_kb=50_000_000, setup="", python=0, index=0, **env):
+        source = (ROOT / "bootstrap.sh").read_text()
+        prelude = f'HERE="$T"; WITH_PYTHON={python}; WITH_PYPI_INDEX={index}; {setup}'
+        return self.run_block(source, "# --- disk space", "# --- 1. Node", prelude, free_kb, **env)[0]
+
+    def test_bootstrap_counts_only_what_this_run_adds(self):
+        new = self.bootstrap()
+        self.assertIn("downloads and keeps about 1.0 GB", new.stdout)
+        gaining = self.bootstrap(setup="mkdir -p node_modules", python=1, index=1)
+        self.assertIn("about 1.4 GB", gaining.stdout)                 # Python + index kept, no base
+        self.assertNotIn("Node, pi", gaining.stdout)
+        nothing = self.bootstrap(setup="mkdir -p node_modules agent/python/env/bin && touch agent/python/env/bin/python && chmod 755 agent/python/env/bin/python", python=1)
+        self.assertNotIn("disk space", nothing.stdout)
+        quiet = self.bootstrap(ELM_PI_DISK_NOTED="1")                  # install.sh said it already
+        self.assertNotIn("disk space", quiet.stdout)
+        full = self.bootstrap(free_kb=500_000, ELM_PI_DISK_NOTED="1")  # ...but the check still runs
+        self.assertEqual(1, full.returncode)
+
+    def test_both_scripts_use_the_same_figures(self):
+        bootstrap = (ROOT / "bootstrap.sh").read_text()
+        self.assertIn("DISK_BASE_MB=1000; DISK_PYTHON_MB=1000; DISK_PYPI_KEPT_MB=400; DISK_PYPI_TEMP_MB=1000", bootstrap)
+        for figure in ("DISK_KEEP=1000;", "DISK_KEEP + 1000", "DISK_KEEP + 400", "DISK_TEMP=1000"):
+            self.assertIn(figure, self.INSTALLER)
 
 
 if __name__ == "__main__":

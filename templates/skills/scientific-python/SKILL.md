@@ -38,6 +38,11 @@ reader" does not), and check a candidate's current version with
 - One script per result, kept in the working directory, runnable top to
   bottom: `python3 analysis.py` reproduces every number and figure it reports.
   Paths relative to the script, inputs read from files, no notebook-only state.
+- Check every script you write with `ruff check <file>` (in `agent/bin`) and fix
+  what it reports - unused imports, undefined names and shadowed builtins are
+  where it earns its keep. Format new files with `ruff format`; leave the
+  formatting of the user's existing code alone unless they ask, and follow a
+  project's own `ruff`/`pyproject.toml` settings where there are some.
 - Vectorise with numpy; avoid Python loops over array elements.
 - `rng = np.random.default_rng(seed)` with the seed printed or saved.
 - Print the versions of numpy/scipy (and anything else that matters) in the

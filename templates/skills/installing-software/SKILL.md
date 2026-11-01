@@ -18,7 +18,7 @@ pixi global list                                      # what was installed with 
 ```
 
 `agent/bin` has fd, rg, jq, yq, shellcheck, ast-grep, uv, mlr (CSV/JSON),
-resvg (SVG to PNG) and pixi. On a cluster, `module load <name>` is how its
+resvg (SVG to PNG), pixi and ruff (Python lint and format). On a cluster, `module load <name>` is how its
 administrators provide software: use it before anything below.
 
 ## 2. Search for an existing solution

@@ -1,5 +1,5 @@
 # sha256 of the release assets bootstrap.sh installs into agent/bin: fd, rg,
-# jq, yq, shellcheck, ast-grep, uv, mlr, resvg and pixi. Not every project publishes
+# jq, yq, shellcheck, ast-grep, uv, mlr, resvg, pixi and ruff. Not every project publishes
 # checksums in a form this can read at install time, so the pinned versions are
 # recorded here and checked exactly the way the Node tarball is.
 #
@@ -60,3 +60,7 @@ a0e5dc45a2ced8987a4df3c597d96528c87089ea3481ed4bb7c27404699540f1  pixi/0.82.0/pi
 3b48bd27de4db31381dc1d5b3d069c98852c0e923aefa30dae0452a088c0810e  pixi/0.82.0/pixi-aarch64-apple-darwin.tar.gz
 d305406a7630aab6484419833f9204b2fe9ea40632da8bb536496f123ca86e7f  pixi/0.82.0/pixi-x86_64-unknown-linux-musl.tar.gz
 b18dadba196c0c77781533184ec3e7757422c0ae9bed0047ff7ca1c688c0f62b  pixi/0.82.0/pixi-aarch64-unknown-linux-musl.tar.gz
+88ee16f88dba9d440e06375f46898ec85baf578042ad086764d5a33558bb6e17  ruff/0.17.1/ruff-x86_64-apple-darwin.tar.gz
+1c8e6e36538eaa0b996378a20c226403c4ca6369ac24884751b024d3a9530b86  ruff/0.17.1/ruff-aarch64-apple-darwin.tar.gz
+2d9878b5e6a3d0dedadbfc01a64bfe54e72f560adbfd235937cd29e1fc9238e3  ruff/0.17.1/ruff-x86_64-unknown-linux-musl.tar.gz
+255404ccf2f7950ff6aad8858321a6f416fe2a840ae4e37dfb4c21cb8774f325  ruff/0.17.1/ruff-aarch64-unknown-linux-musl.tar.gz

@@ -170,6 +170,42 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(f"{always},{web}", excluded(r))
         self.assertNotIn("--workflows", r.args_seen)     # the launcher's flag, not pi's
 
+    # --- --with-all: every optional extra, without --remote ----------------------------
+    def fake_bootstrap(self, builds=True):
+        # Records how it was called and, like the real one, builds the two parts.
+        make = ('mkdir -p "$here/agent/python/env/bin" && printf "#!/bin/sh\\n" > "$here/agent/python/env/bin/python" '
+                '&& chmod 755 "$here/agent/python/env/bin/python" && printf x > "$here/agent/pypi-index.db"') if builds else ":"
+        write(self.fx.root / "bootstrap.sh",
+              f'#!/bin/sh\nhere="$(cd "$(dirname "$0")" && pwd)"\necho "$*" >> "$here/bootstrap-calls"\n{make}\n', 0o755)
+        return self.fx.root / "bootstrap-calls"
+
+    def test_with_all_sets_up_what_is_missing_once_then_starts_with_every_tool(self):
+        calls = self.fake_bootstrap()
+        config = json.loads((ROOT / "config/elm-pi.json").read_text())
+        r = self.fx.run("--with-all", "-p", "x")
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(["--non-interactive --with-all"], calls.read_text().splitlines())
+        excluded = r.args_seen[r.args_seen.index("--exclude-tools") + 1]
+        self.assertEqual(",".join(config["webTools"]), excluded)      # not --remote: the web tools stay out
+        self.assertNotIn("--with-all", r.args_seen)
+        r = self.fx.run("--with-all", "-p", "x")                       # already set up: straight in
+        self.assertEqual(1, len(calls.read_text().splitlines()))
+
+    def test_with_all_does_not_loop_on_a_part_that_will_not_build(self):
+        calls = self.fake_bootstrap(builds=False)
+        r = self.fx.run("--with-all", "-p", "x")
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(1, len(calls.read_text().splitlines()))
+        self.assertIn("did not build", r.stderr)
+        self.assertEqual(["-p", "x"], r.args_seen[-2:])
+
+    def test_pi_setup_all_and_the_installer_take_the_same_choice(self):
+        calls = self.fake_bootstrap()
+        self.fx.run("setup", "--all")
+        self.assertEqual(["--non-interactive --with-all"], calls.read_text().splitlines())
+        installer = (ROOT / "install.sh").read_text()
+        self.assertIn("--with-python|--with-pypi-index|--with-all|--no-python|--no-pypi-index)", installer)
+
     # --- item 9: the guard answers before the key check ------------------------------
     def test_guard_refuses_on_an_install_with_no_key(self):
         write(self.fx.root / ".env", "ELM_API_KEY=\n")

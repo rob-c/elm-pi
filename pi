@@ -68,6 +68,10 @@ Flags added by this launcher:
   --llama             run on Llama 3.3 70B through the tool-call shim
   --workflows         offer the `workflow` tool (pi-dynamic-workflows) this run;
                       it is left out otherwise, being used only on request
+  --with-all          every optional extra: sets up the agent's Python and the
+                      offline PyPI index if they are not installed (once, ~2GB),
+                      and offers every tool left out for size. Not --remote:
+                      the web, the open proxy and computer use stay off
   --remote            allow this run to reach the internet: the web tools come
                       back on and the egress proxy records every destination
                       instead of allowing only the ELM gateway. The model is
@@ -82,6 +86,7 @@ Optional parts, added or taken back (recorded, so pi update keeps the choice):
                             ~390MB kept); adds --python
   pi setup --no-python      remove the agent's Python (and the index)
   pi setup --no-pypi-index  remove the index
+  pi setup --all            both (what pi --with-all sets up before starting)
 
 Useful environment:
   PI_ELM_WEB=1              web tools for one run, without opening the proxy
@@ -329,13 +334,16 @@ export PI_SUBAGENT_PI_BINARY="${PI_SUBAGENT_PI_BINARY:-$HERE/pi}"
 # instructions and the permission gate), todo and the skill router, and pi's
 # built-in edit tool; it drops anchor editing, subagent/bg_wait and web search.
 # Use a plain `pi` for real multi-step work.
-FAST=0; LLAMA=0; REMOTE=0; WORKFLOWS="${PI_ELM_WORKFLOWS:-0}"; ARGS=()
+FAST=0; LLAMA=0; REMOTE=0; WORKFLOWS="${PI_ELM_WORKFLOWS:-0}"; WITH_ALL=0; ARGS=()
+# As given, for the re-launch after --with-all has set something up.
+ORIG_ARGS=("$@")
 for a in "$@"; do
   case "$a" in
     --fast) FAST=1 ;;
     --llama) LLAMA=1 ;;
     --remote) REMOTE=1 ;;
     --workflows) WORKFLOWS=1 ;;
+    --with-all) WITH_ALL=1; WORKFLOWS=1 ;;
     *) ARGS+=("$a") ;;
   esac
 done
@@ -584,7 +592,8 @@ fi
 # turn the web tools back on. The caller's lists are folded into this one
 # instead, as one flag. An explicit --tools/-t allowlist is still left alone:
 # naming a web tool there is asking for it.
-XT_LIST="${ELM_EXCLUDED_TOOLS:-}"
+XT_LIST=""
+[ "$WITH_ALL" = "1" ] || XT_LIST="${ELM_EXCLUDED_TOOLS:-}"
 [ "${PI_ELM_WEB:-0}" = "1" ] || XT_LIST="${XT_LIST:+$XT_LIST,}$ELM_WEB_TOOLS"
 [ "$WORKFLOWS" = "1" ] || XT_LIST="${XT_LIST:+$XT_LIST,}${ELM_WORKFLOW_TOOLS:-}"
 XT_LIST="${XT_LIST%,}"
@@ -712,6 +721,7 @@ if [ "${1:-}" = "setup" ]; then
     case "$arg" in
       --python) SETUP_FLAGS+=(--with-python) ;;
       --pypi-index) SETUP_FLAGS+=(--with-pypi-index) ;;
+      --all) SETUP_FLAGS+=(--with-all) ;;
       --no-python|--no-pypi-index) SETUP_FLAGS+=("$arg") ;;
       *) echo "pi setup: unknown option: $arg" >&2; SETUP_FLAGS=(); break ;;
     esac
@@ -722,6 +732,30 @@ if [ "${1:-}" = "setup" ]; then
   fi
   unset PI_OFFLINE PI_SKIP_VERSION_CHECK
   exec "$HERE/bootstrap.sh" --non-interactive "${SETUP_FLAGS[@]}"
+fi
+# ---------------------------------------------------------------------------
+
+# --- --with-all: every optional extra, set up once ----------------------------
+# The installed extras - the agent's Python and the offline PyPI index - are
+# built by bootstrap.sh (as `pi setup --all` would), recorded so pi update keeps
+# them, and then this launcher starts again from the top, since the agent's
+# Python is put on PATH further up than here. The run-time extras follow from
+# the flag itself (the workflow tools and the tools left out for size). Nothing
+# that opens the network: that is --remote's, per run. ELM_PI_WITH_ALL_SET_UP
+# stops a part that will not build from turning into a loop of re-installs.
+if [ "$WITH_ALL" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] \
+   && { [ ! -x "$HERE/agent/python/env/bin/python" ] || [ ! -s "$HERE/agent/pypi-index.db" ]; }; then
+  if [ -n "${ELM_PI_WITH_ALL_SET_UP:-}" ]; then
+    echo "pi: --with-all: some optional parts did not build (see above); starting without them." >&2
+  else
+    echo "pi: --with-all - setting up the optional parts first: the agent's Python and the" >&2
+    echo "    offline PyPI index (~2GB to download, once). Recorded, so pi update keeps them." >&2
+    ( unset PI_OFFLINE PI_SKIP_VERSION_CHECK; "$HERE/bootstrap.sh" --non-interactive --with-all ) || {
+      echo "pi: setting up the optional parts failed - see above. Without them: pi (no --with-all)." >&2
+      exit 1
+    }
+    ELM_PI_WITH_ALL_SET_UP=1 exec "$HERE/pi" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
+  fi
 fi
 # ---------------------------------------------------------------------------
 

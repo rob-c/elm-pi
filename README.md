@@ -11,6 +11,13 @@ on purpose — see [LOCKDOWN.md](LOCKDOWN.md).
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
 ```
 
+With every optional extra - the agent's own Python and offline PyPI search,
+~2.4 GB in all rather than ~1 GB (never the open network; that is `pi --remote`):
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)" _ --with-all
+```
+
 macOS or Linux, x86_64 or arm64. No `sudo`, nothing installed system-wide. It
 lands in `~/.local/share/elm-pi`, links `~/.local/bin/pi`, puts that directory on
 your `PATH` in the shell profile you actually use (zsh, bash or fish —
@@ -71,10 +78,10 @@ docs/               the GitHub Pages site
 shim/               Llama tool-call shim (Python, loopback only)
 proxy/              egress proxy: allowlists ELM and PyPI, logs and refuses the rest
 agent/              generated: PI_CODING_AGENT_DIR (config, extensions, skills, state)
-agent/bin/          generated: fd rg jq yq shellcheck ast-grep uv mlr resvg pixi, pinned + checksummed
+agent/bin/          generated: fd rg jq yq shellcheck ast-grep uv mlr resvg pixi ruff, pinned + checksummed
 agent/pixi/         generated on use: conda-forge tools the agent installed with pixi
 agent/python/       generated with --with-python: the agent's own Python (uv-managed CPython + analysis stack)
-.node/ node_modules/  generated: Node 24 + pi, ~650 MB
+.node/ node_modules/  generated: Node 24 + pi, ~400 MB (whole base install ~1 GB)
 ```
 
 `agent/` is generated from `templates/`; shared runtime values come from
@@ -157,6 +164,7 @@ wrapper's fault?".
 |---|---|
 | `--fast` | skip the npm package set, which is most of the startup time. The policy extensions and the permission gate still load. No sub-agents, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
 | `--llama` | Llama 3.3 70B via the local shim. A fallback, **not** a speed-up — Qwen is faster here. |
+| `--with-all` | every optional extra, without `--remote`: sets up the agent's Python and the offline PyPI index if missing (once, ~2 GB, recorded so `pi update` keeps them), and offers every tool otherwise left out for size, the `workflow` tools included. The web, the open proxy and computer use stay off. |
 | `--workflows` | offer the `workflow` tool (pi-dynamic-workflows) for this run. Left out otherwise: it is used only on request, and its definition would go with every request. |
 | `--remote` | web tools and computer use (screen and app control) on for this run, and the egress proxy records every destination instead of allowing only ELM and PyPI. Models are unaffected: still ELM only. `PI_ELM_WEB=1` turns the tools on without opening the proxy. |
 | `--help` | the launcher's flags and environment, then pi's own help, run with this install's config, offline and with credentials scrubbed |

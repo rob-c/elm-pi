@@ -102,17 +102,23 @@ Passed through to bootstrap.sh:
   --no-shim           no Llama tool-call shim
   --no-patch          leave pi's /share and /bug commands in place
   --no-auth-lock      leave agent/auth.json writable, so /login works
+  --with-python       the agent's own Python (agent/python, ~1GB)
+  --with-pypi-index   offline PyPI search, `pypi-search` (implies --with-python)
+  --with-all          every optional part: both of the above (nothing that opens
+                      the network - that is `pi --remote`, per run)
+  --no-python, --no-pypi-index  take those back
   --force             re-download the tools and reinstall the npm packages
   --force-packages    reinstall the extension packages at the tested versions,
                       and pi too if it is not at its tested version
   --reset-options     forget the --no-* flags the install recorded; use only these
 
-The --no-* flags, ELM_PI_TOOLS, the branch and the repository are recorded in
+The --no-* and --with-* flags, ELM_PI_TOOLS, the branch and the repository are recorded in
 agent/install-options and repeated by later runs and by pi update.
 
 Environment: ELM_PI_PREFIX, ELM_PI_BINDIR, ELM_PI_REPO, ELM_PI_BRANCH,
 ELM_PI_DOCS, ELM_PI_UPDATE, ELM_PI_NO_PATH, ELM_PI_NO_LINK,
-ELM_PI_FORCE_LINK, ELM_PI_PYTHON, ELM_PI_BUNDLED_PYTHON, ELM_API_KEY.
+ELM_PI_FORCE_LINK, ELM_PI_PYTHON, ELM_PI_BUNDLED_PYTHON, ELM_API_KEY,
+ELM_PI_IGNORE_DISK_SPACE.
 
 Your shell's conda/venv/pyenv Python, nvm/volta Node, ~/.npmrc, ~/.npm,
 ~/.gitconfig, ~/.curlrc and PYTHON*/NODE_*/npm_config_*/GIT_* variables are
@@ -134,7 +140,8 @@ for arg in "$@"; do
     --force-link) FORCE_LINK=1 ;;
     # Forwarded verbatim. A flag missing from this list used to be dropped in
     # silence, so `install.sh --no-tools` installed the tools anyway.
-    --no-packages|--no-shim|--no-auth-lock|--no-tools|--no-patch|--force|--force-packages|--reset-options)
+    --no-packages|--no-shim|--no-auth-lock|--no-tools|--no-patch|--force|--force-packages|--reset-options|\
+    --with-python|--with-pypi-index|--with-all|--no-python|--no-pypi-index)
       PASS_ARGS+=("$arg") ;;
     *) echo "unknown option: $arg" >&2; echo "try: --help" >&2; exit 2 ;;
   esac
@@ -190,11 +197,36 @@ else
   HAVE_GIT=0; warn "git not found — installing from a source tarball instead"
 fi
 
-# 650 MB of Node, pi and packages land in PREFIX.
-if command -v df >/dev/null 2>&1; then
-  FREE_KB="$(df -Pk "$(dirname "$PREFIX")" 2>/dev/null | awk 'NR==2{print $4}' || echo "")"
-  if [ -n "$FREE_KB" ] && [ "$FREE_KB" -lt 1572864 ] 2>/dev/null; then
-    warn "only $((FREE_KB/1024)) MB free on this filesystem; the install needs ~650 MB"
+# A new install: say what it will download and keep, before fetching anything,
+# and stop now if the filesystem cannot hold it rather than halfway through.
+# The same figures as bootstrap.sh's (measured on a working install): base
+# ~1.0 GB, the agent's Python ~1.0 GB, the PyPI index ~0.4 GB after a ~1 GB
+# download deleted once it is built. bootstrap.sh does the same for an existing
+# install that gains an optional part; ELM_PI_DISK_NOTED stops it repeating this.
+if [ ! -f "$PREFIX/bootstrap.sh" ] && [ ! -e "$PREFIX/.git" ]; then
+  DISK_KEEP=1000; DISK_TEMP=0
+  DISK_PARTS=("Node, pi, its packages and the command-line tools (~1.0 GB)")
+  case " ${PASS_ARGS[*]-} " in *" --with-python "*|*" --with-pypi-index "*|*" --with-all "*)
+    DISK_KEEP=$((DISK_KEEP + 1000)); DISK_PARTS+=("the agent's Python (~1.0 GB)") ;; esac
+  case " ${PASS_ARGS[*]-} " in *" --with-pypi-index "*|*" --with-all "*)
+    DISK_KEEP=$((DISK_KEEP + 400)); DISK_TEMP=1000
+    DISK_PARTS+=("the offline PyPI index (~0.4 GB, after a ~1 GB download deleted once it is built)") ;; esac
+  gb() { awk -v m="$1" 'BEGIN { printf "%.1f", m / 1000 }'; }
+  say "disk space"
+  echo "    This is a new install. It downloads and keeps about $(gb "$DISK_KEEP") GB in $PREFIX:"
+  for part in "${DISK_PARTS[@]}"; do echo "      - $part"; done
+  [ "$DISK_TEMP" = "0" ] || echo "    and needs about $(gb "$DISK_TEMP") GB more while it runs."
+  export ELM_PI_DISK_NOTED=1
+  if command -v df >/dev/null 2>&1; then
+    mkdir -p "$(dirname "$PREFIX")" 2>/dev/null || true
+    FREE_KB="$(df -Pk "$(dirname "$PREFIX")" 2>/dev/null | awk 'NR==2{print $4}' || echo "")"
+    if [ -n "$FREE_KB" ] && [ "$FREE_KB" -lt $(( (DISK_KEEP + DISK_TEMP) * 1024 )) ] 2>/dev/null; then
+      if [ "${ELM_PI_IGNORE_DISK_SPACE:-0}" = "1" ]; then
+        warn "only $(gb $((FREE_KB / 1024))) GB free; going ahead (ELM_PI_IGNORE_DISK_SPACE=1)"
+      else
+        die "only $(gb $((FREE_KB / 1024))) GB free on this filesystem, and the install needs about $(gb $((DISK_KEEP + DISK_TEMP))) GB. Free some space, install elsewhere (ELM_PI_PREFIX), or go ahead anyway with ELM_PI_IGNORE_DISK_SPACE=1"
+      fi
+    fi
   fi
 fi
 
