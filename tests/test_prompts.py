@@ -94,6 +94,25 @@ class RoutingTests(unittest.TestCase):
         self.assertIn("rate-limited", frontmatter(text("agents/llama.md"))["description"])
         self.assertIn("rate-limited", text("skills/elm-delegation/SKILL.md").split("**`llama` is for rote")[1][:200])
 
+    def test_independent_children_are_one_call_without_a_script(self):
+        # A script means write, validate, fix, launch: enough ceremony that the
+        # model did the work itself. pi-subagents' named `parallel` workflow is
+        # one call, so the always-on rules and both skills lead with it.
+        call = 'workflow: "parallel"'
+        for name in ("AGENTS.md", "skills/elm-delegation/SKILL.md",
+                     "skills/elm-subagent-workflows/SKILL.md"):
+            self.assertIn(call, text(name), name)
+        agents = text("AGENTS.md")
+        self.assertIn(call, agents.split("# Final Reminder")[1])
+        self.assertIn("three or more", agents.split("\n2. ")[0])
+
+    def test_stated_concurrency_matches_the_config(self):
+        limit = json.loads(text("extensions/subagent/config.json"))["globalConcurrencyLimit"]
+        self.assertIn(f"at most {limit} of a", text("skills/elm-delegation/SKILL.md"))
+        self.assertIn(f"{limit} concurrent, 64 per run", (ROOT / "INSTALL.md").read_text())
+        owned = (ROOT / "bootstrap.sh").read_text().split("OWNED = {")[1].split("\n}\n")[0]
+        self.assertIn('"globalConcurrencyLimit"', owned)
+
     def test_speed_measurements_have_one_home(self):
         homes = [p.relative_to(TEMPLATES) for p in TEMPLATES.rglob("*.md") if "tok/s" in p.read_text()]
         self.assertEqual([Path("skills/elm-delegation/SKILL.md")], homes)

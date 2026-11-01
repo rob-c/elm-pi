@@ -198,8 +198,11 @@ Hard-won settings that are in here deliberately. Full measurements in
   prompt, so it keeps them that way.
 - **Sub-agent fan-out is nearly free past the startup cost** (20 agents ≈ 12), but
   delegating work smaller than the round trip is 10x slower than doing it directly.
-- **`retry.maxRetries` is 5, `retry.provider.maxRetries` is 0.** Five gives ~62s of
-  tolerance for a shared-gateway 429 storm; SDK-level retries would swallow
+  So the prompt gives a countable line - two or more independent questions, or
+  three or more unread files - and one call (pi-subagents' built-in `parallel`
+  workflow) launches the lot; up to 12 children run at once.
+- **`retry.maxRetries` is 6, `retry.provider.maxRetries` is 0.** Six from a 1s base
+  delay gives ~63s of tolerance for a shared-gateway 429 storm; SDK-level retries would swallow
   out-of-quota errors before pi sees them.
 - **`pi -p` from a terminal is not hung**, it is reading stdin. The launcher closes
   stdin when it is a TTY.

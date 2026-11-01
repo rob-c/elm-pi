@@ -233,7 +233,7 @@ pi install.
 | `agent/extensions/view-outputs.ts` | shows Qwen its figures: image and PDF files a command writes are attached to its result, `view` renders PDF pages (with their text) and TIFF/BMP, and a PDF given to `read` is rendered. Uses the bundled `mupdf` (WebAssembly; nothing downloaded at run time). SVG, EPS/PS, HEIC and PSD go through a command-line converter first (rsvg-convert, Inkscape, ImageMagick, Ghostscript, epstopdf; sips and qlmanage on macOS) when the machine has one |
 | `agent/extensions/install-notes.ts` | when the agent installs something (pip, pixi, docker pull, brew), adds what, where it lives and how to remove it to that command's result for the report, and logs it in `agent/installs.log` |
 | `agent/extensions/workflow-model-scope.ts` | keeps Dynamic Workflows agents on ELM models |
-| `agent/extensions/subagent/config.json` | fan-out budget: 8 concurrent, 64 per run |
+| `agent/extensions/subagent/config.json` | fan-out budget: 12 concurrent, 64 per run |
 | `agent/bin/pi` | symlink to the launcher, so sub-agent children find `pi` whatever PATH looks like |
 | `agent/pixi/` | pixi's global tools, environments and cache (`PIXI_HOME`), when the agent has used it |
 | `agent/python/` | with `--with-python`: the agent's Python - uv-managed CPython, `env/` (the venv on PATH), uv's cache |

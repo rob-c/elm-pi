@@ -1,16 +1,27 @@
 ---
 name: elm-subagent-workflows
-description: "Writing, validating and launching a subagent workflow script that runs several qwen/llama children with runs.all, and collecting the results."
+description: "Fanning out several qwen/llama children - the built-in parallel workflow, or a validated runs.all script when steps depend on each other - and collecting the results."
 ---
 
 # pi-subagents workflow scripts
 
 ### Mixing both in one orchestration
 
-For anything beyond a single child, make **one** `subagent` call that runs a
-workflow script, and launch the children inside it. Write the script to a file
-under `.pi/tmp/` with `write`, validate it, then launch it. These are calls to
-the `subagent` **tool**, not shell commands - there is no `subagent` program:
+For anything beyond a single child, make **one** `subagent` call. When the
+children are independent, that call is the built-in `parallel` workflow, with
+nothing to write or validate:
+
+```js
+subagent({ workflow: "parallel", args: { tasks: [
+  { agent: "qwen", task: "..." },
+  { agent: "qwen", task: "..." },
+] } })
+```
+
+When one child needs another's result, write a workflow script instead: put it
+in a file under `.pi/tmp/` with `write`, validate it, then launch it. These are
+calls to the `subagent` **tool**, not shell commands - there is no `subagent`
+program:
 
 ```js
 subagent({ action: "validate", workflow: "./.pi/tmp/survey.js" })

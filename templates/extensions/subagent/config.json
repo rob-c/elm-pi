@@ -1,5 +1,5 @@
 {
-  "globalConcurrencyLimit": 8,
+  "globalConcurrencyLimit": 12,
   "maxSubagentSpawnsPerRun": 64,
   "share": false,
   "worktree": false,

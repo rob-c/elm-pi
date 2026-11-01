@@ -5,7 +5,9 @@ description: "Delegating to sub-agents here - when to fan out, qwen or llama, wr
 
 # Delegating to sub-agents
 
-The always-on rules are in AGENTS.md; this is the detail behind them. For several children at once, also load `elm-subagent-workflows`.
+The always-on rules are in AGENTS.md; this is the detail behind them. For a
+workflow script (children that depend on each other), also load
+`elm-subagent-workflows`.
 
 ### Delegate to sub-agents by default
 
@@ -18,28 +20,52 @@ parts that each need real work:
 - Running tests, linters or builds while other work continues
 - Applying a substantial change that splits cleanly across separate files
 
-Do **not** delegate work that is smaller than the round trip. A handful of one-line
-edits you could make in a single read-and-edit pass is faster done directly -
-measured on this setup, forcing delegation on trivial edits was more than ten times
-slower and often failed to finish. The test is the size of the sub-task, not the
-number of files.
+The line is countable: **two or more independent questions, or three or more
+files you have not read, go to children.** Below it, do the work yourself. A
+handful of one-line edits you could make in a single read-and-edit pass is
+faster done directly - measured on this setup, forcing delegation on trivial
+edits was more than ten times slower and often failed to finish.
+
+A child is cheap to start. A `qwen` child forks this conversation, and the
+gateway's prefix cache already holds that prefix, so it does not pay to read
+the conversation again; compute here has no per-token cost. What a child costs
+is its own turns, which is why the line above is about the size of the work.
 
 `subagent` is `async: true` by default, so a call returns immediately. One child
-is one call: `subagent({ agent: "qwen", task: "..." })`. Several children are
-**one** call that runs a workflow script (see "Mixing both in one orchestration"
-below); separate top-level calls for each child are not the pattern here.
-Collect with `bg_wait({ all: true })`, or `bg_wait({ id: "<runId>" })` for one run.
+is one call: `subagent({ agent: "qwen", task: "..." })`. Several independent
+children are **one** call to pi-subagents' built-in `parallel` workflow - no
+script to write and nothing to validate:
+
+```js
+subagent({ workflow: "parallel", args: { tasks: [
+  { agent: "qwen", task: "Read src/io/*.py and list every place units are converted, with the line. Read-only." },
+  { agent: "qwen", task: "Run pytest tests/io and report each failure with its output. Read-only." },
+] } })
+```
+
+Each item takes `agent` and `task` (and optionally `cwd`); never `model`, which
+travels with the agent. The children run together and the result lists their
+outputs in launch order. A child that fails fails the whole workflow, so tell
+each one to report a problem in its output rather than stop on it; the other
+children that finished can still be read back
+(`subagent({ action: "children.list" })`).
+Write a workflow script (`elm-subagent-workflows`) only when one child needs
+another's result. Separate top-level calls for each child are not the pattern
+here. Collect with `bg_wait({ all: true })`, or `bg_wait({ id: "<runId>" })`
+for one run.
 
 **Do not pass `nonBlocking` to `bg_wait`.** Async runs notify this session when
 they finish, so a wait subscription buys nothing, and it is refused: it needs one
 exact `id` and cannot be combined with `all`, and it cannot work at all in print
 mode (`pi -p`).
 
-Budget: 64 child launches per run (`maxSubagentSpawnsPerRun`), and at most 8 of a
+Budget: 64 child launches per run (`maxSubagentSpawnsPerRun`), and at most 12 of a
 workflow's children run at once (`globalConcurrencyLimit` in
-`agent/extensions/subagent/config.json`); the rest queue. Match the count to how
-the work divides - one sub-agent per file or per independent question - rather
-than to a fixed number.
+`agent/extensions/subagent/config.json`); the rest queue. Twelve is where the
+gateway was measured (below); more meets the shared model's rate limit, which
+every other ELM user shares too. Match the count to how the work divides -
+one sub-agent per file or per independent question - rather than to a fixed
+number.
 
 A completion notice previews only the first 8 children ("N additional child
 preview(s) omitted by notice budget"). Read the rest with

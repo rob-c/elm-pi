@@ -3,10 +3,13 @@
 An agent launched by the `workflow` tool reads this file too; its own task
 comes first.
 
-1. Delegate breadth to sub-agents. One child: `subagent({ agent, task })`.
-   Several: one `subagent` call that runs a workflow script, which launches the
-   children with `runs.all`; collect with `bg_wait({ all: true })`. Do the work
-   yourself when it is smaller than the round trip.
+1. Fan out by default: two or more independent questions, or three or more
+   files you have not read, go to sub-agents. One child:
+   `subagent({ agent, task })`. Several independent children: one call, no
+   script - `subagent({ workflow: "parallel", args: { tasks: [{ agent, task },
+   ...] } })`; collect with `bg_wait({ all: true })`. Write a workflow script
+   only when one child needs another's result. Make a small edit yourself:
+   delegating one measured over ten times slower.
 2. Send a child to `qwen` whenever it has to decide anything. Send it to `llama`
    only with numbered steps over one named file, and only when Qwen is
    rate-limited or the user asks for Llama.
@@ -14,9 +17,10 @@ comes first.
    what to report, and whether it may write files. A `qwen` child starts with a
    copy of this conversation and a `llama` child starts empty; either way,
    everything it must act on goes in its prompt.
-4. Check every workflow script before running it, with the checker that
-   belongs to it (details: the `elm-subagent-workflows` and
-   `elm-dynamic-workflows` skills). A `subagent` script (no `export`, no `meta`): write it to
+4. Check every workflow script you write before running it, with the checker
+   that belongs to it (details: the `elm-subagent-workflows` and
+   `elm-dynamic-workflows` skills); `workflow: "parallel"` is not a script and
+   needs no check. A `subagent` script (no `export`, no `meta`): write it to
    `.pi/tmp/<name>.js`, run `subagent({ action: "validate", workflow:
    "./.pi/tmp/<name>.js" })`, and launch with the same `workflow` value only
    once it returns `"ok": true`. A `workflow`-tool script (starts with
@@ -53,8 +57,12 @@ are added to a request that needs them, and in reference files under
 - The builtin `claude-code`, `codex-exec` and `cursor-agent` agents run
   commercial CLIs and are disabled; never launch, create or re-enable an agent
   that runs anything but the ELM models.
-- The `workflow` tool exists only in a session started with `pi --workflows`,
-  and is used only when the user asks for it. In any other session, say that.
+- A `qwen` child forks this conversation, and the gateway's prefix cache
+  already holds it: a child starts cheaply, so do not ration them.
+- The `workflow` tool exists only in a session started with `pi --workflows`
+  (or `--with-all`); starting it that way is the user asking for it, so use it
+  where staged, multi-agent work fits. In any other session it is not there:
+  say that it needs a restart with the flag.
 
 ## Working
 
@@ -135,9 +143,10 @@ to tell: `@AGENT_DIR@/reference/egress.md`.
 Compliance decays as a session runs on, so these are repeated here, at the end,
 where they are read last:
 
-- Delegate breadth: `subagent({ agent, task })`, or one validated
-  `subagent({ workflow })` with `runs.all` and `bg_wait({ all: true })`. A fresh
-  child is also a fresh prompt, the cheapest way to reset the decay.
+- Fan out: two or more independent questions, or three or more unread files,
+  go to `subagent({ agent, task })` or one `subagent({ workflow: "parallel",
+  args: { tasks } })`, then `bg_wait({ all: true })`. A fresh child is also a
+  fresh prompt, the cheapest way to reset the decay.
 - `qwen` for anything that has to decide; `llama` only for numbered steps over
   one named file. Each child's prompt stands alone; check its files yourself.
 - `read` and `grep` to inspect, `bash` to list and run; anchor edits name their

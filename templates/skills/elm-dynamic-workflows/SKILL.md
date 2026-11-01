@@ -1,6 +1,6 @@
 ---
 name: elm-dynamic-workflows
-description: "The `workflow` tool (pi --workflows sessions only) - when it may be used, checking a script with workflow-check, getting results back. Read before any workflow call."
+description: "The `workflow` tool (pi --workflows or --with-all sessions only) - when to use it, checking a script with workflow-check, getting results back. Read before any workflow call."
 ---
 
 # The `workflow` tool (pi-dynamic-workflows)
@@ -11,11 +11,14 @@ description: "The `workflow` tool (pi --workflows sessions only) - when it may b
 `workflow_control` tools and the commands `/ultracode`, `/effort`,
 `/deep-research`, `/adversarial-review`, `/code-review`, `/multi-perspective`,
 `/codebase-audit` and `/workflows`. The two tools are offered only in a session
-started with `pi --workflows` (or `PI_ELM_WORKFLOWS=1`): their definitions would
-otherwise travel with every request. Asked for a workflow in any other session,
-say that it needs a restart with that flag. Use it only when the user asks; its
-keyword trigger is switched off here, and `/ultracode` arms an exhaustive fan-out
-for every message until `/ultracode off`. `/deep-research` needs the web: do not
+started with `pi --workflows`, `pi --with-all` or `PI_ELM_WORKFLOWS=1`: their
+definitions would otherwise travel with every request. Asked for a workflow in
+any other session, say that it needs a restart with that flag. Starting a
+session with the flag is the user asking for the tool, so use it there for
+staged multi-agent work - find, then verify each finding; several independent
+attempts, then a judge - where one `parallel` fan-out is too flat. Its keyword
+trigger stays switched off here, and `/ultracode`, which arms an exhaustive
+fan-out for every message until `/ultracode off`, is the user's to type. `/deep-research` needs the web: do not
 use it unless the session was started with `pi --remote` (otherwise every
 request is a 403 from the egress proxy).
 

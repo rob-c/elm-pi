@@ -991,6 +991,8 @@ OWNED = {
                                  # override settings unless /trust says so
     ),
     "extensions/subagent/config.json": (
+        "globalConcurrencyLimit",  # 12: measured on the gateway; more meets
+                                 # the rate limit every ELM user shares
         "share",                 # false: `gh gist create` publishes a run
         "worktree",              # false: isolation needs git, so it is opt-in
         "worktreeProvider",
