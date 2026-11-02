@@ -247,7 +247,8 @@ The layers above shape what pi *offers*. This one checks where it *goes*.
 The launcher starts a small allowlisting proxy on loopback, points pi's
 `HTTPS_PROXY` at it, and refuses to start if it cannot. The allowlist is the
 ELM host, taken from `ELM_BASE_URL` so it cannot drift from the gateway the
-shim uses, and PyPI (below). Everything else gets `403` and a line in
+shim uses, and the package sources: PyPI, conda-forge and the container
+registries (below). Everything else gets `403` and a line in
 `agent/egress.log`, with the hostname and a timestamp, so a call that should
 not be happening can be stopped at source rather than merely blocked.
 

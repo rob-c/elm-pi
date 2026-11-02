@@ -55,8 +55,9 @@ every step: **[INSTALL.md](INSTALL.md)**. Web version of this page:
 | **Sub-agents** | 64-child fan-out budget, Qwen by default; Llama 3.3 via a local tool-call shim as a fallback |
 | **Editing** | Anchor-based (`pi-hashline-edit-pro`) — the built-in `edit` tool is off |
 | **Memory** | Per-project `AGENTS.md`. No memory tool: `pi-hermes-memory` is not installed |
-| **Web** | `pi-web-access` (DuckDuckGo, then Exa). **Off by default**; `pi --remote` turns it on for a run |
-| **Skills** | 13 — physics methods, scientific code, sub-agent orchestration. A router adds the ones a request needs, shown as a dim `skills:` line |
+| **Software** | Fetched when a task needs it, the isolated way and without asking: PyPI packages into the agent's or the project's environment, conda-forge packages with pixi (`agent/pixi`), large toolchains in a `--network=none` container. Homebrew asks every time; apt/dnf are refused and the agent gives you the command. Each install is reported (what, where, how to remove) and logged in `agent/installs.log` |
+| **Web** | `pi-web-access` (DuckDuckGo, then Exa). **Off by default**; `pi --remote` turns it on for a run. Without it, only ELM, PyPI, conda-forge and the container registries are reachable |
+| **Skills** | 15 — physics methods, scientific code, installing software, containers, sub-agent orchestration. A router adds the ones a request needs, shown as a dim `skills:` line |
 | **Prompt suggestions** | `pi-next-prompt`: the likely next prompt in grey after each reply; Tab takes it |
 | **Sessions** | `.pi/sessions/` inside each project, not one central 1.9 GB pile |
 | **Models offered** | ELM only. 42 non-ELM provider catalogues stripped |
@@ -76,7 +77,7 @@ lib/                launcher policy and private-state permission helpers
 scripts/ tests/     config rendering, checks and regression tests
 docs/               the GitHub Pages site
 shim/               Llama tool-call shim (Python, loopback only)
-proxy/              egress proxy: allowlists ELM and PyPI, logs and refuses the rest
+proxy/              egress proxy: allowlists ELM, PyPI, conda-forge and container registries; logs and refuses the rest
 agent/              generated: PI_CODING_AGENT_DIR (config, extensions, skills, state)
 agent/bin/          generated: fd rg jq yq shellcheck ast-grep uv mlr resvg pixi ruff, pinned + checksummed
 agent/pixi/         generated on use: conda-forge tools the agent installed with pixi
@@ -166,7 +167,7 @@ wrapper's fault?".
 | `--llama` | Llama 3.3 70B via the local shim. A fallback, **not** a speed-up — Qwen is faster here. |
 | `--with-all` | every optional extra, without `--remote`: sets up the agent's Python and the offline PyPI index if missing (once, ~2 GB, recorded so `pi update` keeps them), and offers every tool otherwise left out for size, the `workflow` tools included. The web, the open proxy and computer use stay off. |
 | `--workflows` | offer the `workflow` tool (pi-dynamic-workflows) for this run. Left out otherwise: it is used only on request, and its definition would go with every request. |
-| `--remote` | web tools and computer use (screen and app control) on for this run, and the egress proxy records every destination instead of allowing only ELM and PyPI. Models are unaffected: still ELM only. `PI_ELM_WEB=1` turns the tools on without opening the proxy. |
+| `--remote` | web tools and computer use (screen and app control) on for this run, and the egress proxy records every destination instead of allowing only ELM and the package sources (PyPI, conda-forge, container registries). Models are unaffected: still ELM only. `PI_ELM_WEB=1` turns the tools on without opening the proxy. |
 | `--help` | the launcher's flags and environment, then pi's own help, run with this install's config, offline and with credentials scrubbed |
 
 | Command | |

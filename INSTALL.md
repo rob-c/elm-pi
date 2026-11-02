@@ -148,7 +148,8 @@ pi --remote --fast -p "..." # open proxy, but --fast loads no web tools
 ```
 
 It lifts exactly two things — the web tools come back on, and the egress proxy
-stops allowing only the ELM gateway and PyPI — and adds one: computer use
+stops allowing only the ELM gateway and the package sources (PyPI,
+conda-forge, container registries) — and adds one: computer use
 (`@injaneity/pi-computer-use`), which lets the agent see the screen and drive
 apps and browsers through the accessibility API. It loads in that session
 only, never in its sub-agents; on macOS the first use asks for Accessibility
@@ -974,10 +975,10 @@ orchestration comes from somewhere else.
 
 ## Skills and the skill router
 
-`agent/skills` holds thirteen skills from `templates/skills`: physics methods
+`agent/skills` holds fifteen skills from `templates/skills`: physics methods
 (fitting, statistics, uncertainties, histograms, derivations, numerical
-methods, constants, documents), scientific Python and C++, and the sub-agent
-and workflow orchestration rules. pi lists each skill's name and description
+methods, constants, documents), scientific Python and C++, installing software
+and running containers, and the sub-agent and workflow orchestration rules. pi lists each skill's name and description
 and leaves loading it to the model, which measured unreliable here: asked for a
 half-life, the model never read `data-fitting` and used the method that skill
 forbids.

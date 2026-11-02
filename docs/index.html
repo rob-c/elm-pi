@@ -340,6 +340,7 @@
         <code>brew</code> and <code>nvm</code> are untouched.</li>
     <li>Installs pi and its extensions &mdash; sub-agents, web access, anchor-based editing
         &mdash; at the versions this repository last tested.</li>
+    <li>Adds pinned, checksummed command-line tools inside that directory &mdash; <code>rg</code>, <code>fd</code>, <code>jq</code>, <code>uv</code>, <code>pixi</code>, <code>ruff</code> and more &mdash; which is also where the agent puts software it installs later.</li>
     <li>Writes your key to <code>.env</code> with mode <code>600</code>, resolves the current
         model id from the gateway, and smoke-tests one completion.</li>
     <li>Checks the ELM-only policy actually holds, links <code>~/.local/bin/pi</code>, and puts
@@ -347,7 +348,7 @@
         bash or fish.</li>
   </ul>
   <p>
-    About 650&nbsp;MB and three minutes on a warm network. Re-running is safe: it never
+    About 1&nbsp;GB and three minutes on a warm network. Re-running is safe: it never
     overwrites your key, your sessions or a config you have edited. Everything
     lives under one directory, so uninstalling is:
   </p>
@@ -388,7 +389,8 @@ cat paper.tex | pi -p "find the undefined references"</pre>
     <tr><td><strong>Sub-agents</strong></td><td>64-child fan-out budget, Qwen by default, with Llama&nbsp;3.3 via a local tool-call shim as a fallback</td></tr>
     <tr><td><strong>Editing</strong></td><td>anchor-based, which survives long files better than line-number patches</td></tr>
     <tr><td><strong>Memory</strong></td><td>per-project <code>AGENTS.md</code>; there is no memory tool</td></tr>
-    <tr><td><strong>Web</strong></td><td>DuckDuckGo, then Exa; off by default until <code>pi --remote</code></td></tr>
+    <tr><td><strong>Software</strong></td><td>when a task needs something the machine lacks, the agent finds it and installs it the isolated way, without asking: Python packages from PyPI into its own or the project&rsquo;s environment, anything on conda-forge with pixi into <code>agent/pixi</code>, a large toolchain in a container with no network. Homebrew asks you each time; <code>apt</code> and <code>dnf</code> are refused and you get the command to run. Every install is reported &mdash; what, where it lives, how to remove it &mdash; and logged in <code>agent/installs.log</code></td></tr>
+    <tr><td><strong>Web</strong></td><td>DuckDuckGo, then Exa; off by default until <code>pi --remote</code>. Without it, the only hosts reachable besides ELM are PyPI, conda-forge and the container registries, for installing software</td></tr>
     <tr><td><strong>Sessions</strong></td><td>per-project, private to your account (directory mode 700; existing files tightened to mode 600)</td></tr>
   </table>
   <p>
