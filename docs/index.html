@@ -281,7 +281,7 @@
     <p class="also">Or with every optional extra &mdash; the agent&rsquo;s own Python and offline PyPI search, about 2.4&nbsp;GB rather than 1&nbsp;GB:</p>
     <div class="plate">
       <button class="copy" type="button" data-copy="cmd-all">Copy</button>
-<pre id="cmd-all">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)" _ --with-all</pre>
+<pre id="cmd-all">ELM_PI_WITH_ALL=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
     </div>
     <p class="requires">macOS or Linux. No <code>sudo</code>, nothing installed system-wide, one directory you can delete. <b>You will need an ELM API key first</b> &mdash; how to get one is below.</p>
   </div>

@@ -15,7 +15,7 @@ With every optional extra - the agent's own Python and offline PyPI search,
 ~2.4 GB in all rather than ~1 GB (never the open network; that is `pi --remote`):
 
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)" _ --with-all
+ELM_PI_WITH_ALL=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
 ```
 
 macOS or Linux, x86_64 or arm64. No `sudo`, nothing installed system-wide. It

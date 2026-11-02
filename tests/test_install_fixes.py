@@ -206,6 +206,22 @@ class LauncherTests(unittest.TestCase):
         installer = (ROOT / "install.sh").read_text()
         self.assertIn("--with-python|--with-pypi-index|--with-all|--no-python|--no-pypi-index)", installer)
 
+    def test_the_one_line_install_takes_with_all_from_the_environment(self):
+        # `bash -c "$(curl ...)" _ --with-all` works but reads as a typo, so the
+        # website gives ELM_PI_WITH_ALL=1 instead.
+        text = (ROOT / "install.sh").read_text()
+        start = text.index('for arg in "$@"; do\n  case "$arg" in\n    --update)')
+        line = '[ "${ELM_PI_WITH_ALL:-0}" != "1" ] || PASS_ARGS+=(--with-all)\n'
+        block = text[start:text.index(line) + len(line)]
+        script = f'set -euo pipefail\nPASS_ARGS=()\n{block}echo "[${{PASS_ARGS[*]-}}]"'
+        run = lambda *args, **env: subprocess.run(["bash", "-c", script, "_", *args], capture_output=True, text=True,
+                                                  env={"PATH": "/usr/bin:/bin", **env}).stdout.strip()
+        self.assertEqual("[--with-all]", run(ELM_PI_WITH_ALL="1"))
+        self.assertEqual("[]", run())
+        self.assertEqual("[--with-all]", run("--with-all"))
+        site = (ROOT / "docs/index.html").read_text()
+        self.assertIn('<pre id="cmd-all">ELM_PI_WITH_ALL=1 /bin/bash -c "$(curl -fsSL', site)
+
     # --- item 9: the guard answers before the key check ------------------------------
     def test_guard_refuses_on_an_install_with_no_key(self):
         write(self.fx.root / ".env", "ELM_API_KEY=\n")

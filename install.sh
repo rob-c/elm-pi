@@ -19,6 +19,8 @@
 #   ELM_PI_BRANCH=name       branch to install       (default: as last installed, else main)
 #   ELM_API_KEY=elm-...      skip the interactive key prompt
 #   ELM_PI_UPDATE=1          refresh pi and the extensions, keeping your configs
+#   ELM_PI_WITH_ALL=1        the same as --with-all, for the one-line install
+#                            (bash -c "$(curl ...)" passes flags only after a `_`)
 #   ELM_PI_NO_PATH=1         do not touch any shell profile
 #   ELM_PI_NO_LINK=1         do not create or replace the launcher symlink
 #   ELM_PI_FORCE_LINK=1      replace an existing ~/.local/bin/pi symlink
@@ -118,7 +120,7 @@ agent/install-options and repeated by later runs and by pi update.
 Environment: ELM_PI_PREFIX, ELM_PI_BINDIR, ELM_PI_REPO, ELM_PI_BRANCH,
 ELM_PI_DOCS, ELM_PI_UPDATE, ELM_PI_NO_PATH, ELM_PI_NO_LINK,
 ELM_PI_FORCE_LINK, ELM_PI_PYTHON, ELM_PI_BUNDLED_PYTHON, ELM_API_KEY,
-ELM_PI_IGNORE_DISK_SPACE.
+ELM_PI_IGNORE_DISK_SPACE, ELM_PI_WITH_ALL (=1: the same as --with-all).
 
 Your shell's conda/venv/pyenv Python, nvm/volta Node, ~/.npmrc, ~/.npm,
 ~/.gitconfig, ~/.curlrc and PYTHON*/NODE_*/npm_config_*/GIT_* variables are
@@ -146,6 +148,7 @@ for arg in "$@"; do
     *) echo "unknown option: $arg" >&2; echo "try: --help" >&2; exit 2 ;;
   esac
 done
+[ "${ELM_PI_WITH_ALL:-0}" != "1" ] || PASS_ARGS+=(--with-all)
 
 if [ -t 1 ]; then B=$'\033[1m'; Y=$'\033[33m'; R=$'\033[31m'; Z=$'\033[0m'
 else B=""; Y=""; R=""; Z=""; fi
