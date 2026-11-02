@@ -12,16 +12,18 @@
  * When the output has escape codes, the model's copy becomes plain text (what
  * a terminal would have left on screen) and the colour version goes into the
  * result's `details`, which only the display reads - the provider sends
- * `content` alone. Output without escape codes reaches the model unchanged.
+ * `content` alone, and pi's saved copy of a long output is made plain too.
+ * Output without escape codes reaches the model unchanged.
  * When colour reached the display, the model's copy says so in one line:
  * without it Qwen cannot tell a rainbow from no colour, and claimed one.
- * The display shows a command's own colour (`lolcat -f`, `ls --color=always`)
+ * The display shows a command's own colour (agent/shell/colour.sh turns it on)
  * as it printed it, on the terminal's own background, and colours everything
  * else by recognising lines:
  * errors, warnings, passes, diffs, `file:line` locations. A result that is
  * still streaming keeps pi's own live view and timer.
  */
 
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import type { ExtensionAPI, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
@@ -243,6 +245,19 @@ export function bodyLines(lines: string[], expanded: boolean, theme: Pick<Theme,
 	];
 }
 
+// Rewrites a saved output as plain text. pi has closed the file by the time
+// the result reaches extensions; one too large to hold is left as it is.
+export function plainFile(path: string): void {
+	try {
+		if (statSync(path).size > 64 * 1024 * 1024) return;
+		const text = readFileSync(path, "utf8");
+		const { plain } = separate(text);
+		if (plain !== text) writeFileSync(path, plain);
+	} catch {
+		// Gone or unreadable: nothing to clean.
+	}
+}
+
 // The output sits on the terminal's own background, inside a margin of the
 // tool box's colour: a command's colours were made for that background, and
 // its reset (`\x1b[0m`) clears pi's tint anyway, so a rainbow came out in patches.
@@ -274,6 +289,10 @@ export class TerminalPanel implements Component {
 export default function commandOutput(pi: ExtensionAPI) {
 	pi.on("tool_result", (event) => {
 		if (event.toolName !== "bash") return;
+		// pi saves a long output whole, as printed, for the model to `read` later;
+		// its colour may sit in lines the result's own text leaves out.
+		const fullOutputPath = (event.details as { fullOutputPath?: unknown } | undefined)?.fullOutputPath;
+		if (typeof fullOutputPath === "string") plainFile(fullOutputPath);
 		const first = event.content.findIndex((part) => part.type === "text");
 		if (first === -1) return;
 		const text = (event.content[first] as { text: string }).text;

@@ -120,9 +120,11 @@ it is a `qwen` task.
 
 A command's own colour is shown to the user and taken out of what you read;
 a result says when the user saw colour, and without that line none was printed.
-Most tools print colour only to a terminal, so when the user wants to see it,
-force it on: `lolcat -f`, `ls --color=always` (macOS: `CLICOLOR_FORCE=1 ls -G`),
-`git -c color.ui=always`, `grep --color=always`. Never force colour into a file.
+`git`, `ls`, `grep`, `rg`, `fd`, `diff`, `jq`, `pytest` and `ruff` colour their
+output for the user on their own, and stay plain in a pipe, a file or `$(...)`:
+add no colour flags (`type git` shows the wrapper; `command git` skips it). For
+another tool the user wants to see in colour, force it only in what comes back
+to the user, never into a file: `lolcat -f`.
 
 ## Skills
 

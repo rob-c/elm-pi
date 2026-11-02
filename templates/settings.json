@@ -6,6 +6,7 @@
   "defaultThinkingLevel": "off",
   "theme": "dark",
   "quietStartup": "header",
+  "shellCommandPrefix": ". \"$PI_CODING_AGENT_DIR/shell/colour.sh\" 2>/dev/null",
   "tuiMode": "regular",
   "modelThinkingLevels": {
     "elm/@QWEN_MODEL@": "off"

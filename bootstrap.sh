@@ -549,6 +549,10 @@ rm -rf agent/reference && mkdir -p agent/reference
 for ref in templates/reference/*.md; do
   elm_py "$CONFIG_TOOL" --root "$HERE" render "$ref" "agent/reference/${ref##*/}"
 done
+# Sourced before every bash command (settings.json shellCommandPrefix): colour
+# for output that goes straight back to pi, none in a pipe or a file.
+mkdir -p agent/shell
+cp templates/shell/colour.sh agent/shell/colour.sh
 # Who the users are and how to work with them (peers, Python 3/C++, evidence
 # over assumption, ask about unknowns, report with units and uncertainty).
 # pi appends it to the main session's system prompt, ahead of AGENTS.md, and
@@ -989,6 +993,8 @@ OWNED = {
         "retry",                 # gateway retry policy
         "defaultProjectTrust",   # never: a repo's .pi/ cannot load code or
                                  # override settings unless /trust says so
+        "shellCommandPrefix",    # agent/shell/colour.sh: colour for output
+                                 # that goes straight back to pi
     ),
     "extensions/subagent/config.json": (
         "globalConcurrencyLimit",  # 12: measured on the gateway; more meets
