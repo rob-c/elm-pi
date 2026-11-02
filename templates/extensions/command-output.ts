@@ -16,14 +16,16 @@
  * When colour reached the display, the model's copy says so in one line:
  * without it Qwen cannot tell a rainbow from no colour, and claimed one.
  * The display shows a command's own colour (`lolcat -f`, `ls --color=always`)
- * as it printed it, and colours everything else by recognising lines:
+ * as it printed it, on the terminal's own background, and colours everything
+ * else by recognising lines:
  * errors, warnings, passes, diffs, `file:line` locations. A result that is
  * still streaming keeps pi's own live view and timer.
  */
 
 import type { ExtensionAPI, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { keyHint } from "@earendil-works/pi-coding-agent";
-import { Container, getCapabilities, Text } from "@earendil-works/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
+import { Container, getCapabilities, Text, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 // Added to the model's copy, never drawn: the display shows the colour itself.
 export const COLOUR_NOTE = "[The user saw this output in colour; the colour codes were taken out of your copy.]";
@@ -241,6 +243,34 @@ export function bodyLines(lines: string[], expanded: boolean, theme: Pick<Theme,
 	];
 }
 
+// The output sits on the terminal's own background, inside a margin of the
+// tool box's colour: a command's colours were made for that background, and
+// its reset (`\x1b[0m`) clears pi's tint anyway, so a rainbow came out in patches.
+export class TerminalPanel implements Component {
+	private rows: string[];
+	private boxBg: string;
+	private cache?: { width: number; lines: string[] };
+
+	constructor(rows: string[], boxBg: string) {
+		this.rows = rows;
+		this.boxBg = boxBg;
+	}
+
+	invalidate(): void {
+		this.cache = undefined;
+	}
+
+	render(width: number): string[] {
+		if (this.cache?.width === width) return this.cache.lines;
+		const inner = Math.max(1, width - 2);
+		const lines = this.rows
+			.flatMap((row) => (row ? wrapTextWithAnsi(row, inner) : [""]))
+			.map((line) => `\x1b[49m ${line}${" ".repeat(Math.max(0, inner - visibleWidth(line)))} ${this.boxBg}`);
+		this.cache = { width, lines };
+		return lines;
+	}
+}
+
 export default function commandOutput(pi: ExtensionAPI) {
 	pi.on("tool_result", (event) => {
 		if (event.toolName !== "bash") return;
@@ -269,14 +299,17 @@ export default function commandOutput(pi: ExtensionAPI) {
 				const component = context.lastComponent instanceof Container ? context.lastComponent : new Container();
 				component.clear();
 				const outcome = readResult(result as ResultLike, context.isError, context.durationMs);
-				const rows = [theme.fg(outcome.failed ? "error" : "success", theme.bold(outcome.status))];
-				rows.push(...bodyLines(outcome.lines, options.expanded, theme, () => keyHint("app.tools.expand", "to expand"), outcome.colour));
+				component.addChild(new Text(`\n${theme.fg(outcome.failed ? "error" : "success", theme.bold(outcome.status))}`, 0, 0));
+				const body = bodyLines(outcome.lines, options.expanded, theme, () => keyHint("app.tools.expand", "to expand"), outcome.colour);
+				// The same tint pi gives the box (tool-execution.js), restored after each line.
+				if (body.length) component.addChild(new TerminalPanel(body, theme.getBgAnsi(context.isError ? "toolErrorBg" : "toolSuccessBg")));
+				const rows: string[] = [];
 				if (outcome.fullOutputPath) rows.push(theme.fg("muted", `full output (${outcome.totalLines} lines): ${outcome.fullOutputPath}`));
 				for (const note of outcome.notes) rows.push(theme.fg("muted", note));
 				if (outcome.images && !(getCapabilities().images && context.showImages)) {
 					rows.push(theme.fg("muted", `[${outcome.images} image${outcome.images === 1 ? "" : "s"} attached, not shown in this terminal]`));
 				}
-				component.addChild(new Text(`\n${rows.join("\n")}`, 0, 0));
+				if (rows.length) component.addChild(new Text(rows.join("\n"), 0, 0));
 				component.invalidate();
 				return component;
 			},

@@ -34,7 +34,7 @@ const [source, casesJson] = process.argv.slice(1);
 const mod = await import(source);
 const { initTheme } = await import("@earendil-works/pi-coding-agent");
 initTheme("dark");
-const theme = { fg: (c, s) => `<${c}>${s}</>`, bold: (s) => s };
+const theme = { fg: (c, s) => `<${c}>${s}</>`, bold: (s) => s, getBgAnsi: (c) => `<bg:${c}>` };
 const cases = JSON.parse(casesJson);
 const out = { classify: {}, renders: {} };
 
@@ -55,6 +55,7 @@ out.note = mod.COLOUR_NOTE;
 out.handled = {};
 for (const [name, event] of Object.entries(cases.events)) out.handled[name] = (await handlers.tool_result(event)) ?? null;
 const base = { renderCall() { return "base call"; }, renderResult() { return "base live view"; } };
+out.panels = {};
 out.otherTool = resolver("read", () => "next renderers") === "next renderers";
 const bash = resolver("bash", () => base);
 out.keepsCall = bash.renderCall === base.renderCall;
@@ -63,7 +64,10 @@ out.partial = bash.renderResult({ content: [] }, { expanded: false, isPartial: t
 for (const [name, c] of Object.entries(cases.results)) {
   const context = { isError: c.isError, durationMs: c.durationMs, showImages: false, lastComponent: undefined };
   const component = bash.renderResult(c.result, { expanded: c.expanded, isPartial: false }, theme, context);
-  out.renders[name] = component.render(200).map((line) => line.trimEnd()).filter(Boolean);
+  const lines = component.render(200);
+  out.panels[name] = lines.filter((line) => line.startsWith("\x1b[49m"));
+  // Read off the text: the panel's background, margin and padding come off.
+  out.renders[name] = lines.map((line) => line.replace(/^\x1b\[49m /, "").replace(/ *<bg:\w+>$/, "").trimEnd()).filter(Boolean);
 }
 console.log(JSON.stringify(out));
 """
@@ -217,6 +221,25 @@ class CommandOutputTests(unittest.TestCase):
         self.assertEqual("\x1b[1;32m\x1b[0mfine.log is not an error\x1b[0m", own[3])   # its plain line is not re-coloured red
         self.assertEqual(rainbow + "\x1b[0m", own[4])
         self.assertEqual(5, len(own))                                   # the note to the model is not drawn
+
+    def test_output_sits_on_the_terminals_background(self):
+        reset = "\x1b[38;5;196mred\x1b[0m then plain"
+        long = "x" * 450
+        out = self.run_cases(results={
+            "failed": {"result": {"content": [{"type": "text", "text": f"red then plain\n{long}\n\nCommand exited with code 1"}],
+                                  "details": {"colour": f"{reset}\n{long}"}},
+                       "isError": True, "expanded": False},
+            "ok": {"result": {"content": [{"type": "text", "text": "fine"}]}, "isError": False, "expanded": False},
+            "silent": {"result": {"content": [{"type": "text", "text": ""}]}, "isError": False, "expanded": False},
+        })
+        failed = out["panels"]["failed"]
+        self.assertEqual(4, len(failed))                         # a long line wraps inside the panel: 450 = 198 + 198 + 54
+        self.assertTrue(all(line.endswith(" <bg:toolErrorBg>") for line in failed))   # the box's tint comes back for its margin
+        self.assertTrue(failed[0].startswith("\x1b[49m " + reset))
+        text = "<toolOutput>fine</>"                            # the stub's tags count as width here; real colour codes do not
+        self.assertEqual(f"\x1b[49m {text}" + " " * (198 - len(text)) + " <bg:toolSuccessBg>", out["panels"]["ok"][0])
+        self.assertEqual([], out["panels"]["silent"])           # no output, no empty panel
+        self.assertEqual(["<success>✓ exit 0 · 0 lines</>"], out["renders"]["silent"])
 
     def test_display_only_and_only_for_bash(self):
         out = self.run_cases()
