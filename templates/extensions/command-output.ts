@@ -1,22 +1,32 @@
 /**
  * command-output: draws a finished `bash` result for a person to read - an exit
- * line, the start and the end of the output, and colour by what each line is.
+ * line, the start and the end of the output, and colour - and gives the model
+ * the same output without escape codes.
  *
- * Why: pi strips every colour code when it captures a command (the tools run
- * without a terminal anyway) and shows the last five lines in one grey. The
- * first error of a build and the file it names are usually above those five,
- * and a passing run looks the same as a failing one until you expand it.
+ * Why: pi passes a command's output to the model as printed, colour codes and
+ * progress-bar redraws (`\r`) included, and only its display strips them: it
+ * shows the last five lines in one grey. So Qwen paid tokens to read
+ * `\x1b[31m`, while the first error of a build and the file it names were
+ * usually above those five lines, and a passing run looked like a failing one.
  *
- * Display only. The model's copy of the result is never touched, so nothing
- * here costs tokens or moves the prompt cache; keeping the tools' own colours
- * would have meant escape codes in Qwen's context. So colour is re-applied by
- * recognising lines: errors, warnings, passes, diffs, `file:line` locations.
- * A result that is still streaming keeps pi's own live view and timer.
+ * When the output has escape codes, the model's copy becomes plain text (what
+ * a terminal would have left on screen) and the colour version goes into the
+ * result's `details`, which only the display reads - the provider sends
+ * `content` alone. Output without escape codes reaches the model unchanged.
+ * When colour reached the display, the model's copy says so in one line:
+ * without it Qwen cannot tell a rainbow from no colour, and claimed one.
+ * The display shows a command's own colour (`lolcat -f`, `ls --color=always`)
+ * as it printed it, and colours everything else by recognising lines:
+ * errors, warnings, passes, diffs, `file:line` locations. A result that is
+ * still streaming keeps pi's own live view and timer.
  */
 
 import type { ExtensionAPI, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import { Container, getCapabilities, Text } from "@earendil-works/pi-tui";
+
+// Added to the model's copy, never drawn: the display shows the colour itself.
+export const COLOUR_NOTE = "[The user saw this output in colour; the colour codes were taken out of your copy.]";
 
 // Collapsed view: the first lines say what ran, the last ones how it ended.
 const HEAD_LINES = 4;
@@ -95,6 +105,8 @@ export interface Outcome {
 	status: string;
 	failed: boolean;
 	fullOutputPath?: string;
+	/** The same output with the command's own colour codes, when it printed any. */
+	colour?: string[];
 	/** Text other extensions appended (install notes, attached figures). */
 	notes: string[];
 	images: number;
@@ -106,13 +118,58 @@ const strip = (text: string) =>
 		.replace(/\r/g, "")
 		.replace(/\t/g, "   ");
 
+const COLOUR_CODE = /\x1b\[[0-9;:]*m/;
+const COLOUR_CODES = /\x1b\[[0-9;:]*m/g;
+
+/** The output as a terminal would leave it: colour codes kept, every other escape and control character gone. */
+export function colourText(raw: string): string {
+	const lines = raw.split("\n").map((line) => {
+		line = line.replace(/\r+$/, "");
+		// A progress bar redraws its line with \r: keep what it ended as.
+		line = line.slice(line.lastIndexOf("\r") + 1);
+		return line
+			.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+			.replace(/\x1b\[[0-9;:?]*[ -/]*[@-~]/g, (seq) => (/^\x1b\[[0-9;:]*m$/.test(seq) ? seq : ""))
+			.replace(/\x1b(?!\[[0-9;:]*m)[@-_]?/g, "")
+			.replace(/[\x00-\x08\x0b-\x1a\x1c-\x1f\x7f]/g, "")
+			.replace(/\t/g, "   ");
+	});
+	return lines.join("\n");
+}
+
+/** Output as the model should read it, and - when the command printed colour - as the display should show it. */
+export function separate(text: string): { plain: string; colour?: string } {
+	if (!/[\x1b\r]/.test(text)) return { plain: text };
+	const colour = colourText(text);
+	return { plain: colour.replace(COLOUR_CODES, ""), colour: COLOUR_CODE.test(colour) ? colour : undefined };
+}
+
+/**
+ * Each line made to stand alone: it starts in the colour the previous line left
+ * open and ends with a reset, so a colour never bleeds into pi's own rows.
+ */
+export function carryColour(lines: string[]): string[] {
+	let open: string[] = [];
+	return lines.map((line) => {
+		const out = open.join("") + line;
+		for (const match of line.matchAll(/\x1b\[([0-9;:]*)m/g)) {
+			const params = match[1];
+			if (params === "" || params === "0") open = [];
+			else if (params.startsWith("0;")) open = [match[0]];
+			// lolcat sets a colour per character and never resets: only the last few matter.
+			else open = [...open, match[0]].slice(-8);
+		}
+		return COLOUR_CODE.test(out) ? `${out}\x1b[0m` : out;
+	});
+}
+
 function seconds(ms: number): string {
 	return ms < 1000 ? `${ms}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m${Math.round((ms % 60_000) / 1000)}s`;
 }
 
 interface ResultLike {
 	content: Array<{ type: string; text?: string }>;
-	details?: { truncation?: { truncated?: boolean; totalLines?: number }; fullOutputPath?: string };
+	details?: { truncation?: { truncated?: boolean; totalLines?: number }; fullOutputPath?: string; colour?: string };
 	structuredContent?: unknown;
 }
 
@@ -120,7 +177,7 @@ interface ResultLike {
 export function readResult(result: ResultLike, isError: boolean, durationMs?: number): Outcome {
 	const texts = result.content.filter((part) => part.type === "text").map((part) => strip(part.text ?? ""));
 	let output = texts[0] ?? "";
-	const notes = texts.slice(1).map((note) => note.trim()).filter(Boolean);
+	const notes = texts.slice(1).map((note) => note.trim()).filter((note) => note && note !== COLOUR_NOTE);
 	const images = result.content.filter((part) => part.type === "image").length;
 
 	// pi appends the status after a blank line: "Command exited with code 2",
@@ -150,14 +207,23 @@ export function readResult(result: ResultLike, isError: boolean, durationMs?: nu
 	const parts = [`${failed ? "✗" : "✓"} ${what}`];
 	if (durationMs !== undefined) parts.push(seconds(durationMs));
 	parts.push(`${totalLines} line${totalLines === 1 ? "" : "s"}`);
-	return { lines, totalLines, status: parts.join(" · "), failed, fullOutputPath, notes, images };
+	// Line for line the same text as the model's copy, so the output's lines are its first lines.
+	const colour = typeof result.details?.colour === "string" ? result.details.colour.split("\n").slice(0, lines.length) : undefined;
+	return { lines, totalLines, status: parts.join(" · "), failed, fullOutputPath, colour, notes, images };
 }
 
-/** The lines to show, already painted: everything, or head + a hint + tail. */
-export function bodyLines(lines: string[], expanded: boolean, theme: Pick<Theme, "fg">, hint: () => string): string[] {
+/**
+ * The lines to show, already painted: everything, or head + a hint + tail. With
+ * the command's own colour, its lines are shown as it coloured them - and a line
+ * it left plain stays plain - while the hidden-line counts still come from
+ * reading the text.
+ */
+export function bodyLines(lines: string[], expanded: boolean, theme: Pick<Theme, "fg">, hint: () => string, colour?: string[]): string[] {
+	if (colour) lines = colour.map((line) => line.replace(COLOUR_CODES, ""));
 	const diff = isDiff(lines);
 	const kinds = lines.map((line) => classify(line, diff));
-	const paint = (i: number) => paintLine(lines[i], kinds[i], theme);
+	const own = colour && carryColour(colour);
+	const paint = (i: number) => (own ? (COLOUR_CODE.test(own[i]) ? own[i] : theme.fg("toolOutput", own[i])) : paintLine(lines[i], kinds[i], theme));
 	if (expanded || lines.length <= HEAD_LINES + TAIL_LINES + 1) return lines.map((_, i) => paint(i));
 	const hiddenFrom = HEAD_LINES;
 	const hiddenTo = lines.length - TAIL_LINES;
@@ -176,6 +242,23 @@ export function bodyLines(lines: string[], expanded: boolean, theme: Pick<Theme,
 }
 
 export default function commandOutput(pi: ExtensionAPI) {
+	pi.on("tool_result", (event) => {
+		if (event.toolName !== "bash") return;
+		const first = event.content.findIndex((part) => part.type === "text");
+		if (first === -1) return;
+		const text = (event.content[first] as { text: string }).text;
+		const { plain, colour } = separate(text);
+		if (plain === text) return;
+		const content = event.content.map((part, i) => (i === first ? { ...part, text: plain } : part));
+		if (colour) content.splice(first + 1, 0, { type: "text", text: COLOUR_NOTE });
+		// structuredContent carries the output too (for codemode scripts), and
+		// pi drops it when content is replaced without it.
+		const structured = event.structuredContent as { output?: unknown } | undefined;
+		const structuredContent =
+			structured && typeof structured.output === "string" ? { ...structured, output: separate(structured.output).plain } : event.structuredContent;
+		return { content, structuredContent, details: colour ? { ...event.details, colour } : event.details };
+	});
+
 	pi.registerToolRenderer((toolName, next) => {
 		const base = next();
 		if (toolName !== "bash" || !base) return base;
@@ -187,7 +270,7 @@ export default function commandOutput(pi: ExtensionAPI) {
 				component.clear();
 				const outcome = readResult(result as ResultLike, context.isError, context.durationMs);
 				const rows = [theme.fg(outcome.failed ? "error" : "success", theme.bold(outcome.status))];
-				rows.push(...bodyLines(outcome.lines, options.expanded, theme, () => keyHint("app.tools.expand", "to expand")));
+				rows.push(...bodyLines(outcome.lines, options.expanded, theme, () => keyHint("app.tools.expand", "to expand"), outcome.colour));
 				if (outcome.fullOutputPath) rows.push(theme.fg("muted", `full output (${outcome.totalLines} lines): ${outcome.fullOutputPath}`));
 				for (const note of outcome.notes) rows.push(theme.fg("muted", note));
 				if (outcome.images && !(getCapabilities().images && context.showImages)) {

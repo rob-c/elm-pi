@@ -1,4 +1,4 @@
-"""Command output is drawn for a person: an exit line, head and tail, colour by kind of line.
+"""Command output is drawn for a person: an exit line, head and tail, colour - and reaches the model plain.
 
 command-output.ts is run under node beside the installed pi packages, with a
 theme stub that wraps each run of text in <colour>...</> so the colour of every
@@ -8,6 +8,7 @@ bootstrapped.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -18,6 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "templates/extensions/command-output.ts"
 CONFIG = json.loads((ROOT / "config/elm-pi.json").read_text())
+COLOUR_NOTE = re.search(r'COLOUR_NOTE = "([^"]+)"', SOURCE.read_text()).group(1)
 
 
 def node():
@@ -42,12 +44,16 @@ out.located = mod.paintLine(cases.located, "plain", theme);
 
 let resolver;
 const registered = [];
+const handlers = {};
 mod.default({
   registerToolRenderer: (f) => { resolver = f; },
-  on: (event) => registered.push(event),
+  on: (event, handler) => { registered.push(event); handlers[event] = handler; },
   registerTool: () => registered.push("tool"),
 });
 out.registered = registered;
+out.note = mod.COLOUR_NOTE;
+out.handled = {};
+for (const [name, event] of Object.entries(cases.events)) out.handled[name] = (await handlers.tool_result(event)) ?? null;
 const base = { renderCall() { return "base call"; }, renderResult() { return "base live view"; } };
 out.otherTool = resolver("read", () => "next renderers") === "next renderers";
 const bash = resolver("bash", () => base);
@@ -80,7 +86,7 @@ class CommandOutputTests(unittest.TestCase):
         shutil.rmtree(cls.dir, ignore_errors=True)
 
     def run_cases(self, **cases):
-        cases = {"lines": [], "diff": [], "located": "", "results": {}, **cases}
+        cases = {"lines": [], "diff": [], "located": "", "results": {}, "events": {}, **cases}
         run = subprocess.run([self.binary, "--no-warnings", "--input-type=module", "-e", RUNNER,
                               str(self.dir / "command-output.ts"), json.dumps(cases)],
                              cwd=self.dir, capture_output=True, text=True, env={**os.environ, "NO_COLOR": "1"})
@@ -171,9 +177,50 @@ class CommandOutputTests(unittest.TestCase):
         self.assertIn("full output (4001 lines): /tmp/pi-bash-1.log", truncated[2])
         self.assertIn("1 image attached", truncated[3])
 
+    def test_the_model_gets_plain_text_and_the_display_keeps_the_colour(self):
+        raw = "\x1b[31mred\x1b[0m plain\n\x1b]0;title\x07loading 10%\rloading 100%\n\x1b[2Kdone\n\nCommand exited with code 1"
+        event = {"toolName": "bash", "isError": True, "details": {"fullOutputPath": "/tmp/x.log"},
+                 "content": [{"type": "text", "text": raw}, {"type": "image", "data": "", "mimeType": "image/png"}],
+                 "structuredContent": {"output": raw, "exit_code": 1}}
+        plain_event = {"toolName": "bash", "isError": False, "details": None,
+                       "content": [{"type": "text", "text": "no escapes here"}]}
+        progress = {"toolName": "bash", "isError": False, "details": None,
+                    "content": [{"type": "text", "text": "10%\rdone"}]}
+        other_tool = {**event, "toolName": "read"}
+        out = self.run_cases(events={"coloured": event, "plain": plain_event, "progress": progress, "other": other_tool})
+        handled = out["handled"]["coloured"]
+        plain = "red plain\nloading 100%\ndone\n\nCommand exited with code 1"
+        self.assertEqual(plain, handled["content"][0]["text"])
+        self.assertEqual(out["note"], handled["content"][1]["text"])   # the model is told the user saw colour
+        self.assertEqual("image", handled["content"][2]["type"])
+        self.assertEqual({"output": plain, "exit_code": 1}, handled["structuredContent"])
+        self.assertEqual("\x1b[31mred\x1b[0m plain\nloading 100%\ndone\n\nCommand exited with code 1",
+                         handled["details"]["colour"])
+        self.assertEqual("/tmp/x.log", handled["details"]["fullOutputPath"])
+        self.assertIsNone(out["handled"]["plain"])     # output without escape codes reaches the model unchanged
+        no_colour = out["handled"]["progress"]          # only redraws: the copy is cleaned, but no colour is claimed
+        self.assertEqual(["done"], [part["text"] for part in no_colour["content"]])
+        self.assertNotIn("colour", no_colour["details"] or {})
+        self.assertIsNone(out["handled"]["other"])
+
+    def test_a_commands_own_colour_is_shown_as_printed(self):
+        rainbow = "".join(f"\x1b[38;5;{196 + i}m{c}" for i, c in enumerate("rainbow"))
+        lines = ["\x1b[1;32mbuild ok", "still green", "\x1b[0mfine.log is not an error", rainbow]
+        result = {"content": [{"type": "text", "text": "build ok\nstill green\nfine.log is not an error\nrainbow"},
+                              {"type": "text", "text": COLOUR_NOTE}],
+                  "details": {"colour": "\n".join(lines)}}
+        out = self.run_cases(results={"own": {"result": result, "isError": False, "expanded": False}})
+        own = out["renders"]["own"]
+        self.assertEqual("<success>✓ exit 0 · 4 lines</>", own[0])
+        self.assertEqual("\x1b[1;32mbuild ok\x1b[0m", own[1])
+        self.assertEqual("\x1b[1;32mstill green\x1b[0m", own[2])        # the colour carries over, and is reset
+        self.assertEqual("\x1b[1;32m\x1b[0mfine.log is not an error\x1b[0m", own[3])   # its plain line is not re-coloured red
+        self.assertEqual(rainbow + "\x1b[0m", own[4])
+        self.assertEqual(5, len(own))                                   # the note to the model is not drawn
+
     def test_display_only_and_only_for_bash(self):
         out = self.run_cases()
-        self.assertEqual([], out["registered"])       # no tool_result or context hooks: the model's copy is untouched
+        self.assertEqual(["tool_result"], out["registered"])   # no tool is replaced and nothing is added to the context
         self.assertTrue(out["otherTool"])
         self.assertTrue(out["keepsCall"])
         self.assertEqual("base live view", out["partial"])   # a running command keeps pi's live tail and timer

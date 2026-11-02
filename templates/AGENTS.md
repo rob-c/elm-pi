@@ -118,6 +118,12 @@ text) and TIFF/BMP, and figures a command writes are attached to its result.
 Only `qwen` sees images: any task with a figure, screenshot or rendered page in
 it is a `qwen` task.
 
+A command's own colour is shown to the user and taken out of what you read;
+a result says when the user saw colour, and without that line none was printed.
+Most tools print colour only to a terminal, so when the user wants to see it,
+force it on: `lolcat -f`, `ls --color=always` (macOS: `CLICOLOR_FORCE=1 ls -G`),
+`git -c color.ui=always`, `grep --color=always`. Never force colour into a file.
+
 ## Skills
 
 Load the matching skill before the work, not after; a "Skills for this request"
