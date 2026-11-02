@@ -165,6 +165,7 @@
     font-size: 15px; color: #a9c4b8;
   }
   .requires b { color: var(--sodium); font-weight: 600; }
+  .also { margin: 18px auto 10px; max-width: 46em; text-align: center; font-size: 14px; color: #a9c4b8; }
   .requires code { color: #cfe3d8; }
 
   /* Facts, set as a sentence rather than a row of stat tiles. */
@@ -274,8 +275,13 @@
 
   <div class="wrap-wide install rise rise-4">
     <div class="plate">
-      <button class="copy" id="copy" type="button">Copy</button>
+      <button class="copy" type="button" data-copy="cmd">Copy</button>
 <pre id="cmd">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
+    </div>
+    <p class="also">Or with every optional extra &mdash; the agent&rsquo;s own Python and offline PyPI search, about 2.4&nbsp;GB rather than 1&nbsp;GB:</p>
+    <div class="plate">
+      <button class="copy" type="button" data-copy="cmd-all">Copy</button>
+<pre id="cmd-all">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)" _ --with-all</pre>
     </div>
     <p class="requires">macOS or Linux. No <code>sudo</code>, nothing installed system-wide, one directory you can delete. <b>You will need an ELM API key first</b> &mdash; how to get one is below.</p>
   </div>
@@ -441,28 +447,29 @@ cat paper.tex | pi -p "find the undefined references"</pre>
 </footer>
 
 <script>
-  var btn = document.getElementById('copy');
-  btn.addEventListener('click', function () {
-    var text = document.getElementById('cmd').textContent;
-    var done = function () {
-      btn.textContent = 'Copied';
-      btn.classList.add('done');
-      setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1600);
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done, fallback);
-    } else { fallback(); }
-    function fallback() {
-      var ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); done(); } catch (e) { btn.textContent = 'Select it'; }
-      document.body.removeChild(ta);
-    }
+  document.querySelectorAll('.copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = document.getElementById(btn.dataset.copy).textContent;
+      var done = function () {
+        btn.textContent = 'Copied';
+        btn.classList.add('done');
+        setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, fallback);
+      } else { fallback(); }
+      function fallback() {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) { btn.textContent = 'Select it'; }
+        document.body.removeChild(ta);
+      }
+    });
   });
 </script>
 
