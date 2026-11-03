@@ -28,8 +28,9 @@ for f in scripts/*; do
   esac
 done
 
+# bash -n checks only its first file, so give it one at a time.
 # shellcheck disable=SC2086 # the lists split on spaces; no script name has one
-bash -n install.sh bootstrap.sh configure.sh pi pi.orig shim/run.sh lib/*.sh $SHELL_SCRIPTS
+for f in install.sh bootstrap.sh configure.sh pi pi.orig shim/run.sh lib/*.sh $SHELL_SCRIPTS; do bash -n "$f"; done
 # shellcheck disable=SC2086
 elm_py -c 'import ast, pathlib, sys; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in sys.argv[1:]]' \
   patch-pi.py proxy/egress.py shim/shim.py $PYTHON_SCRIPTS

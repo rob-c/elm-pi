@@ -169,6 +169,8 @@ function pageList(spec: string | undefined, count: number): number[] {
 	const out = new Set<number>();
 	for (const part of spec.split(",")) {
 		const [a, b] = part.split("-").map((s) => s.trim());
+		// "3," and "2,,5": an empty part selects nothing (a lone "-" is still every page)
+		if (!a && b === undefined) continue;
 		const from = a ? Number(a) : 1;
 		const to = b === undefined ? from : b ? Number(b) : count;
 		if (!Number.isInteger(from) || !Number.isInteger(to)) continue;

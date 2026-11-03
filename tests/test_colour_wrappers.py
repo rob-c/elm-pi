@@ -52,6 +52,8 @@ exit "${FAKE_EXIT:-0}"
 # A diff that knows --color answers the support probe as real diff does (0 for
 # two empty files), whatever FAKE_EXIT a case gives the call itself.
 PROBE_OK = '[ "$*" = "--color=always /dev/null /dev/null" ] && exit 0'
+# Comparing directories, diff heads each pair of files with its command line.
+HEADER = '[ -n "${FAKE_HEADER-}" ] && printf "diff %s\\n" "$*"'
 # An old diff rejects --color as an unknown option.
 PROBE_OLD = 'case "$1" in --color*) echo "diff: unrecognized option \'$1\'" >&2; exit 2 ;; esac'
 
@@ -72,7 +74,7 @@ def setUpModule():
     fake = bins / "fake"
     fake.mkdir(parents=True)
     for tool in TOOLS:
-        script = FAKE.replace("@PROBE@", PROBE_OK if tool == "diff" else "")
+        script = FAKE.replace("@PROBE@", f"{PROBE_OK}\n{HEADER}" if tool == "diff" else "")
         (fake / tool).write_text(script)
         (fake / tool).chmod(0o755)
     old = bins / "olddiff"
@@ -84,6 +86,11 @@ def setUpModule():
     mini.mkdir()
     (mini / "stat").symlink_to(stat)
     (mini / "cat").symlink_to(cat)
+    # sed, which the diff wrapper needs for a directory diff, apart.
+    sed = shutil.which("sed")
+    if sed:
+        (bins / "sed").mkdir()
+        (bins / "sed" / "sed").symlink_to(sed)
     for tool in TOOLS:
         (bins / f"only_{tool}").mkdir()
         (bins / f"only_{tool}" / tool).symlink_to(fake / tool)
@@ -110,6 +117,8 @@ def path_for(spec):
         return f"{b}/fake"
     if spec == "none":             # none of the wrapped tools exist
         return str(m)
+    if spec == "sed":
+        return f"{b}/fake:{m}:{b}/sed"
     if spec == "olddiff":
         return f"{b}/olddiff:{b}/fake:{m}"
     if spec == "bin":              # the system's own /bin first, so `type -P ls` is /bin/ls
@@ -213,6 +222,10 @@ def generate(cls):
         test.__doc__ = c.xfail or c.cmd.splitlines()[-1][:100]
         setattr(cls, name, test)
     return cls
+
+
+def no_sed():
+    return None if (D["bins"] / "sed").exists() else "needs sed"
 
 
 def not_darwin():
@@ -389,6 +402,22 @@ def diff_cases():
         Case("old_diff_piped_is_not_probed", "diff a b | cat", path="olddiff", calls=plain),
         Case("diff_absent_gets_no_function", "type -t diff || echo none", path="without:diff", out="none\n"),
         Case("diff_alone_on_path_is_wrapped", "type -t diff", path="only:diff", out="function\n"),
+        # A directory diff prints its command line: the forced flag is taken back out of it.
+        Case("diff_recursive_header_is_the_users_command_line", "FAKE_HEADER=1 diff -r a b", path="sed",
+             calls=[PROBE, ("diff", ["--color=always", "-r", "a", "b"])], out="diff -r a b\nout:diff\n", skip=no_sed),
+        Case("diff_recursive_cluster_header", "FAKE_HEADER=1 diff -ruN a b", path="sed",
+             calls=[PROBE, ("diff", ["--color=always", "-ruN", "a", "b"])], out="diff -ruN a b\nout:diff\n", skip=no_sed),
+        Case("diff_recursive_abbreviated_long_option", "FAKE_HEADER=1 diff --recur a b", path="sed",
+             out="diff --recur a b\nout:diff\n", skip=no_sed),
+        Case("diff_directory_operands_header", "FAKE_HEADER=1 diff -u lsdir lsdir/sub", path="sed",
+             out="diff -u lsdir lsdir/sub\nout:diff\n", skip=no_sed),
+        Case("diff_recursive_exit_status_passes_through", "FAKE_EXIT=1 diff -r a b", path="sed",
+             status=1, out="out:diff\n", skip=no_sed),
+        # Two files: diff prints no command line, so nothing goes through sed.
+        Case("diff_of_files_is_not_filtered", "FAKE_HEADER=1 diff -u a b", path="sed",
+             out="diff --color=always -u a b\nout:diff\n"),
+        Case("diff_recursive_without_sed_is_plain", "diff -r a b",
+             calls=[PROBE, ("diff", ["-r", "a", "b"])], out="out:diff\n"),
     ]
 
 

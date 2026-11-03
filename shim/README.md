@@ -78,7 +78,9 @@ Parser robustness fixes made along the way, each verified by unit test:
   strings** rather than `\n` escapes whenever an argument contains code. This was
   the single most common failure.
 - Strips any ``` fence, not just ```json - Llama also used ```python.
-- Accepts a call followed by trailing prose, via first-balanced-brace scanning.
+- Accepts a call wrapped in prose. Only a top-level JSON object can be the call:
+  an object nested inside a call's arguments, or inside a reply cut short, never
+  runs as a call of its own. The reply is parsed in one linear pass.
 
 ## Honest recommendation
 

@@ -61,6 +61,59 @@ function words(segment: string): string[] {
 	return out;
 }
 
+/**
+ * The commands of a command line, split at && || ; | & and newlines outside quotes,
+ * with a subshell's parentheses as entries of their own: `(cd x && pip install y)`.
+ */
+function commands(line: string): string[] {
+	const out: string[] = [];
+	let current = "";
+	let quote = "";
+	const cut = (mark?: string) => {
+		out.push(current.trim());
+		if (mark) out.push(mark);
+		current = "";
+	};
+	for (let i = 0; i < line.length; i++) {
+		const c = line[i];
+		if (c === "\\" && quote !== "'") {
+			// an escaped character, or a line continuation, which joins the lines
+			const next = line[++i] ?? "";
+			if (next !== "\n") current += c + next;
+		} else if (quote) {
+			if (c === quote) quote = "";
+			current += c;
+		} else if (c === "'" || c === '"') {
+			quote = c;
+			current += c;
+		} else if (c === "(" || c === ")") {
+			cut(c);
+		} else if (c === ";" || c === "\n" || c === "|") {
+			if (c === "|" && line[i + 1] === "|") i++;
+			cut();
+		} else if (c === "&" && line[i + 1] === "&") {
+			i++;
+			cut();
+		} else if (c === "&" && !/[<>]/.test(line[i - 1] ?? "") && line[i + 1] !== ">") {
+			// a command sent to the background; 2>&1 and &>log are redirections
+			cut();
+		} else {
+			current += c;
+		}
+	}
+	cut();
+	return out.filter((part) => part !== "");
+}
+
+/** The index of the first operand (or of `--`): where a subcommand, or the command an option-taking wrapper runs, is. */
+function firstOperand(args: string[], valued: string[]): number {
+	for (let i = 0; i < args.length; i++) {
+		if (args[i] === "--" || !args[i].startsWith("-")) return i;
+		if (valued.includes(args[i])) i++;
+	}
+	return args.length;
+}
+
 /** The operands after a subcommand: not options, and not the values of the options that take one. */
 function operands(args: string[], valued: string[]): string[] {
 	const out: string[] = [];
@@ -72,17 +125,40 @@ function operands(args: string[], valued: string[]): string[] {
 	return out;
 }
 
-/** The values given to these options, as `--opt value` or `--opt=value`. */
+/** The values given to these options, as `--opt value`, `--opt=value`, `-o value` or `-ovalue`. */
 function optionValues(args: string[], flags: string[]): string[] {
 	const out: string[] = [];
 	for (let i = 0; i < args.length; i++) {
-		const eq = args[i].startsWith("--") ? args[i].indexOf("=") : -1;
-		if (!flags.includes(eq > 0 ? args[i].slice(0, eq) : args[i])) continue;
-		const value = eq > 0 ? args[i].slice(eq + 1) : args[++i];
+		const a = args[i];
+		const eq = a.startsWith("--") ? a.indexOf("=") : -1;
+		const attached = eq > 0 || /^-[^-]./.test(a);
+		const flag = eq > 0 ? a.slice(0, eq) : attached ? a.slice(0, 2) : a;
+		if (!flags.includes(flag)) continue;
+		const value = eq > 0 ? a.slice(eq + 1) : attached ? a.slice(2) : args[++i];
 		if (value !== undefined) out.push(value);
 	}
 	return out;
 }
+
+/** A help or dry run installs nothing, though it exits 0. */
+const installsNothing = (args: string[]) => args.some((a) => a === "--help" || a === "-h" || a === "--dry-run");
+
+/** Where `cd` with these arguments goes from `here`; `here` again when that cannot be told (`cd -`, `cd $DIR`). */
+function cdTo(args: string[], here: string): string {
+	const target = args[firstOperand(args, [])];
+	if (target === undefined || target === "--") return homedir();
+	if (target === "-" || /[$`]/.test(target)) return here;
+	if (target === "~" || target.startsWith("~/")) return join(homedir(), target.slice(1));
+	return resolve(here, target);
+}
+
+/** The commands that run the next one, with the options of each that take a value: `sudo -u ci pip install x`. */
+const WRAPPERS = new Map<string, string[]>([
+	["sudo", ["-u", "--user", "-g", "--group", "-C", "--close-from", "-D", "--chdir", "-h", "--host", "-p", "--prompt",
+		"-r", "--role", "-t", "--type", "-T", "--command-timeout", "-U", "--other-user"]],
+	["env", ["-u", "--unset", "-C", "--chdir", "-P"]],
+	["time", ["-f", "--format", "-o", "--output"]],
+]);
 
 /** Every option of `pip install` that takes a value (pip 25.1's --help), so no value is taken for a package. */
 const PIP_VALUED = [
@@ -111,30 +187,78 @@ const UV_ADD_VALUED = [
 	"--color", "--allow-insecure-host", "--config-file", "--directory", "--project",
 ];
 
+/** pip's general options that take a value, which may come before `install` (pip 25.1's --help). */
+const PIP_GENERAL_VALUED = [
+	"--python", "--log", "--keyring-provider", "--proxy", "--retries", "--timeout", "--exists-action",
+	"--trusted-host", "--cert", "--client-cert", "--cache-dir", "--use-feature", "--use-deprecated", "--resume-retries",
+];
+/** The options of `pixi add` that take a value. */
+const PIXI_ADD_VALUED = [
+	"-c", "--channel", "-f", "--feature", "-p", "--platform", "--manifest-path", "-g", "--git", "--branch", "--tag",
+	"--rev", "-s", "--subdir", "--auth-file", "--concurrent-solves", "--concurrent-downloads",
+];
+/** The options of `pixi exec` that take a value; the first operand is the command it runs. */
+const PIXI_EXEC_VALUED = [
+	"-s", "--spec", "-w", "--with", "-c", "--channel", "-p", "--platform", "--auth-file", "--concurrent-solves",
+	"--concurrent-downloads",
+];
+/** The options of `docker pull` and `podman pull` that take a value. */
+const PULL_VALUED = [
+	"--platform", "--arch", "--os", "--variant", "--authfile", "--cert-dir", "--creds", "--decryption-key", "--policy",
+	"--retry", "--retry-delay",
+];
+
 /** What one shell command installs, or nothing. */
 export function describe(command: string, cwd: string): Install[] {
 	const found: Install[] = [];
-	// A subshell's parentheses separate commands like && does: `(cd x && pip install y)`.
-	for (const raw of command.split(/&&|\|\||;|\||\n|\(|\)/)) {
-		let w = words(raw.trim());
-		// VAR=x cmd, sudo cmd, env VAR=x cmd, time cmd - in any order.
-		while (w.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0]) || w[0] === "sudo" || w[0] === "env" || w[0] === "time")) {
-			w = w.slice(1);
+	// A `cd` moves the project folder of the commands after it, until its subshell ends.
+	let here = cwd;
+	const outer: string[] = [];
+	for (const part of commands(command)) {
+		if (part === "(") {
+			outer.push(here);
+			continue;
+		}
+		if (part === ")") {
+			here = outer.pop() ?? here;
+			continue;
+		}
+		let w = words(part);
+		// VAR=x cmd, sudo -H cmd, env VAR=x cmd, time cmd - in any order.
+		for (;;) {
+			const valued = WRAPPERS.get(w[0]);
+			if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0] ?? "")) w = w.slice(1);
+			else if (valued) w = w.slice(1 + firstOperand(w.slice(1), valued)).filter((x, i) => i > 0 || x !== "--");
+			else break;
 		}
 		if (!w.length) continue;
 		const tool = w[0].split("/").pop() ?? w[0];
+		if (tool === "cd") {
+			here = cdTo(w.slice(1), here);
+			continue;
+		}
 		const pixiHome = process.env.PIXI_HOME || join(agentDir(), "pixi");
 		const pixiCache = process.env.PIXI_CACHE_DIR || join(pixiHome, "cache");
 
+		// pip, pip3, pip3.11; python3 -m pip; uv pip - each with options before the subcommand allowed.
+		const pipAt = /^pip(\d+(\.\d+)?)?$/.test(tool) ? 1
+			: /^python(\d+(\.\d+)?)?$/.test(tool) && w[1] === "-m" && w[2] === "pip" ? 3
+			: tool === "uv" && w[1] === "pip" ? 2
+			: -1;
+		const pipSub = pipAt < 0 ? -1 : pipAt + firstOperand(w.slice(pipAt), PIP_GENERAL_VALUED);
+
 		if (tool === "pixi" && w[1] === "exec") {
-			const specs: string[] = [];
-			for (let i = 2; i < w.length; i++) if (w[i] === "--spec" || w[i] === "-s") specs.push(w[++i]);
+			// Only pixi's own options: those after the command it runs are that command's (rg -s).
+			const own = w.slice(2, 2 + firstOperand(w.slice(2), PIXI_EXEC_VALUED));
+			if (installsNothing(own)) continue;
+			const specs = optionValues(own, ["-s", "--spec", "-w", "--with"]);
 			found.push({
 				what: `${specs.join(", ") || "a package"} from conda-forge, run with pixi exec (nothing installed)`,
 				where: `downloaded packages cached in ${pixiCache}`,
 				undo: "pixi clean cache",
 			});
 		} else if (tool === "pixi" && w[1] === "global" && w[2] === "install") {
+			if (installsNothing(w.slice(3))) continue;
 			const pkgs = operands(w.slice(3), ["-c", "--channel", "-e", "--environment", "--expose", "-p", "--platform"]);
 			found.push({
 				what: `${pkgs.join(", ")} from conda-forge (pixi global install)`,
@@ -143,10 +267,11 @@ export function describe(command: string, cwd: string): Install[] {
 			});
 		} else if (tool === "pixi" && w[1] === "add") {
 			const args = w.slice(2);
-			const pkgs = operands(args, ["-c", "--channel", "-f", "--feature", "-p", "--platform", "--manifest-path"]);
+			if (installsNothing(args)) continue;
+			const pkgs = operands(args, PIXI_ADD_VALUED);
 			// --manifest-path names the manifest itself or the folder that holds it.
 			const given = optionValues(args, ["--manifest-path"])[0];
-			const manifest = given ? resolve(cwd, given.endsWith(".toml") ? given : join(given, "pixi.toml")) : join(cwd, "pixi.toml");
+			const manifest = given ? resolve(here, given.endsWith(".toml") ? given : join(given, "pixi.toml")) : join(here, "pixi.toml");
 			found.push({
 				what: `${pkgs.join(", ")} added to this project's pixi environment`,
 				where: `${manifest} and ${join(dirname(manifest), ".pixi")}`,
@@ -154,21 +279,19 @@ export function describe(command: string, cwd: string): Install[] {
 			});
 		} else if (tool === "uv" && w[1] === "add") {
 			const args = w.slice(2);
+			if (installsNothing(args)) continue;
 			const pkgs = operands(args, UV_ADD_VALUED);
 			const req = optionValues(args, ["-r", "--requirements"]).map((file) => `the packages in ${file}`);
-			const project = resolve(cwd, optionValues(args, ["--project", "--directory"])[0] ?? ".");
+			const project = resolve(here, optionValues(args, ["--project", "--directory"])[0] ?? ".");
 			found.push({
 				what: `${[...pkgs, ...req].join(", ")} from PyPI, added to this project's environment (uv add)`,
 				where: `${join(project, "pyproject.toml")} and ${join(project, ".venv")}`,
 				undo: `uv remove ${pkgs.join(" ") || "<package>"}`,
 			});
-		} else if (
-			((tool === "pip" || tool === "pip3") && w[1] === "install") ||
-			(/^python3?(\.\d+)?$/.test(tool) && w[1] === "-m" && w[2] === "pip" && w[3] === "install") ||
-			(tool === "uv" && w[1] === "pip" && w[2] === "install")
-		) {
-			const start = tool === "uv" ? 3 : tool.startsWith("python") ? 4 : 2;
-			const args = w.slice(start);
+		} else if (pipSub >= 0 && w[pipSub] === "install") {
+			// The general options before `install` count with its own: `pip --python x install y`.
+			const args = [...w.slice(pipAt, pipSub), ...w.slice(pipSub + 1)];
+			if (installsNothing(args)) continue;
 			const pkgs = operands(args, tool === "uv" ? [...PIP_VALUED, ...UV_PIP_VALUED] : PIP_VALUED);
 			const req = optionValues(args, ["-r", "--requirement", "--requirements"]).map((file) => `the packages in ${file}`);
 			const target = optionValues(args, ["-t", "--target"])[0];
@@ -198,9 +321,12 @@ export function describe(command: string, cwd: string): Install[] {
 					: `pip uninstall ${names}`,
 			});
 		} else if ((tool === "docker" || tool === "podman") && (w[1] === "pull" || (w[1] === "image" && w[2] === "pull"))) {
-			const image = operands(w.slice(w[1] === "image" ? 3 : 2), ["--platform"])[0] ?? "an image";
+			const args = w.slice(w[1] === "image" ? 3 : 2);
+			if (installsNothing(args)) continue;
+			const image = operands(args, PULL_VALUED)[0] ?? "an image";
 			found.push({ what: `the container image ${image}`, where: `${tool}'s image store`, undo: `${tool} rmi ${image}` });
 		} else if (tool === "brew" && (w[1] === "install" || w[1] === "reinstall")) {
+			if (installsNothing(w.slice(2))) continue;
 			const pkgs = operands(w.slice(2), []);
 			found.push({
 				what: `${pkgs.join(", ")} (Homebrew)`,

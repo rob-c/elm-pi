@@ -11,14 +11,17 @@
  * The shell runs the denied command all the same.
  *
  * So this reads each command the way the shell will run it - quotes and
- * escapes removed, words split on any whitespace, the command name also by its
- * last path segment, then again past each wrapper (`sudo`, `env`, `xargs`,
- * `command`, `exec`, `timeout`, ...) and into a `bash -c` or `eval` payload -
- * and refuses the call when the gate's own rules
- * (extensions/pi-permission-system/config.json) deny one of those spellings,
- * with that rule's reason. It only ever adds a denial; everything else is the
- * gate's to decide, asks included. A name the shell computes (`$x host`) is not
- * known until it runs, so it is not caught here either.
+ * escapes removed, braces expanded, words split on any whitespace, the command
+ * name also by its last path segment, then again past each wrapper (`sudo`,
+ * `env`, `xargs`, `command`, `exec`, `builtin`, `timeout`, ...) and into a
+ * `bash -c`, `eval`, `env -S` or `flock -c` payload, a function's body and
+ * every substitution, arithmetic and `${...}` ones included - and refuses the
+ * call when the gate's own rules (extensions/pi-permission-system/config.json,
+ * in the file's order) deny one of those spellings, with that rule's reason. It
+ * only ever adds a denial; everything else is the gate's to decide, asks
+ * included. A command too deeply nested, or a brace expansion too large, to
+ * read here is refused. A name the shell computes (`$x host`) is not known
+ * until it runs, so it is not caught here either.
  *
  * Containers get two checks the gate's text matching cannot make: a run or
  * create gets no network only when its own options say `--network none`
@@ -42,8 +45,21 @@ export interface Denial {
 	spelling: string;
 }
 
-/** Substitutions inside substitutions and wrappers inside wrappers stop here. */
-const MAX_DEPTH = 8;
+/** Substitutions inside substitutions and wrappers inside wrappers stop here: deeper is refused. */
+const MAX_DEPTH = 16;
+/** The most words one brace expansion may make; more is refused. */
+const MAX_WORDS = 1024;
+
+/** A command the guard cannot read with confidence. It is refused: the shell would run it all the same. */
+class Unreadable extends Error {
+	readonly spelling: string;
+	constructor(spelling: string, reason: string) {
+		super(reason);
+		this.spelling = spelling;
+	}
+}
+const TOO_DEEP = "It nests commands, substitutions or wrappers too deeply for the command guard to read. Write it more plainly.";
+const TOO_WIDE = `It brace-expands to more than ${MAX_WORDS} words, too many for the command guard to read. Use seq or a loop.`;
 
 const BLANKS = new Set([" ", "\t", "\r"]);
 const SEPARATORS = new Set([";", "&", "|", "(", ")"]);
@@ -51,9 +67,15 @@ const REDIRECT = /&>>|&>|>>|>&|>\||<&|<>|>|</y;
 
 /** Words that open or close shell syntax in front of the command they precede. */
 const RESERVED = new Set(["!", "{", "}", "if", "then", "elif", "else", "fi", "while", "until", "do", "done", "esac", "coproc"]);
-/** A loop, case or function header names no command. */
-const HEADERS = new Set(["for", "select", "case", "function"]);
+/** A loop or case header names no command. */
+const HEADERS = new Set(["for", "select", "case"]);
+/** What can follow `coproc NAME`: then NAME is the coprocess's name, not a command. */
+const COMPOUND = new Set(["{", "if", "while", "until", "for", "select", "case", "[["]);
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/;
+/** A word that makes the `(` right after it an array's words, not a subshell: `a=(...)`, `a+=(...)`. */
+const ARRAY = /^[A-Za-z_][A-Za-z0-9_]*\+?=$/;
+/** Words after which the next word is a command again. */
+const KEEPS_COMMAND = new Set(["!", "{", "}", "if", "then", "elif", "else", "while", "until", "do", "time", "coproc"]);
 
 const ENGINES = new Set(["docker", "podman"]);
 /** Variables that send docker or podman to an engine elsewhere. */
@@ -104,7 +126,7 @@ const WRAPPERS = new Map<string, Wrapper>([
 		runsNothing: ["-l", "--list", "-e", "--edit", "-v", "--validate", "-K", "--remove-timestamp", "-V", "--version"],
 	}],
 	["doas", { valued: ["-u", "-C"] }],
-	["env", { valued: ["-u", "--unset", "-C", "--chdir", "-P"] }],
+	["env", { valued: ["-u", "--unset", "-C", "--chdir", "-P", "-S", "--split-string", "-a", "--argv0"] }],
 	["xargs", {
 		valued: ["-I", "-L", "-n", "-P", "-s", "-d", "-E", "-a", "-J", "-R", "-S", "--max-args", "--max-procs",
 			"--max-lines", "--delimiter", "--eof", "--max-chars", "--arg-file", "--process-slot-var"],
@@ -115,11 +137,12 @@ const WRAPPERS = new Map<string, Wrapper>([
 	["nice", { valued: ["-n", "--adjustment"] }],
 	["setsid", {}],
 	["stdbuf", { valued: ["-i", "--input", "-o", "--output", "-e", "--error"] }],
-	["flock", { valued: ["-w", "--timeout", "-E", "--conflict-exit-code"], operands: 1 }],
+	["flock", { valued: ["-w", "--timeout", "--wait", "-E", "--conflict-exit-code"], operands: 1 }],
 	["caffeinate", { valued: ["-t", "-w"] }],
 	["watch", { valued: ["-n", "--interval"] }],
 	["command", { runsNothing: ["-v", "-V"] }],
 	["exec", { valued: ["-a"] }],
+	["builtin", {}],
 	["pixi", {
 		subcommands: ["run", "exec", "x"],
 		valued: ["-s", "--spec", "-c", "--channel", "-e", "--environment", "--manifest-path", "-p", "--platform",
@@ -148,17 +171,62 @@ function basename(name: string): string {
 	return name.slice(name.lastIndexOf("/") + 1);
 }
 
-/** Index of the bracket that closes the one at `open`, skipping quoted text; the end when there is none. */
+/** The word at `i` when one starts there (after a blank or an operator), for spotting keywords. */
+const WORD = /[^\s;&|()<>]+/y;
+function wordAt(source: string, i: number, first: number): string | undefined {
+	if (i > first && !/[\s;&|()<>]/.test(source[i - 1])) return undefined;
+	WORD.lastIndex = i;
+	return WORD.exec(source)?.[0];
+}
+
+/**
+ * Index of the bracket that closes the one at `open`, skipping quoted text,
+ * substitutions and comments; the end when there is none. Inside `( )`, the
+ * `)` that ends a case pattern closes nothing: `$(case x in x) ssh;; esac)`.
+ */
 function closing(source: string, open: number): number {
-	const close = source[open] === "{" ? "}" : ")";
+	const paren = source[open] === "(";
+	const close = paren ? ")" : "}";
 	let depth = 0;
+	// Each case open in here: "head" until its `in`, then "pattern" up to each pattern's `)`, then "body".
+	const cases: ("head" | "pattern" | "body")[] = [];
+	let commandStart = true;
 	for (let i = open; i < source.length; i++) {
 		const c = source[i];
+		const word = paren && i > open ? wordAt(source, i, open + 1) : undefined;
+		if (word !== undefined) {
+			const state = cases.at(-1);
+			if (word.startsWith("#")) {
+				i = lineEnd(source, i) - 1;
+				continue;
+			}
+			if (commandStart && word === "case") cases.push("head");
+			else if (state === "head" && word === "in") cases[cases.length - 1] = "pattern";
+			else if (word === "esac" && (state === "pattern" || (state === "body" && commandStart))) cases.pop();
+			commandStart = KEEPS_COMMAND.has(word);
+		}
 		if (c === "\\") i++;
 		else if (c === "'") i = endOf(source, "'", i + 1);
 		else if (c === '"') i = endOf(source, '"', i + 1);
-		else if (c === source[open]) depth++;
-		else if (c === close && --depth === 0) return i;
+		else if (c === "`") i = endOf(source, "`", i + 1);
+		else if (c === "$" && (source[i + 1] === "{" || (!paren && source[i + 1] === "("))) i = closing(source, i + 1);
+		else if (paren && cases.at(-1) === "pattern" && (c === "(" || c === ")")) {
+			// A pattern's optional `(` opens nothing; its `)` starts the arm's commands.
+			if (c === ")") cases[cases.length - 1] = "body";
+			commandStart = true;
+		} else if (c === source[open]) {
+			depth++;
+			commandStart = true;
+		} else if (c === close && --depth === 0) {
+			return i;
+		} else if (paren && (c === ";" || c === "&" || c === "|" || c === "\n")) {
+			// `;;`, `;&` and `;;&` end a case arm.
+			if (c === ";" && (source[i + 1] === ";" || source[i + 1] === "&") && cases.at(-1) === "body") {
+				cases[cases.length - 1] = "pattern";
+				i++;
+			}
+			commandStart = true;
+		}
 	}
 	return source.length;
 }
@@ -178,31 +246,47 @@ function endOf(source: string, quote: string, start: number): number {
 	return source.length;
 }
 
-/** The value of a `$'...'` string from `start`, and the index after it. */
+/**
+ * The value of a `$'...'` string from `start`, and the index after it. As in
+ * bash: `\cX` is control-X, `\U` takes up to eight hex digits, and a NUL ends
+ * the value.
+ */
 function ansiC(source: string, start: number): [string, number] {
+	let end = start;
+	while (end < source.length && source[end] !== "'") end += source[end] === "\\" ? 2 : 1;
+	const body = source.slice(start, end);
 	let text = "";
-	let i = start;
-	while (i < source.length && source[i] !== "'") {
-		if (source[i] !== "\\") {
-			text += source[i++];
+	for (let i = 0; i < body.length;) {
+		if (body[i] !== "\\") {
+			text += body[i++];
 			continue;
 		}
-		const code = /^(x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{1,4}|[0-7]{1,3})/.exec(source.slice(i + 1))?.[1];
+		const code = /^(x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{1,4}|U[0-9a-fA-F]{1,8}|[0-7]{1,3})/.exec(body.slice(i + 1))?.[1];
+		let char: string;
 		if (code) {
-			text += String.fromCodePoint(/^[xu]/.test(code) ? parseInt(code.slice(1), 16) : parseInt(code, 8));
+			const point = /^[xuU]/.test(code) ? parseInt(code.slice(1), 16) : parseInt(code, 8);
+			char = point <= 0x10ffff ? String.fromCodePoint(point) : "\ufffd";
 			i += 1 + code.length;
+		} else if (body[i + 1] === "c" && i + 2 < body.length) {
+			// A backslash after \c is control-backslash, taking the one that escapes it along.
+			const x = body[i + 2];
+			i += x === "\\" && body[i + 3] === "\\" ? 4 : 3;
+			char = x === "?" ? "\x7f" : String.fromCharCode(x.toUpperCase().charCodeAt(0) & 0x1f);
 		} else {
-			text += ESCAPES[source[i + 1]] ?? source.slice(i, i + 2);
+			char = ESCAPES[body[i + 1]] ?? body.slice(i, i + 2);
 			i += 2;
 		}
+		if (char === "\0") break;
+		text += char;
 	}
-	return [text, i + 1];
+	return [text, end + 1];
 }
 
 /**
- * A `$(...)` or backtick substitution at `i`: its commands go to `nested`,
- * and the index after it comes back; undefined when there is none at `i`.
- * The substitution's output is not known, so the word keeps its source text.
+ * A `$(...)`, `$((...))` or backtick substitution at `i`: the commands it runs
+ * go to `nested`, and the index after it comes back; undefined when there is
+ * none at `i`. The substitution's output is not known, so the word keeps its
+ * source text.
  */
 function substitution(source: string, i: number, nested: (inner: string) => void): number | undefined {
 	if (source[i] === "`") {
@@ -211,11 +295,128 @@ function substitution(source: string, i: number, nested: (inner: string) => void
 		return end + 1;
 	}
 	if (source[i] === "$" && source[i + 1] === "(") {
+		if (source[i + 2] === "(") {
+			// Arithmetic when the inner bracket closes just before the outer one, as bash decides:
+			// `$((ssh host) )` is a subshell in a substitution. Substitutions inside arithmetic still run.
+			const inner = closing(source, i + 2);
+			if (source[inner + 1] === ")") {
+				expansionsIn(source.slice(i + 3, inner), nested);
+				return inner + 2;
+			}
+		}
 		const end = closing(source, i + 1);
-		if (source[i + 2] !== "(") nested(source.slice(i + 2, end)); // $(( )) is arithmetic
+		nested(source.slice(i + 2, end));
 		return end + 1;
 	}
 	return undefined;
+}
+
+/**
+ * The substitutions in `text` - a `${...}` body, an arithmetic expression, an
+ * array's words - go to `nested`. Single quotes quote only outside double ones.
+ */
+function expansionsIn(text: string, nested: (inner: string) => void): void {
+	let quoted = false;
+	for (let i = 0; i < text.length;) {
+		const after = substitution(text, i, nested);
+		if (after !== undefined) {
+			i = after;
+		} else if (text[i] === "\\") {
+			i += 2;
+		} else if (text[i] === '"') {
+			quoted = !quoted;
+			i++;
+		} else if (!quoted && text[i] === "'") {
+			i = endOf(text, "'", i + 1) + 1;
+		} else if (!quoted && text[i] === "$" && text[i + 1] === "'") {
+			i = ansiC(text, i + 2)[1];
+		} else if (!quoted && (text[i] === "<" || text[i] === ">") && text[i + 1] === "(") {
+			const end = closing(text, i + 1);
+			nested(text.slice(i + 2, end));
+			i = end + 1;
+		} else {
+			i++;
+		}
+	}
+}
+
+/**
+ * A word's text in pieces, for brace expansion: a literal string, an unquoted
+ * `{`, `,` or `}`, or the point where quoted text began (a word with any is
+ * kept even when it comes out empty).
+ */
+type Piece = string | { brace: string } | { quoted: true };
+
+function piecesText(pieces: Piece[]): string {
+	return pieces.map((p) => (typeof p === "string" ? p : "brace" in p ? p.brace : "")).join("");
+}
+
+/** The words bash makes of `pieces` by brace expansion: `ss{h,} host` runs `ssh ss host`. */
+function braceExpand(pieces: Piece[]): string[] {
+	return expandPieces(pieces).flatMap((word) => {
+		const text = piecesText(word);
+		return text !== "" || word.some((p) => typeof p !== "string" && "quoted" in p) ? [text] : [];
+	});
+}
+
+function isBrace(piece: Piece | undefined, brace: string): boolean {
+	return typeof piece === "object" && "brace" in piece && piece.brace === brace;
+}
+
+function expandPieces(pieces: Piece[]): Piece[][] {
+	for (let s = 0; s < pieces.length; s++) {
+		if (!isBrace(pieces[s], "{")) continue;
+		let depth = 0;
+		let end = -1;
+		const commas: number[] = [];
+		for (let j = s; j < pieces.length && end === -1; j++) {
+			if (isBrace(pieces[j], "{")) depth++;
+			else if (isBrace(pieces[j], "}") && --depth === 0) end = j;
+			else if (isBrace(pieces[j], ",") && depth === 1) commas.push(j);
+		}
+		if (end === -1) continue;
+		let alternatives: Piece[][];
+		if (commas.length > 0) {
+			const bounds = [s, ...commas, end];
+			alternatives = bounds.slice(1).map((bound, k) => pieces.slice(bounds[k] + 1, bound));
+		} else {
+			const body = pieces.slice(s + 1, end);
+			const words = body.every((p) => typeof p === "string") ? sequence(body.join("")) : undefined;
+			if (!words) continue; // `{a}` is itself; a later brace may still expand
+			alternatives = words.map((word) => [word]);
+		}
+		const tails = expandPieces(pieces.slice(end + 1));
+		const out: Piece[][] = [];
+		for (const alternative of alternatives) {
+			for (const middle of expandPieces(alternative)) {
+				for (const tail of tails) {
+					if (out.length >= MAX_WORDS) throw new Unreadable(piecesText(pieces), TOO_WIDE);
+					out.push([...pieces.slice(0, s), ...middle, ...tail]);
+				}
+			}
+		}
+		return out;
+	}
+	return [pieces];
+}
+
+/** The words of a sequence expression `{x..y}` or `{x..y..step}`, of integers or of letters; undefined when it is not one. */
+function sequence(body: string): string[] | undefined {
+	const numbers = /^(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?$/.exec(body);
+	const letters = /^([A-Za-z])\.\.([A-Za-z])(?:\.\.(-?\d+))?$/.exec(body);
+	const match = numbers ?? letters;
+	if (!match) return undefined;
+	const [from, to] = numbers ? [Number(match[1]), Number(match[2])] : [match[1].charCodeAt(0), match[2].charCodeAt(0)];
+	const step = Math.abs(Number(match[3] ?? 1)) || 1;
+	if (Math.abs(to - from) / step >= MAX_WORDS) throw new Unreadable(`{${body}}`, TOO_WIDE);
+	// A leading zero pads every number to the longer end's width, sign included.
+	const width = numbers && (/^-?0\d/.test(match[1]) || /^-?0\d/.test(match[2])) ? Math.max(match[1].length, match[2].length) : 0;
+	const words: string[] = [];
+	for (let n = from; from <= to ? n <= to : n >= to; n += from <= to ? step : -step) {
+		if (!numbers) words.push(String.fromCharCode(n));
+		else words.push(n < 0 ? `-${String(-n).padStart(width - 1, "0")}` : String(n).padStart(width, "0"));
+	}
+	return words;
 }
 
 /** A heredoc delimiter's word from `start`, quotes removed, and the index after it. */
@@ -259,16 +460,23 @@ function skipHeredocs(source: string, start: number, heredocs: { delimiter: stri
  */
 export function commandsOf(source: string, out: string[][] = [], depth = 0): string[][] {
 	let words: string[] = [];
-	let word: string | undefined;
+	let word: Piece[] | undefined;
 	let redirectTarget = false;
 	let heredocs: { delimiter: string; tabs: boolean }[] = [];
 	const nested = (inner: string) => {
-		if (depth < MAX_DEPTH) commandsOf(inner, out, depth + 1);
+		if (depth >= MAX_DEPTH) throw new Unreadable(inner, TOO_DEEP);
+		commandsOf(inner, out, depth + 1);
 	};
+	const add = (text: string, quoted = false) => {
+		word ??= [];
+		if (quoted) word.push({ quoted: true });
+		if (text !== "") word.push(text);
+	};
+	const text = () => (word ?? []).filter((p) => typeof p === "string").join("");
 	const endWord = () => {
 		if (word === undefined) return;
 		if (redirectTarget) redirectTarget = false;
-		else words.push(word);
+		else words.push(...braceExpand(word));
 		word = undefined;
 	};
 	const endCommand = () => {
@@ -283,7 +491,7 @@ export function commandsOf(source: string, out: string[][] = [], depth = 0): str
 		const c = source[i];
 		const after = substitution(source, i, nested);
 		if (after !== undefined) {
-			word = (word ?? "") + source.slice(i, after);
+			add(source.slice(i, after));
 			i = after;
 		} else if (c === "#" && word === undefined) {
 			i = lineEnd(source, i);
@@ -295,45 +503,53 @@ export function commandsOf(source: string, out: string[][] = [], depth = 0): str
 			i = skipHeredocs(source, i + 1, heredocs);
 			heredocs = [];
 		} else if (c === "\\") {
-			if (source[i + 1] !== "\n") word = (word ?? "") + (source[i + 1] ?? "");
+			if (source[i + 1] !== "\n") add(source[i + 1] ?? "", true);
 			i += 2;
 		} else if (c === "'") {
 			const end = endOf(source, "'", i + 1);
-			word = (word ?? "") + source.slice(i + 1, end);
+			add(source.slice(i + 1, end), true);
 			i = end + 1;
 		} else if (c === '"' || (c === "$" && source[i + 1] === '"')) {
 			i = source.indexOf('"', i) + 1;
-			let text = "";
+			let inside = "";
 			while (i < source.length && source[i] !== '"') {
 				const inner = substitution(source, i, nested);
 				if (inner !== undefined) {
-					text += source.slice(i, inner);
+					inside += source.slice(i, inner);
 					i = inner;
 				} else if (source[i] === "\\" && '$`"\\\n'.includes(source[i + 1] ?? "")) {
-					if (source[i + 1] !== "\n") text += source[i + 1];
+					if (source[i + 1] !== "\n") inside += source[i + 1];
 					i += 2;
 				} else {
-					text += source[i++];
+					inside += source[i++];
 				}
 			}
-			word = (word ?? "") + text;
+			add(inside, true);
 			i++;
 		} else if (c === "$" && source[i + 1] === "'") {
-			const [text, end] = ansiC(source, i + 2);
-			word = (word ?? "") + text;
+			const [value, end] = ansiC(source, i + 2);
+			add(value, true);
 			i = end;
 		} else if (c === "$" && source[i + 1] === "{") {
+			// Its value is not known, but substitutions in it run: `${x:-$(ssh host)}`.
 			const end = closing(source, i + 1);
-			word = (word ?? "") + source.slice(i, end + 1);
+			expansionsIn(source.slice(i + 2, end), nested);
+			add(source.slice(i, end + 1));
 			i = end + 1;
 		} else if ((c === "<" || c === ">") && source[i + 1] === "(") {
 			// Process substitution: its commands run, and it stands as a word (a file name).
 			const end = closing(source, i + 1);
 			nested(source.slice(i + 2, end));
-			word = (word ?? "") + source.slice(i, end + 1);
+			add(source.slice(i, end + 1));
+			i = end + 1;
+		} else if (c === "(" && word !== undefined && ARRAY.test(text())) {
+			// An array assignment's words are data; only substitutions among them run.
+			const end = closing(source, i);
+			expansionsIn(source.slice(i + 1, end), nested);
+			add(source.slice(i, end + 1));
 			i = end + 1;
 		} else if (c === "<" || c === ">" || (c === "&" && source[i + 1] === ">")) {
-			if (word !== undefined && /^\d+$/.test(word)) word = undefined; // the descriptor in 2>
+			if (word !== undefined && /^\d+$/.test(text())) word = undefined; // the descriptor in 2>
 			endWord();
 			if (source.startsWith("<<<", i)) {
 				i += 3;
@@ -355,8 +571,12 @@ export function commandsOf(source: string, out: string[][] = [], depth = 0): str
 		} else if (SEPARATORS.has(c)) {
 			endCommand();
 			i++;
+		} else if (c === "{" || c === "," || c === "}") {
+			word ??= [];
+			word.push({ brace: c });
+			i++;
 		} else {
-			word = (word ?? "") + c;
+			add(c);
 			i++;
 		}
 	}
@@ -364,68 +584,172 @@ export function commandsOf(source: string, out: string[][] = [], depth = 0): str
 	return out;
 }
 
-/** The program a shell's `-c` runs, when the command is a shell given one. */
+/**
+ * The program a shell's `-c` runs, when the command is a shell given one: the
+ * first word after the shell's options, `-c` among them (`-lc`, `+c`, `-c --`).
+ */
 function shellPayload(command: string[]): string | undefined {
+	let c = false;
 	for (let k = 1; k < command.length; k++) {
 		const word = command[k];
-		if (/^[-+][oO]$/.test(word)) k++;
-		else if (/^-[A-Za-z]*c[A-Za-z]*$/.test(word)) return command[k + 1];
-		else if (!/^[-+]/.test(word)) return undefined; // a script file, run with arguments
+		if (word === "--" || word === "-") return c ? command[k + 1] : undefined;
+		if (word === "--command") return command[k + 1]; // fish
+		if (word.startsWith("--command=")) return word.slice("--command=".length);
+		if (word === "--rcfile" || word === "--init-file") k++;
+		else if (/^[-+][A-Za-z]+$/.test(word)) {
+			if (word.includes("c")) c = true;
+			if (/[oO]/.test(word)) k++; // -o and -O take an option's name
+		} else if (!/^[-+]/.test(word)) return c ? word : undefined; // without -c, a script file
 	}
 	return undefined;
 }
 
-/** The command a wrapper runs, past its options and operands; undefined when it runs none. */
+/** The words `env -S` makes of its string: split at blanks, with env's own quotes and escapes. */
+function splitString(text: string): string[] {
+	const words: string[] = [];
+	let word: string | undefined;
+	let quote = "";
+	for (let i = 0; i < text.length; i++) {
+		const c = text[i];
+		if (quote === "'" && c === "'") {
+			quote = "";
+		} else if (quote === "'" && !(c === "\\" && "\\'".includes(text[i + 1] ?? "."))) {
+			word = (word ?? "") + c;
+		} else if (c === "\\") {
+			const next = text[++i] ?? "";
+			if (next === "c") break; // \c ends the string
+			if (next === "_" && !quote) {
+				if (word !== undefined) words.push(word);
+				word = undefined;
+			} else {
+				word = (word ?? "") + (next === "_" ? " " : ESCAPES[next] ?? next);
+			}
+		} else if (quote === '"') {
+			if (c === '"') quote = "";
+			else word = (word ?? "") + c;
+		} else if (/\s/.test(c)) {
+			if (word !== undefined) words.push(word);
+			word = undefined;
+		} else if (c === "#" && word === undefined) {
+			break;
+		} else if (c === "'" || c === '"') {
+			quote = c;
+			word ??= "";
+		} else {
+			word = (word ?? "") + c;
+		}
+	}
+	if (word !== undefined) words.push(word);
+	return words;
+}
+
+/**
+ * The command a wrapper runs, past its options and operands; undefined when it
+ * runs none. Short options may share a word (`sudo -iu root`): the first that
+ * takes a value takes the rest of the word, or the next word.
+ */
 function wrapped(name: string, command: string[]): string[] | undefined {
 	const wrapper = WRAPPERS.get(name);
 	if (!wrapper) return undefined;
 	if (wrapper.subcommands && !wrapper.subcommands.includes(command[1])) return undefined;
+	let words = command;
 	let k = wrapper.subcommands ? 2 : 1;
-	for (; k < command.length; k++) {
-		const word = command[k];
+	for (; k < words.length; k++) {
+		const word = words[k];
 		if (word === "--") {
 			k++;
 			break;
 		}
 		if (name === "env" && ASSIGNMENT.test(word)) continue;
 		if (!word.startsWith("-")) break;
-		if (wrapper.runsNothing?.includes(word)) return undefined;
-		if (wrapper.valued?.includes(word)) k++;
+		let option = word;
+		let value: string | undefined;
+		if (word.startsWith("--")) {
+			const equals = word.indexOf("=");
+			if (equals !== -1) [option, value] = [word.slice(0, equals), word.slice(equals + 1)];
+			if (wrapper.runsNothing?.includes(option)) return undefined;
+			if (value === undefined && wrapper.valued?.includes(option)) value = words[++k];
+		} else {
+			for (let j = 1; j < word.length; j++) {
+				option = `-${word[j]}`;
+				if (wrapper.runsNothing?.includes(option)) return undefined;
+				if (wrapper.valued?.includes(option)) {
+					value = j + 1 < word.length ? word.slice(j + 1) : words[++k];
+					break;
+				}
+			}
+		}
+		// env -S splits its string into more of env's own arguments: `env -S'ssh host'`.
+		if (name === "env" && (option === "-S" || option === "--split-string") && value !== undefined) {
+			words = [...words.slice(0, k + 1), ...splitString(value), ...words.slice(k + 1)];
+		}
 	}
 	k += wrapper.operands ?? 0;
-	return k < command.length ? command.slice(k) : undefined;
+	return k < words.length ? words.slice(k) : undefined;
 }
 
-/** Every command a simple command runs: itself, past keywords and assignments, then what each wrapper runs. */
+/**
+ * Every command a simple command runs: itself, past keywords and assignments,
+ * then what each wrapper, shell, eval or function header runs.
+ */
 function collectRuns(words: string[], out: string[][], depth: number): void {
+	if (depth > MAX_DEPTH) throw new Unreadable(words.join(" "), TOO_DEEP);
 	let start = 0;
 	while (start < words.length && (RESERVED.has(words[start]) || ASSIGNMENT.test(words[start]))) start++;
 	const command = words.slice(start);
-	if (command.length === 0 || HEADERS.has(command[0]) || depth > MAX_DEPTH) return;
+	// `function f { ...; }`: what follows the name is the body, which runs when f is called.
+	if (command[0] === "function") return collectRuns(command.slice(2), out, depth + 1);
+	if (command.length === 0 || HEADERS.has(command[0])) return;
+	// `coproc NAME { ...; }` names the coprocess; read past NAME as well.
+	if (words.slice(0, start).includes("coproc") && COMPOUND.has(command[1])) collectRuns(command.slice(1), out, depth + 1);
 	out.push(command);
 	const name = basename(command[0]);
-	const payload = name === "eval" ? command.slice(1).join(" ") : SHELLS.has(name) ? shellPayload(command) : undefined;
+	let payload = name === "eval" ? command.slice(1).join(" ") : SHELLS.has(name) ? shellPayload(command) : undefined;
+	const inner = payload === undefined ? wrapped(name, command) : undefined;
+	// flock FILE -c COMMAND runs COMMAND in a shell; so do watch (but for -x) and parallel, its words joined.
+	if (name === "flock" && (inner?.[0] === "-c" || inner?.[0] === "--command")) payload = inner[1] ?? "";
+	const options = inner ? command.slice(1, command.length - inner.length) : [];
+	if (inner && name === "watch" && !options.some((w) => w === "--exec" || /^-[A-Za-z]*x/.test(w))) payload = inner.join(" ");
+	if (inner && name === "parallel") payload = inner.join(" ");
 	if (payload !== undefined) {
-		for (const inner of commandsOf(payload)) collectRuns(inner, out, depth + 1);
+		for (const run of commandsOf(payload)) collectRuns(run, out, depth + 1);
 		return;
 	}
-	const inner = wrapped(name, command);
 	if (inner) collectRuns(inner, out, depth + 1);
 }
 
-/** The gate's wildcard: `*` any text, `?` one character, and a trailing ` *` that may also match nothing. */
+/**
+ * The gate's wildcard: `*` any text, `?` one character, and a trailing ` *`
+ * that may also match nothing. One character is one code point here (the `u`
+ * flag); the gate's `?` is one UTF-16 unit, which scripts/check_config.py
+ * keeps out of the shipped rules wherever the two could differ.
+ */
 function wildcard(pattern: string): RegExp {
 	let source = pattern
 		.split("*")
 		.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replaceAll("\\?", "."))
 		.join(".*");
 	if (source.endsWith(" .*")) source = `${source.slice(0, -3)}( .*)?`;
-	return new RegExp(`^${source}$`, "s");
+	return new RegExp(`^${source}$`, "su");
 }
 
-/** The first spelling of `command` the bash `rules` deny, as the gate would decide that spelling. */
-export function deniedSpelling(command: string, rules: Record<string, Rule>): Denial | undefined {
-	const compiled = Object.entries(rules).map(([pattern, rule]) => ({ pattern, rule, regex: wildcard(pattern) }));
+/**
+ * The first spelling of `command` the bash `rules` deny, as the gate would
+ * decide that spelling; or a refusal when the command cannot be read. The rules
+ * come in the file's order ({@link bashRulesOf}); an object's integer-like keys
+ * would come first.
+ */
+export function deniedSpelling(command: string, rules: Record<string, Rule> | [string, Rule][]): Denial | undefined {
+	try {
+		return decideSpelling(command, Array.isArray(rules) ? rules : Object.entries(rules));
+	} catch (error) {
+		if (error instanceof Unreadable) return { pattern: "command-guard", reason: error.message, spelling: error.spelling };
+		throw error;
+	}
+}
+
+function decideSpelling(command: string, rules: [string, Rule][]): Denial | undefined {
+	const compiled = rules.map(([pattern, rule]) => ({ pattern, rule, regex: wildcard(pattern) }));
 	const decide = (text: string) => compiled.filter(({ regex }) => regex.test(text)).at(-1);
 	const action = (rule: Rule) => (typeof rule === "string" ? rule : rule.action);
 	const runs: string[][] = [];
@@ -504,17 +828,33 @@ function rawSegments(command: string): string[] {
 }
 
 /**
+ * The bash rules of a pi-permission-system config, in the file's order. A JS
+ * object lists integer-like keys ("7", "22") before every other, which would
+ * change which rule matches last, so each key is parsed with a prefix that
+ * keeps it a name, and the prefix is dropped after.
+ */
+export function bashRulesOf(text: string): [string, Rule][] {
+	const keyed = text.replace(/"(?:[^"\\]|\\.)*"(\s*:)?/g, (string, colon) => (colon ? `"#${string.slice(1)}` : string));
+	const unkey = (value: unknown): unknown =>
+		Array.isArray(value) ? value.map(unkey)
+		: value !== null && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k.slice(1), unkey(v)]))
+		: value;
+	const bash = JSON.parse(keyed)?.["#permission"]?.["#bash"];
+	if (bash === null || typeof bash !== "object" || Array.isArray(bash)) return [];
+	return Object.entries(bash).map(([pattern, rule]) => [pattern.slice(1), unkey(rule) as Rule]);
+}
+
+/**
  * The gate's bash rules, read at each call so an edit applies at once. No
  * readable config means no rules to add to: the gate reports a broken config
  * itself.
  */
-function bashRules(): Record<string, Rule> {
+function bashRules(): [string, Rule][] {
 	const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 	try {
-		const config = JSON.parse(readFileSync(join(agentDir, "extensions/pi-permission-system/config.json"), "utf8"));
-		return config?.permission?.bash ?? {};
+		return bashRulesOf(readFileSync(join(agentDir, "extensions/pi-permission-system/config.json"), "utf8"));
 	} catch {
-		return {};
+		return [];
 	}
 }
 
@@ -536,7 +876,13 @@ export default function (pi: ExtensionAPI) {
 		if (event.toolName !== "bash") return undefined;
 		const input = (event.input ?? {}) as Record<string, unknown>;
 		if (typeof input.command !== "string") return undefined;
-		const denial = deniedSpelling(input.command, bashRules()) ?? remoteEngineInEnvironment(input.command);
+		let denial: Denial | undefined;
+		try {
+			denial = deniedSpelling(input.command, bashRules()) ?? remoteEngineInEnvironment(input.command);
+		} catch {
+			// A command that breaks the guard's reading is one it cannot vouch for.
+			denial = { pattern: "command-guard", reason: "The command guard could not read it. Write it more plainly.", spelling: input.command };
+		}
 		if (!denial) return undefined;
 		if (ctx.hasUI) ctx.ui.notify(`Blocked bash: it runs \`${denial.spelling}\``, "warning");
 		const why = denial.reason ?? `the permission rule "${denial.pattern}" denies it.`;

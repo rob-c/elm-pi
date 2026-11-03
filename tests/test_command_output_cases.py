@@ -106,6 +106,15 @@ const ops = {
     }
     let result = (await handlers.tool_result(JSON.parse(event))) ?? null;
     if (path) result = { returned: JSON.parse(JSON.stringify(result).replaceAll(path, "$FILE")), file: readFileSync(path, "utf8") };
+    if (a.parts) {
+      // The model's text, how it was cut, and the display's colour read as text.
+      const got = result.returned;
+      const cut = got.details?.truncation;
+      return { text: got.content[0].text, colourPlain: got.details?.colour?.replace(/\x1b\[[0-9;:]*m/g, "") ?? null,
+               truncation: cut ? { truncated: cut.truncated, truncatedBy: cut.truncatedBy, totalLines: cut.totalLines,
+                                   outputLines: cut.outputLines, lastLinePartial: cut.lastLinePartial } : null,
+               fullOutputPath: got.details?.fullOutputPath ?? null };
+    }
     return result;
   },
   render: (a) => {
@@ -553,7 +562,10 @@ for name, line, kind, expected in PAINT:
 # ---------------------------------------------------------------- colourText, separate
 
 class ColourTextTests(Cases):
-    """colourText: what a terminal would leave on screen, with only colour (SGR) codes kept."""
+    """colourText: what a terminal would leave on screen, with only colour (SGR) codes kept.
+
+    Its text is what the same output printed without colour turns into, so tabs
+    and control bytes stay: the display draws those."""
 
 
 COLOUR_TEXT = [
@@ -571,12 +583,12 @@ COLOUR_TEXT = [
     ("bracketed paste removed", f"{E}[?2004hprompt", "prompt"),
     ("osc title bel removed", f"{E}]0;title\x07text", "text"),
     ("osc hyperlink st removed", f"{E}]8;;http://x{E}\\link{E}]8;;{E}\\", "link"),
-    ("tab expanded", "a\tb", "a   b"),
-    ("bel removed", "bell\x07", "bell"),
-    ("backspace removed", "back\x08space", "backspace"),
-    ("nul removed", "x\x00y", "xy"),
-    ("del removed", "x\x7fy", "xy"),
-    ("form feed and vertical tab removed", "a\x0cb\x0bc", "abc"),
+    ("tab kept", "a\tb", "a\tb"),
+    ("bel kept", "bell\x07", "bell\x07"),
+    ("backspace kept", "back\x08space", "back\x08space"),
+    ("nul kept", "x\x00y", "x\x00y"),
+    ("del kept", "x\x7fy", "x\x7fy"),
+    ("form feed and vertical tab kept", "a\x0cb\x0bc", "a\x0cb\x0bc"),
     ("lone escape at end removed", f"end{E}", "end"),
     ("reverse index removed", f"{E}Mup", "up"),
     ("tput sgr0 charset reset", f"{E}(B{E}[mplain", f"{E}[mplain"),
@@ -587,6 +599,11 @@ COLOUR_TEXT = [
     ("clear scrollback removed", f"{E}[3Jclear", "clear"),
     ("cursor position removed", f"{E}[10;20Hpos", "pos"),
     ("crlf lines", "a\r\nb\r\n", "a\nb\n"),
+    # git colours a CRLF line's \r as trailing whitespace and resets after it.
+    ("crlf after reset", f" alpha{E}[m\r", f" alpha{E}[m"),
+    ("crlf coloured then reset", f"{E}[32m+BETA{E}[m{E}[41m\r{E}[m", f"{E}[32m+BETA{E}[m{E}[41m{E}[m"),
+    ("redraw before a coloured line end", f"10%\r{E}[32mdone\r{E}[m", f"{E}[32mdone{E}[m"),
+    ("erase after carriage return still redraws", f"busy\r{E}[K", ""),
     ("colour redraw keeps last colour", f"{E}[31m10%\r{E}[32m100%", f"{E}[32m100%"),
     ("unicode untouched", "naïve ✓ 日本", "naïve ✓ 日本"),
     ("blank lines kept", "a\n\n\nb", "a\n\n\nb"),
@@ -608,7 +625,8 @@ SEPARATE = [
     ("bare reset counts as colour", f"{E}[mx", {"plain": "x", "colour": f"{E}[mx"}),
     ("osc only has no colour", f"{E}]0;t\x07x", {"plain": "x"}),
     ("colon truecolor", f"{E}[38:2:1:2:3mc", {"plain": "c", "colour": f"{E}[38:2:1:2:3mc"}),
-    ("tab with colour expanded in both", f"{E}[1ma\tb", {"plain": "a   b", "colour": f"{E}[1ma   b"}),
+    ("tab with colour kept in both", f"{E}[1ma\tb", {"plain": "a\tb", "colour": f"{E}[1ma\tb"}),
+    ("nul with colour kept in both", f"{E}[1ma\x00b", {"plain": "a\x00b", "colour": f"{E}[1ma\x00b"}),
     ("progress then colour", f"5%\r{E}[32mdone{R}\nnext",
      {"plain": "done\nnext", "colour": f"{E}[32mdone{R}\nnext"}),
 ]
@@ -714,6 +732,10 @@ READ = [
     ("colour sliced to the lines", text("a\nb\n\nCommand exited with code 1", details={"colour": f"{E}[31ma\nb\n\nCommand exited with code 1"}),
      True, None, outcome(["a", "b"], "✗ exit 1 · 2 lines", True, colour=[f"{E}[31ma", "b"])),
     ("non string colour ignored", text("a", details={"colour": 7}), False, None, outcome(["a"], "✓ exit 0 · 1 line")),
+    # The model reads tabs and control bytes as printed; the panel draws them as a terminal would.
+    ("control bytes not drawn", text("a\x00b\x07\tc"), False, None, outcome(["ab   c"], "✓ exit 0 · 1 line")),
+    ("colour drawn with tabs as spaces", text("a\tb\x00", details={"colour": f"{E}[31ma\tb\x00"}), False, None,
+     outcome(["a   b"], "✓ exit 0 · 1 line", colour=[f"{E}[31ma   b"])),
 ]
 for name, result, is_error, duration, expected in READ:
     add(ReadResultTests, name, "readResult", {"result": result, "isError": is_error, "durationMs": duration}, expected)
@@ -824,7 +846,7 @@ PLAIN_FILE = [
     ("colour removed", {"content": f"{E}[31mred{R}\n"}, {"text": "red\n", "rewritten": True}),
     ("plain file not rewritten", {"content": "abc\n"}, {"text": "abc\n", "rewritten": False}),
     ("progress collapsed", {"content": "a\rb\n"}, {"text": "b\n", "rewritten": True}),
-    ("tabs expanded with escapes", {"content": f"a\tb{E}[1m"}, {"text": "a   b", "rewritten": True}),
+    ("tabs kept with escapes", {"content": f"a\tb{E}[1m"}, {"text": "a\tb", "rewritten": True}),
     ("tabs alone left", {"content": "a\tb"}, {"text": "a\tb", "rewritten": False}),
     ("missing file ignored", {}, {"exists": False}),
     ("directory ignored", {"directory": True}, {"directory": True}),
@@ -885,6 +907,58 @@ add(ToolResultTests, "saved output cleaned when text is plain", "handle",
 add(ToolResultTests, "saved output and text both cleaned", "handle",
     {"event": event(t(f"{E}[32mok{R}"), details={"fullOutputPath": "$FILE"}), "file": f"a\r{E}[32mok{R}\n"},
     {"returned": {"content": [t("ok"), NOTE], "details": {"fullOutputPath": "$FILE", "colour": f"{E}[32mok{R}"}}, "file": "ok\n"})
+# pi cuts at 2000 lines or 50KB counting colour codes; the cut is made again on the plain text.
+def numbered(n, colour=False):
+    return "".join(f"{E}[32m{i:05d}{R}{E}[K\n" if colour else f"{i:05d}\n" for i in range(n))
+
+
+def pi_cut(printed, kept, by="bytes", status=""):
+    """The text and details pi's bash tool gives for an output it cut to `kept` lines."""
+    lines = printed.split("\n")[:-1]
+    total = len(lines)
+    limit = " (50.0KB limit)" if by == "bytes" else ""
+    footer = f"\n\n[Showing lines {total - kept + 1}-{total} of {total}{limit}. Full output: $FILE]"
+    return "\n".join(lines[-kept:]) + footer + status, {"truncated": True, "truncatedBy": by, "totalLines": total,
+                                                       "maxLines": 2000, "maxBytes": 51200}
+
+
+def recut_case(name, printed, kept, expected_text, expected_truncation, status="", saved="$FILE"):
+    text_, truncation = pi_cut(printed, kept, status=status)
+    args = {"event": event(t(text_), details={"fullOutputPath": "$FILE", "truncation": truncation}), "file": printed, "parts": True}
+    add(ToolResultTests, name, "handle", args, expected_text, pick="text")
+    add(ToolResultTests, name + " truncation", "handle", args, expected_truncation, pick="truncation")
+    add(ToolResultTests, name + " colour has its text", "handle", args, expected_text, pick="colourPlain")
+    # A result pi would not have cut names no saved file.
+    add(ToolResultTests, name + " saved file named", "handle", args, saved, pick="fullOutputPath")
+
+
+# 3000 lines of 6 bytes: plain, pi keeps the last 2000; coloured, 18 bytes a line, it kept the last 2844 by bytes.
+recut_case("coloured output recut by lines as plain", numbered(3000, True), 2844,
+           "\n".join(f"{i:05d}" for i in range(1000, 3000)) + "\n\n[Showing lines 1001-3000 of 3000. Full output: $FILE]",
+           {"truncated": True, "truncatedBy": "lines", "totalLines": 3000, "outputLines": 2000, "lastLinePartial": False})
+recut_case("recut keeps the exit status", numbered(3000, True), 2844,
+           "\n".join(f"{i:05d}" for i in range(1000, 3000))
+           + "\n\n[Showing lines 1001-3000 of 3000. Full output: $FILE]\n\nCommand exited with code 1",
+           {"truncated": True, "truncatedBy": "lines", "totalLines": 3000, "outputLines": 2000, "lastLinePartial": False},
+           status="\n\nCommand exited with code 1")
+# 1500 lines of 31 bytes fit whole plain, as pi would have left them; coloured (39 bytes) pi cut them to 1312.
+recut_case("plain output that fits is not cut", "".join(f"{E}[1m{i:05d}{R}" + "x" * 25 + "\n" for i in range(1500)), 1312,
+           "\n".join(f"{i:05d}" + "x" * 25 for i in range(1500)) + "\n",
+           None, saved=None)
+# One line of 60000 characters, half of them coloured: pi kept less of its text.
+HUGE = "".join(f"{E}[31m{c}{R}" if i % 2 else c for i, c in enumerate("ab" * 30000)) + "\n"
+HUGE_ARGS = {"event": event(t(HUGE[-51200:-1] + "\n\n[Showing last 50.0KB of line 1 (line is 0B). Full output: $FILE]"),
+                            details={"fullOutputPath": "$FILE", "truncation": {"truncated": True, "truncatedBy": "bytes",
+                                                                               "totalLines": 1, "lastLinePartial": True}}),
+             "file": HUGE, "parts": True}
+add(ToolResultTests, "one huge line recut to its last 50KB of text", "handle", HUGE_ARGS,
+    ("ab" * 30000)[-51200:] + "\n\n[Showing last 50.0KB of line 1 (line is 0B). Full output: $FILE]", pick="text")
+add(ToolResultTests, "one huge line colour has its text", "handle", HUGE_ARGS,
+    ("ab" * 30000)[-51200:] + "\n\n[Showing last 50.0KB of line 1 (line is 0B). Full output: $FILE]", pick="colourPlain")
+add(ToolResultTests, "plain truncated output left to pi", "handle",
+    {"event": event(t(pi_cut(numbered(3000), 2000, by="lines")[0]),
+                    details={"fullOutputPath": "$FILE", "truncation": pi_cut(numbered(3000), 2000, by="lines")[1]}),
+     "file": numbered(3000)}, {"returned": None, "file": numbered(3000)})
 add(ToolResultTests, "non string full output path ignored", "handle",
     {"event": event(t("x"), details={"fullOutputPath": 7})}, None)
 add(ToolResultTests, "only the tool result event is used", "registered", {}, ["tool_result"])
@@ -928,6 +1002,10 @@ add(RendererTests, "footer rows in order", "render",
      "durationMs": 61000},
     ["<success>✓ exit 0 · 1m1s · 9000 lines</>", "<toolOutput>x</>",
      "<muted>full output (9000 lines): /tmp/f.log</>", "<muted>note one</>"], pick="text")
+add(RendererTests, "one saved line is one line", "render",
+    {"result": {"content": [{"type": "text", "text": "x\n\n[Full output: /tmp/f.log]"}],
+                "details": {"fullOutputPath": "/tmp/f.log", "truncation": {"truncated": True, "totalLines": 1}}}},
+    ["<success>✓ exit 0 · 1 line</>", "<toolOutput>x</>", "<muted>full output (1 line): /tmp/f.log</>"], pick="text")
 add(RendererTests, "partial without a base view is drawn", "render",
     {"result": bash_result("x"), "partial": True, "noBaseRender": True},
     ["<success>✓ exit 0 · 1 line</>", "<toolOutput>x</>"], pick="text")

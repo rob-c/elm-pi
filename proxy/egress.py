@@ -189,7 +189,9 @@ class Proxy:
                 return
 
             host, _, port = target.rpartition(":")
-            if not host:
+            if not host or (target.startswith("[") and target.endswith("]")):
+                # No port, and "[2001:db8::1]" is an IPv6 literal without one:
+                # its last colon is inside the brackets, not a port separator.
                 host, port = target, "443"
             host = host.strip("[]")
 
@@ -317,7 +319,9 @@ class Proxy:
         if not host:
             host, port = authority, "80"
         host = host.strip("[]")
-        if not port.isdigit():
+        if host and not port:
+            port = "80"                # "pypi.org:" - RFC 3986: an empty port is the default
+        elif not port.isdigit():
             host, port = authority.strip("[]"), "80"
         if not self.allowed(host):
             self.deny(client, f"{host}:{port}", "not on the allowlist")

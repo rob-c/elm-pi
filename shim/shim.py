@@ -193,7 +193,10 @@ def flatten_messages(messages):
     return out
 
 
-_JSON_CALL = re.compile(r'\{.*?"name"\s*:\s*".+?".*?\}\s*$', re.S)
+_FENCE_OPEN = re.compile(r"```[a-zA-Z]*\s*")
+# Where a JSON object with a key can begin. Any other "{" is prose or code
+# ("if (x) {") and cannot open a call.
+_OBJECT_START = re.compile(r'\{\s*"')
 
 def _span_end(s, start):
     """Index just past the {...} that opens at s[start], or None if it never closes.
@@ -217,38 +220,66 @@ def _span_end(s, start):
     return None
 
 
+def _top_level_spans(s):
+    """The {...} spans of s that are not inside another one, left to right.
+
+    Only these can be the call. An object inside a call's arguments is data: a
+    create_task whose step is {"name": "bash", ...} is one call to create_task,
+    or none if create_task is not a tool - never a bash call. Each scan resumes
+    after the span it found, so the text is walked once, not once per brace (a
+    write of 12,000 braces took 45 s that way).
+    """
+    m = _OBJECT_START.search(s)
+    while m:
+        end = _span_end(s, m.start())
+        if end is None:
+            # An object cut short (max_tokens) still holds everything after
+            # it, so nothing there is top level.
+            return
+        yield s[m.start():end]
+        m = _OBJECT_START.search(s, end)
+
+
+def _candidates(s):
+    if s.startswith("{"):
+        yield s
+    # A call after prose that runs to the end of the reply. (This was a regex,
+    # r'\{.*?"name"\s*:\s*".+?".*?\}\s*$', that backtracked over every quote
+    # when the reply did not end in "}": 8.6 s for a 25 KB JSON file.)
+    first = s.find("{")
+    if first > 0 and s.endswith("}") and '"name"' in s:
+        yield s[first:]
+    # Llama often wraps the call in prose ("Let me read it: {...} now."), and a
+    # call that opens the reply and is followed by prose is the span at 0.
+    for span in _top_level_spans(s):
+        if '"name"' in span:
+            yield span
+
+
 def extract_call(text, valid_names):
     """Return (tool_calls, leftover_text) parsed out of the model's prose."""
     if not text:
         return None, text
     s = text.strip()
-    s = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", s).strip()   # strip any fence
-    candidates = []
-    if s.startswith("{"):
-        candidates.append(s)
-    m = _JSON_CALL.search(s)
+    # Strip any fence. Not one regex with a trailing r"\s*```$": that retries
+    # every whitespace run to its end and is quadratic in the run's length.
+    m = _FENCE_OPEN.match(s)
     if m:
-        candidates.append(m.group(0))
-    # Scan for ANY balanced {...} span containing "name" - Llama often wraps the
-    # call in prose ("Let me read it: {...} now."), which earlier versions missed.
-    # A call that opens the reply and is followed by prose is the span at 0.
-    for start in [i for i, ch in enumerate(s) if ch == "{"]:
-        end = _span_end(s, start)
-        if end and '"name"' in s[start:end]:
-            candidates.append(s[start:end])
-        if len(candidates) > 4:
-            break
-    for cand in candidates:
-        obj = None
+        s = s[m.end():]
+    if s.endswith("```"):
+        s = s[:-3]
+    s = s.strip()
+    for cand in _candidates(s):
         # strict=False tolerates the literal newlines Llama emits inside JSON
         # strings instead of \n escapes - the single most common failure here.
-        for strict in (False,):
-            try:
-                obj = json.loads(cand, strict=strict); break
-            except Exception:
-                pass
-        if obj is None:
+        try:
+            obj = json.loads(cand, strict=False)
+        except Exception:
             continue
+        if not isinstance(obj, dict):
+            continue
+        if "name" not in obj and isinstance(obj.get("function"), dict):
+            obj = obj["function"]             # an OpenAI tool_call echoed back as text
         name = obj.get("name")
         if not isinstance(name, str) or not name or (valid_names and name not in valid_names):
             continue

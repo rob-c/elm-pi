@@ -100,7 +100,7 @@ Installer flags:
 
 Passed through to bootstrap.sh:
   --no-packages       pi only: no sub-agents, web access or anchor edit
-  --no-tools          skip the bundled fd/rg/jq/yq/shellcheck/ast-grep
+  --no-tools          no bundled fd/rg/jq/yq/shellcheck/ast-grep/uv/mlr/resvg/pixi/ruff
   --no-shim           no Llama tool-call shim
   --no-patch          leave pi's /share and /bug commands in place
   --no-auth-lock      leave agent/auth.json writable, so /login works
@@ -263,11 +263,12 @@ fetch_tarball() {   # $1 = destination directory
 }
 
 validate_source() { # $1 = candidate source tree
-  local source_dir="$1"
-  bash -n "$source_dir/install.sh" "$source_dir/bootstrap.sh" \
-    "$source_dir/configure.sh" "$source_dir/pi" "$source_dir/pi.orig" \
-    "$source_dir/lib/sandbox.sh" \
-    || die "downloaded source failed its shell syntax check"
+  local source_dir="$1" f
+  # One file per `bash -n`: given several, it checks the first and passes the
+  # rest to it as arguments.
+  for f in install.sh bootstrap.sh configure.sh pi pi.orig lib/sandbox.sh; do
+    bash -n "$source_dir/$f" || die "downloaded source failed its shell syntax check"
+  done
   # The interpreter is picked by the source being installed, so the rules for
   # it ship with the release. Exported: bootstrap.sh and check.sh inherit it.
   # shellcheck source=lib/sandbox.sh
@@ -445,21 +446,40 @@ case ":${ELM_PI_USER_PATH}:" in *":$BINDIR:"*) ON_PATH=1 ;; esac
 
 PATH_ADDED=0
 PATH_PRESENT=0
+# Whether a live (uncommented) line names BINDIR itself as a PATH entry - not a
+# longer path that starts with it, nor a file inside it.
+profile_has_bindir() {   # $1 = profile file
+  ELM_BINDIR="$BINDIR" awk '
+    BEGIN { b = ENVIRON["ELM_BINDIR"]; found = 0; if (b == "") exit }
+    /^[ \t]*#/ { next }
+    { s = $0
+      while ((i = index(s, b)) > 0) {
+        pre = i == 1 ? "" : substr(s, i - 1, 1)
+        post = substr(s, i + length(b), 1)
+        if ((pre == "" || index("=:\"\047 \t", pre)) && (post == "" || index(":\"\047 \t;", post))) {
+          found = 1; exit
+        }
+        s = substr(s, i + 1)
+      } }
+    END { exit !found }' "$1" 2>/dev/null
+}
 add_path_to() {   # $1 = profile file, $2 = syntax: posix|fish
   PROFILE="$1"
-  if [ -f "$PROFILE" ] && grep -qF "$BINDIR" "$PROFILE" 2>/dev/null; then
+  if [ -f "$PROFILE" ] && profile_has_bindir "$PROFILE"; then
     echo "    already in $(basename "$PROFILE")"
     PATH_PRESENT=1
     return 0
   fi
   mkdir -p "$(dirname "$PROFILE")" 2>/dev/null || true
+  # A profile that cannot be written is a warning: returning 1 would trip set -e
+  # and fail an install that has already succeeded.
   if [ "$2" = "fish" ]; then
     printf '\n# added by the elm-pi installer\nfish_add_path %s\n' "$BINDIR" >> "$PROFILE" \
-      || { warn "could not write $PROFILE"; return 1; }
+      || { warn "could not write $PROFILE"; return 0; }
   else
     # shellcheck disable=SC2016 # $PATH must expand when the profile is sourced
     printf '\n# added by the elm-pi installer\nexport PATH="%s:$PATH"\n' "$BINDIR" >> "$PROFILE" \
-      || { warn "could not write $PROFILE"; return 1; }
+      || { warn "could not write $PROFILE"; return 0; }
   fi
   echo "    added $BINDIR to $(basename "$PROFILE")"
   PATH_ADDED=1

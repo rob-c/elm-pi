@@ -110,7 +110,7 @@ Two things people get wrong:
 | `--update` | the latest pi and extension packages, kept only if the checks pass; keep configs (what `pi update` runs) |
 | `--force-packages` | reinstall the extension packages at the tested versions, and pi too if it is not at its tested version (what `pi update --extensions` runs) |
 | `--no-packages` | pi only: no sub-agents, web access or anchor editing |
-| `--no-tools` | do not bundle fd, rg, jq, yq, shellcheck, ast-grep and uv (and so no agent Python either) |
+| `--no-tools` | do not bundle fd, rg, jq, yq, shellcheck, ast-grep, uv, mlr, resvg, pixi and ruff (and so no agent Python either) |
 | `--with-python` | give the agent its own Python environment in `agent/python` (~1 GB); also `pi setup --python` |
 | `--with-pypi-index` | build an offline search index of PyPI for the agent (`pypi-search`); downloads ~1 GB once, keeps ~390 MB; implies `--with-python`; also `pi setup --pypi-index` |
 | `--with-all` | every optional part: `--with-python` and `--with-pypi-index` (recorded as those two). Nothing that opens the network - that is `pi --remote`, per run. Also `pi setup --all`, and `pi --with-all` sets it up on first use |
@@ -228,14 +228,15 @@ pi install.
 | `agent/extensions/elm-only.ts` | the ELM-only policy — always refreshed |
 | `agent/extensions/elm-shim.ts` | registers the Llama tool-shim provider |
 | `agent/extensions/protected-paths.ts` | blocks writes to `.env`, `.git/`, `node_modules/` |
+| `agent/extensions/trust-guard.ts` | never grants project trust to home, the filesystem root or a folder that holds credentials (`untrustedFolders` in `config/elm-pi.json`), and does not let a saved "Trust parent folder" there pass down to the folders beneath (see [LOCKDOWN.md](LOCKDOWN.md)) |
 | `agent/extensions/command-guard.ts` | refuses a `bash` command the permission gate's rules deny when it is spelled so they miss it: quoted or escaped (`'ssh' host`), by full path, after `sudo`, `env`, `xargs`, `command` or `exec`, inside `bash -c`, or with extra whitespace (see [LOCKDOWN.md](LOCKDOWN.md)) |
 | `agent/extensions/todo.ts` | adds a `todo` tool for multi-step work |
 | `agent/extensions/pinned-instructions.ts` | `pin_instruction`: standing instructions kept in the system prompt, where compaction cannot summarise them away |
 | `agent/extensions/skill-router.ts` | adds the skills a request needs (see [Skills](#skills-and-the-skill-router)) |
 | `agent/extensions/view-outputs.ts` | shows Qwen its figures: image and PDF files a command writes are attached to its result, `view` renders PDF pages (with their text) and TIFF/BMP, and a PDF given to `read` is rendered. Uses the bundled `mupdf` (WebAssembly; nothing downloaded at run time). SVG, EPS/PS, HEIC and PSD go through a command-line converter first (rsvg-convert, Inkscape, ImageMagick, Ghostscript, epstopdf; sips and qlmanage on macOS) when the machine has one |
 | `agent/extensions/install-notes.ts` | when the agent installs something (pip, pixi, docker pull, brew), adds what, where it lives and how to remove it to that command's result for the report, and logs it in `agent/installs.log` |
-| `agent/shell/colour.sh` | sourced before every `bash` command (`shellCommandPrefix` in `settings.json`): `git` (diff, show, log, status, branch, grep, blame), `ls`, `grep`, `rg`, `fd`, `diff`, `jq`, `tree`, `shellcheck`, `pytest`, `python -m pytest` and `ruff` colour their output when it goes straight back to pi, and stay plain in a pipe, a redirect or `$(...)`, as they would in a terminal. They are shell functions, so scripts a command runs do not see them; `NO_COLOR=1` turns them off |
-| `agent/extensions/command-output.ts` | gives the model a command's output without escape codes or progress-bar redraws (pi passes them on as printed), and draws a finished `bash` result for people: a coloured exit line (`✓ exit 0 · 1.2s · 40 lines`), the first 4 and last 12 lines with a count of the error and warning lines hidden between them, the command's own colour when it printed any (see `colour.sh` above; kept in the result's `details`, which the provider never sends) and otherwise colour by kind of line (errors, warnings, passes, diffs, `file:line`). Ctrl+O shows everything |
+| `agent/shell/colour.sh` | sourced before every `bash` command (`shellCommandPrefix` in `settings.json`): `git` (diff, show, log, status, branch, grep, blame, shortlog, range-diff, reflog), `ls`, `grep`, `rg`, `fd`, `diff` (comparing folders, the colour option it adds is taken back out of the header diff prints for each pair of files), `jq`, `tree`, `shellcheck`, `pytest`, `python -m pytest` and `ruff` colour their output when it goes straight back to pi, and stay plain in a pipe, a redirect or `$(...)`, as they would in a terminal. They are shell functions, so scripts a command runs do not see them; `NO_COLOR=1` turns them off |
+| `agent/extensions/command-output.ts` | gives the model a command's output without escape codes or progress-bar redraws (pi passes them on as printed). The model's copy is the text the command gives without colour: tabs and control bytes are kept, and a long output is cut at the lines pi would have kept without colour, since pi counts colour codes towards its 50KB limit. It also draws a finished `bash` result for people: a coloured exit line (`✓ exit 0 · 1.2s · 40 lines`), the first 4 and last 12 lines with a count of the error and warning lines hidden between them, the command's own colour when it printed any (see `colour.sh` above; kept in the result's `details`, which the provider never sends) and otherwise colour by kind of line (errors, warnings, passes, diffs, `file:line`). Ctrl+O shows everything |
 | `agent/extensions/workflow-model-scope.ts` | keeps Dynamic Workflows agents on ELM models |
 | `agent/extensions/subagent/config.json` | fan-out budget: 12 concurrent, 64 per run |
 | `agent/bin/pi` | symlink to the launcher, so sub-agent children find `pi` whatever PATH looks like |
@@ -336,8 +337,9 @@ Run it again any time: `./configure.sh`.
 Llama, `elm-shim/meta-llama/Llama-3.3-70B-Instruct`, which reaches tool calling
 through the local shim. ELM's own endpoint for that model was started without a
 tool-call parser and returns 400 to any request carrying tools, so a second
-`elm/meta-llama/...` entry is only ever picked by mistake from `/model`. Running
-`configure.sh llama` inserts one; delete it from `agent/models.json` if you do.
+`elm/meta-llama/...` entry would only ever be picked by mistake from `/model`.
+`configure.sh` sets the Qwen model only: `configure.sh llama`, or any substring
+that matches a model that is not Qwen, refuses with exit 2 and changes nothing.
 
 Model ids are exact: `Qwen/Qwen3.5-397B-A17B-FP8` — vendor prefix, capital Q,
 `-A17B-FP8` suffix. Not `qwen-3.5-397b`. The other university-hosted models are
@@ -455,7 +457,7 @@ re-fetches.
 
 ### The rest of the toolbox
 
-`fd` and `rg` are there because pi needs them. Four more are there because the
+`fd` and `rg` are there because pi needs them. Nine more are there because the
 *model* keeps reaching for them and cannot rely on finding them — not on a Mac,
 and not on a login node someone else administers:
 
@@ -473,8 +475,8 @@ and not on a login node someone else administers:
 
 All eleven are a single static binary from the project's own GitHub release,
 pinned and sha256-checked, installed the same way and deleted the same way.
-`ELM_PI_TOOLS=fd,rg,jq` installs a subset: `shellcheck` and `ast-grep` are 35 MB
-and 51 MB, against ~23 MB for the other four.
+`ELM_PI_TOOLS=fd,rg,jq` installs a subset: `shellcheck` and `ast-grep` alone are 35 MB
+and 51 MB.
 
 ### Software the machine does not have
 
@@ -557,7 +559,7 @@ several hundred files. Measured with `PI_TIMING=1` and `/usr/bin/time`, reportin
 CPU time (user+sys) because that is the number that does not move with machine load
 — taken at load ~8 on 12 threads, where wall ≈ CPU. **These figures are
 historical:** they were taken when the set was three packages (`pi-subagents`,
-`pi-hashline-edit-pro`, `pi-web-access`). It is now thirteen and has not been
+`pi-hashline-edit-pro`, `pi-web-access`). It is now sixteen and has not been
 re-measured, so read them as the shape of the cost rather than today's figures.
 
 | Configuration | CPU per launch |
@@ -638,11 +640,12 @@ the network.
 **Three levers, in order of payoff:**
 
 1. **`pi --fast`** for one-shot work. Loads only local extensions — the policy
-   set (the ELM-only guard, protected paths, pinned instructions and the
-   permission gate), plus `todo` and the skill router — and keeps pi's built-in
-   `edit` tool. No sub-agents, web search or anchor editing. The policy set is
-   the same one loaded when you pass `--no-extensions`/`-ne` yourself, and a
-   missing policy file stops the launch rather than running without it.
+   set (the ELM-only guard, protected paths, trust guard, pinned instructions,
+   command guard and the permission gate), plus `todo` and the skill router —
+   and keeps pi's built-in `edit` tool. No sub-agents, web search or anchor
+   editing. The policy set is the same one loaded when you pass
+   `--no-extensions`/`-ne` yourself, and a missing policy file stops the launch
+   rather than running without it.
    Measured on the three-package set:
 
    | | wall | CPU |

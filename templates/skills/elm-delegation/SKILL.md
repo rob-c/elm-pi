@@ -191,9 +191,10 @@ agents are pinned to Qwen in `settings.json` for this reason.
 
 Web research is different. `qwen` excludes the web tools, so it can never do
 it. The builtin `researcher` keeps them and is pinned to Qwen, but outside
-`pi --remote` the egress proxy refuses every host but the ELM gateway, so its
-searches come back 403. Send web research to `researcher` only in a session
-started with `pi --remote`; otherwise say the session cannot reach the web.
+`pi --remote` the egress proxy admits only the ELM gateway and the package
+sources, so its searches come back 403. Send web research to `researcher` only
+in a session started with `pi --remote`; otherwise say the session cannot reach
+the web.
 
 **`llama` is for rote execution of a fully specified change**, and only when
 Qwen is rate-limited or the user asks for Llama. Applying a formatting

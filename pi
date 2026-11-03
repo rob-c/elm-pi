@@ -74,9 +74,11 @@ Flags added by this launcher:
                       the web, the open proxy and computer use stay off
   --remote            allow this run to reach the internet: the web tools come
                       back on and the egress proxy records every destination
-                      instead of allowing only the ELM gateway. The model is
-                      not affected - inference still goes to ELM and nowhere
-                      else, and no other provider becomes reachable
+                      instead of refusing all but the ELM gateway and the
+                      package sources (PyPI, conda-forge, container
+                      registries). The model is not affected - inference still
+                      goes to ELM and nowhere else, and no other provider
+                      becomes reachable
   --help, -h          this text, then pi's own
 
 Optional parts, added or taken back (recorded, so pi update keeps the choice):
@@ -90,7 +92,8 @@ Optional parts, added or taken back (recorded, so pi update keeps the choice):
 
 Useful environment:
   PI_ELM_WEB=1              web tools for one run, without opening the proxy
-  ELM_PI_PROXY_ALLOW=a,b    let this run reach these hosts and no others
+  PI_ELM_WORKFLOWS=1        the same as --workflows
+  ELM_PI_PROXY_ALLOW=a,b    let this run reach these hosts as well
   ELM_PI_NO_PROXY=1         run unproxied (debugging)
   ELM_PI_SHARED_STATE=1     preserve existing shared session/memory permissions
   PI_ELM_UNLOCK=1           lift the credential scrub and the argument guard

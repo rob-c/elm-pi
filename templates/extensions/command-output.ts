@@ -13,6 +13,9 @@
  * a terminal would have left on screen) and the colour version goes into the
  * result's `details`, which only the display reads - the provider sends
  * `content` alone, and pi's saved copy of a long output is made plain too.
+ * The plain copy is the text the same command gives without colour: tabs and
+ * control bytes are left for the display to draw, and a long output is cut
+ * where pi would have cut it plain, not sooner for its colour codes' bytes.
  * Output without escape codes reaches the model unchanged.
  * When colour reached the display, the model's copy says so in one line:
  * without it Qwen cannot tell a rainbow from no colour, and claimed one.
@@ -24,8 +27,8 @@
  */
 
 import { readFileSync, statSync, writeFileSync } from "node:fs";
-import type { ExtensionAPI, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { keyHint } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme, ThemeColor, TruncationResult } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_MAX_BYTES, formatSize, keyHint, truncateTail } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Container, getCapabilities, Text, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
@@ -122,19 +125,25 @@ export interface Outcome {
 	images: number;
 }
 
+// What the panel draws: a tab as three spaces, nothing for other control bytes.
+// Only the display does this - the model reads tabs and NULs as printed.
+const onScreen = (text: string) => text.replace(/\t/g, "   ").replace(/[\x00-\x08\x0b-\x1a\x1c-\x1f\x7f]/g, "");
+
 const strip = (text: string) =>
-	text
-		.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
-		.replace(/\r/g, "")
-		.replace(/\t/g, "   ");
+	onScreen(text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "").replace(/\r/g, ""));
 
 const COLOUR_CODE = /\x1b\[[0-9;:]*m/;
 const COLOUR_CODES = /\x1b\[[0-9;:]*m/g;
 
-/** The output as a terminal would leave it: colour codes kept, every other escape and control character gone. */
+/**
+ * The output as a terminal would leave it: colour codes kept, every other
+ * escape and `\r` redraw gone. Its text is what the same output printed without
+ * colour turns into, so tabs and other control bytes stay.
+ */
 export function colourText(raw: string): string {
 	const lines = raw.split("\n").map((line) => {
-		line = line.replace(/\r+$/, "");
+		// A line ending: git colours a CRLF line's \r and resets after it.
+		line = line.replace(/(?:\r|\x1b\[[0-9;:]*m)+$/, (end) => end.replace(/\r/g, ""));
 		// A progress bar redraws its line with \r: keep what it ended as.
 		line = line.slice(line.lastIndexOf("\r") + 1);
 		return line
@@ -142,9 +151,7 @@ export function colourText(raw: string): string {
 			.replace(/\x1b\[[0-9;:?]*[ -/]*[@-~]/g, (seq) => (/^\x1b\[[0-9;:]*m$/.test(seq) ? seq : ""))
 			// Any other escape ends at its first byte in 0-~: `tput sgr0`'s
 			// charset reset ESC ( B, save-cursor ESC 7, reset ESC c.
-			.replace(/\x1b(?!\[[0-9;:]*m)[ -/]*[0-~]?/g, "")
-			.replace(/[\x00-\x08\x0b-\x1a\x1c-\x1f\x7f]/g, "")
-			.replace(/\t/g, "   ");
+			.replace(/\x1b(?!\[[0-9;:]*m)[ -/]*[0-~]?/g, "");
 	});
 	return lines.join("\n");
 }
@@ -225,7 +232,7 @@ export function readResult(result: ResultLike, isError: boolean, durationMs?: nu
 	if (durationMs !== undefined) parts.push(seconds(durationMs));
 	parts.push(`${totalLines} line${totalLines === 1 ? "" : "s"}`);
 	// Line for line the same text as the model's copy, so the output's lines are its first lines.
-	const colour = typeof result.details?.colour === "string" ? result.details.colour.split("\n").slice(0, lines.length) : undefined;
+	const colour = typeof result.details?.colour === "string" ? result.details.colour.split("\n").slice(0, lines.length).map(onScreen) : undefined;
 	return { lines, totalLines, status: parts.join(" · "), failed, fullOutputPath, colour, notes, images };
 }
 
@@ -258,17 +265,78 @@ export function bodyLines(lines: string[], expanded: boolean, theme: Pick<Theme,
 	];
 }
 
-// Rewrites a saved output as plain text. pi has closed the file by the time
-// the result reaches extensions; one too large to hold is left as it is.
-export function plainFile(path: string): void {
+// Rewrites a saved output as plain text, and returns it as it was printed. pi
+// has closed the file by the time the result reaches extensions; one too large
+// to hold is left as it is.
+export function plainFile(path: string): string | undefined {
 	try {
-		if (statSync(path).size > 64 * 1024 * 1024) return;
+		if (statSync(path).size > 64 * 1024 * 1024) return undefined;
 		const text = readFileSync(path, "utf8");
 		const { plain } = separate(text);
 		if (plain !== text) writeFileSync(path, plain);
+		return text;
 	} catch {
 		// Gone or unreadable: nothing to clean.
+		return undefined;
 	}
+}
+
+// What colour adds to an output: its codes, and the erase-to-end grep sends
+// after each one.
+const COLOURING = /(\x1b\[[0-9;:]*m|\x1b\[K)/g;
+
+// The end of a coloured line holding the last `chars` characters of its text,
+// opened with the code in force where it is cut.
+function colourTail(line: string, chars: number): string {
+	const parts = line.split(COLOURING);
+	let out = "";
+	for (let i = parts.length - 1; i >= 0; i -= 2) {
+		if (parts[i].length >= chars) {
+			const open = i > 0 ? parts[i - 1] : "";
+			return open + parts[i].slice(parts[i].length - chars) + out;
+		}
+		chars -= parts[i].length;
+		out = (i > 0 ? parts[i - 1] : "") + parts[i] + out;
+	}
+	return out;
+}
+
+/**
+ * pi keeps the last 2000 lines or 50KB of an output, counting its colour codes
+ * as bytes, so a coloured output gave the model fewer lines than the same output
+ * plain. This makes the cut again from the saved output as printed, on its text
+ * without colour codes, and gives pi's result text for it - still coloured, for
+ * separate() - with pi's own footer and the status after it, and the truncation
+ * for details (undefined when the plain output fits whole).
+ */
+export function recut(
+	text: string,
+	printed: string,
+	path: string,
+	limits: { maxLines?: number; maxBytes?: number } = {},
+): { text: string; truncation?: TruncationResult } | undefined {
+	const marker = `Full output: ${path}]`;
+	const end = text.lastIndexOf(marker);
+	if (end === -1 || text.lastIndexOf("\n\n[", end) === -1) return undefined;
+	const status = text.slice(end + marker.length);
+	const plain = printed.replace(COLOURING, "");
+	const cut = truncateTail(plain, { maxLines: limits.maxLines, maxBytes: limits.maxBytes });
+	if (!cut.truncated) return { text: `${printed || "(no output)"}${status}` };
+	// Colour holds no newline, so the printed lines are the plain ones.
+	const lines = printed.split("\n");
+	if (printed.endsWith("\n")) lines.pop();
+	let body: string;
+	let footer: string;
+	if (cut.lastLinePartial) {
+		body = colourTail(lines[lines.length - 1], cut.content.length);
+		const lastLine = formatSize(Buffer.byteLength(plain.slice(plain.lastIndexOf("\n") + 1), "utf8"));
+		footer = `[Showing last ${formatSize(cut.outputBytes)} of line ${cut.totalLines} (line is ${lastLine}). ${marker}`;
+	} else {
+		body = lines.slice(lines.length - cut.outputLines).join("\n");
+		const shown = `lines ${cut.totalLines - cut.outputLines + 1}-${cut.totalLines} of ${cut.totalLines}`;
+		footer = cut.truncatedBy === "lines" ? `[Showing ${shown}. ${marker}` : `[Showing ${shown} (${formatSize(DEFAULT_MAX_BYTES)} limit). ${marker}`;
+	}
+	return { text: `${body || "(no output)"}\n\n${footer}${status}`, truncation: cut };
 }
 
 // The output sits on the terminal's own background, inside a margin of the
@@ -304,13 +372,25 @@ export default function commandOutput(pi: ExtensionAPI) {
 		if (event.toolName !== "bash") return;
 		// pi saves a long output whole, as printed, for the model to `read` later;
 		// its colour may sit in lines the result's own text leaves out.
-		const fullOutputPath = (event.details as { fullOutputPath?: unknown } | undefined)?.fullOutputPath;
-		if (typeof fullOutputPath === "string") plainFile(fullOutputPath);
+		const saved = event.details as { fullOutputPath?: unknown; truncation?: TruncationResult } | undefined;
+		const fullOutputPath = saved?.fullOutputPath;
+		const printed = typeof fullOutputPath === "string" ? plainFile(fullOutputPath) : undefined;
 		const first = event.content.findIndex((part) => part.type === "text");
 		if (first === -1) return;
-		const text = (event.content[first] as { text: string }).text;
+		const original = (event.content[first] as { text: string }).text;
+		let text = original;
+		let details = event.details;
+		if (typeof fullOutputPath === "string" && printed !== undefined && saved?.truncation?.truncated && COLOUR_CODE.test(printed)) {
+			const again = recut(text, printed, fullOutputPath, saved.truncation);
+			if (again) {
+				text = again.text;
+				// Fitting whole once plain, it is a result pi would not have cut, and names no saved file.
+				const { truncation: _cut, fullOutputPath: _path, ...rest } = saved;
+				details = again.truncation ? { ...saved, truncation: again.truncation } : Object.keys(rest).length ? rest : undefined;
+			}
+		}
 		const { plain, colour } = separate(text);
-		if (plain === text) return;
+		if (plain === original && details === event.details) return;
 		const content = event.content.map((part, i) => (i === first ? { ...part, text: plain } : part));
 		if (colour) content.splice(first + 1, 0, { type: "text", text: COLOUR_NOTE });
 		// structuredContent carries the output too (for codemode scripts), and
@@ -318,7 +398,7 @@ export default function commandOutput(pi: ExtensionAPI) {
 		const structured = event.structuredContent as { output?: unknown } | undefined;
 		const structuredContent =
 			structured && typeof structured.output === "string" ? { ...structured, output: separate(structured.output).plain } : event.structuredContent;
-		return { content, structuredContent, details: colour ? { ...event.details, colour } : event.details };
+		return { content, structuredContent, details: colour ? { ...details, colour } : details };
 	});
 
 	pi.registerToolRenderer((toolName, next) => {
@@ -339,7 +419,10 @@ export default function commandOutput(pi: ExtensionAPI) {
 				// The same tint pi gives the box (tool-execution.js), restored after each line.
 				if (body.length) component.addChild(new TerminalPanel(body, theme.getBgAnsi(context.isError ? "toolErrorBg" : "toolSuccessBg")));
 				const rows: string[] = [];
-				if (outcome.fullOutputPath) rows.push(theme.fg("muted", `full output (${outcome.totalLines} lines): ${outcome.fullOutputPath}`));
+				if (outcome.fullOutputPath) {
+					const count = `${outcome.totalLines} line${outcome.totalLines === 1 ? "" : "s"}`;
+					rows.push(theme.fg("muted", `full output (${count}): ${outcome.fullOutputPath}`));
+				}
 				for (const note of outcome.notes) rows.push(theme.fg("muted", note));
 				if (outcome.images && !(getCapabilities().images && context.showImages)) {
 					rows.push(theme.fg("muted", `[${outcome.images} image${outcome.images === 1 ? "" : "s"} attached, not shown in this terminal]`));

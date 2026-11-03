@@ -12,13 +12,15 @@ So bootstrap.sh runs this against the pi it has just installed, before the
 previous release is thrown away, and tests/ runs it against templates/. The
 schemas come from the release under test (--schemas), never from pi.dev.
 
-    check_config.py --root DIR [--schemas DIR] [--config] [--themes]
+    check_config.py --root DIR [--schemas DIR] [--config] [--themes] [--rules]
 
 --config checks agent/models.json and agent/settings.json; --themes checks the
-theme files the configured packages would load. With neither, both. Prints
-one line per problem and exits 1 if there are any. Standard library only, and
-only the JSON Schema keywords pi's schemas use: an unknown keyword is a
-problem in this script, reported rather than silently passed.
+theme files the configured packages would load; --rules checks the rule keys
+of agent/extensions/pi-permission-system/config.json (see rule_problems),
+which needs no schemas. With none, all three. Prints one line per problem and
+exits 1 if there are any. Standard library only, and only the JSON Schema
+keywords pi's schemas use: an unknown keyword is a problem in this script,
+reported rather than silently passed.
 """
 
 from __future__ import annotations
@@ -157,6 +159,49 @@ def config_problems(config_dir: Path, schemas: Path) -> list[str]:
     return problems
 
 
+# --- the permission gate's rules ------------------------------------------------
+#
+# pi-permission-system (third-party, not patched here) applies a surface's rules
+# last-match-wins, in the order it reads them - from a JS object, which lists
+# integer-like keys ("7", "22") before every other, whatever the file's order.
+# Its `?` matches one UTF-16 unit rather than one character, so `?` and an emoji
+# (two units) disagree. Neither is worth patching the package for while no
+# shipped rule can meet it, so such keys are refused here instead: tests/ hold
+# the shipped template to this, and --rules reports one in an install's config.
+
+PERMISSIONS = "extensions/pi-permission-system/config.json"
+INTEGER_LIKE = re.compile(r"0|[1-9][0-9]*")
+WILDCARD_RUN = re.compile(r"[*?]+")
+
+
+def pattern_problem(pattern: str) -> str | None:
+    """Why the gate would not apply `pattern` as written, or None."""
+    if INTEGER_LIKE.fullmatch(pattern) and int(pattern) < 2 ** 32 - 1:
+        return "is integer-like, so the gate moves it before every other rule"
+    # `?` beside a `*` (`?*`, `*?`) means "at least one more", the same in UTF-16
+    # units as in characters; a lone `?`, or two in one run (`??*`), is not.
+    for run in WILDCARD_RUN.findall(pattern):
+        if "?" in run and ("*" not in run or run.count("?") > 1):
+            return f"has `{run}`, which the gate counts in UTF-16 units, not characters; only `?*` or `*?` is safe"
+    return None
+
+
+def rule_problems(path: Path) -> list[str]:
+    try:
+        permission = json.loads(path.read_text()).get("permission", {})
+    except (OSError, ValueError, AttributeError) as error:
+        return [f"{path.name}: does not parse ({error})"]
+    problems = []
+    for surface, rules in permission.items():
+        if not isinstance(rules, dict):
+            continue
+        for pattern in rules:
+            why = pattern_problem(pattern)
+            if why:
+                problems.append(f"{path.name}: permission.{surface} rule {json.dumps(pattern)} {why}")
+    return problems
+
+
 def _selected(rel: str, filters: list[str] | None) -> bool:
     """pi's per-package resource filter: omitted loads everything, [] loads
     nothing, "!glob" and "-path" exclude, a bare or "+" entry includes."""
@@ -207,18 +252,21 @@ def main() -> int:
     parser.add_argument("--schemas", type=Path, help=f"default: <root>/{PI_SCHEMAS}")
     parser.add_argument("--config", action="store_true", help="agent/models.json and agent/settings.json")
     parser.add_argument("--themes", action="store_true", help="the themes the packages would load")
+    parser.add_argument("--rules", action="store_true", help=f"the rule keys of agent/{PERMISSIONS}")
     args = parser.parse_args()
     root = args.root.resolve()
     schemas = (args.schemas or root / PI_SCHEMAS).resolve()
-    if not (schemas / "models.schema.json").is_file():
+    every = not (args.config or args.themes or args.rules)
+    if (args.config or args.themes or every) and not (schemas / "models.schema.json").is_file():
         print(f"    no pi schemas at {schemas}")
         return 1
-    both = not (args.config or args.themes)
     problems = []
-    if args.config or both:
+    if args.config or every:
         problems += config_problems(root / "agent", schemas)
-    if args.themes or both:
+    if args.themes or every:
         problems += theme_problems(root, schemas)
+    if (args.rules or every) and (root / "agent" / PERMISSIONS).is_file():
+        problems += rule_problems(root / "agent" / PERMISSIONS)
     for problem in problems:
         print(f"    {problem}")
     return 1 if problems else 0

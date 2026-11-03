@@ -118,8 +118,8 @@ guess:
    it as theirs; at most mention it as a possible source and ask.
 2. **The web**, when this session has web tools (`web_search`, `fetch_content`).
    Cite what you used. They reach the internet only in a session started with
-   `pi --remote` (with `PI_ELM_WEB=1` alone they exist, but every host but the
-   ELM gateway is refused); do not try other routes to the internet.
+   `pi --remote` (with `PI_ELM_WEB=1` alone they exist, but the egress proxy
+   refuses the web); do not try other routes to the internet.
 3. **The user.** Whatever is still unknown, ask:
    - If the `ask_user_question` tool is available, ask through it as soon as you
      have identified the unknowns - up to four questions per call, so batch them -

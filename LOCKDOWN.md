@@ -30,7 +30,7 @@ in `~/.zshrc` or a CI environment cannot quietly re-enable a paid provider. Your
 shell is untouched — only pi's own environment.
 
 The list is `providerCredentials` in `config/elm-pi.json`, kept in step with
-the variables pi-ai 1.4 itself reads; a test compares the two when pi is
+the variables pi-ai 1.5 itself reads; a test compares the two when pi is
 installed in the checkout. `pi --help` runs with the same scrub.
 
 Deliberately **not** scrubbed: `AWS_*` (except `AWS_BEARER_TOKEN_BEDROCK`) and
@@ -57,7 +57,9 @@ pi --api-key sk-... ...
 credential the scrub just removed. The guard runs before the launcher looks for
 the ELM key, so an install with no key yet refuses these too.
 
-`-e`/`--extension` is refused too, whatever it names. An extension runs inside
+`-e`/`--extension` is refused too, whatever it names. Every `-e` is checked,
+and an empty one is refused as well: pi would load the working folder itself as
+an extension. An extension runs inside
 pi with this install's access and brings its own network code, and the ones
 that exist for pi include exactly what this install is meant not to do: pi's
 own `ssh.ts` example sends `read`, `write`, `edit` and `bash` to another
@@ -79,9 +81,9 @@ providers a pi upgrade or another extension adds).
 It loads in every mode. `--fast`, and `--no-extensions`/`-ne` given by the
 caller, turn off pi's own extension discovery, so the launcher loads the policy
 set explicitly in both cases: this extension, `protected-paths.ts`,
-`pinned-instructions.ts` and the permission gate. If one of the three local
-files is missing, or the gate package is installed without its entry point,
-pi does not start.
+`trust-guard.ts`, `pinned-instructions.ts`, `command-guard.ts` and the
+permission gate. If one of the five local files is missing, or the gate
+package is installed without its entry point, pi does not start.
 
 Measured on this install: **1,357 built-in models → the ELM catalogue only.**
 The local Llama shim appears as `elm-shim` when its loopback service is
@@ -161,9 +163,10 @@ installed, so this is a per-run decision rather than a per-install one:
     PI_ELM_WEB=1 pi ...     web search and fetching, for that run
     pi --remote ...         the same, and opens the proxy so they can connect
 
-`PI_ELM_WEB=1` on its own turns the tools on while layer 6 still allows only
-the gateway, so every search refuses and lands in the log. That is the honest
-combination for testing the block; `--remote` is the one that works.
+`PI_ELM_WEB=1` on its own turns the tools on while layer 6 stays closed to
+everything but the gateway and the package sources, so every search refuses
+and lands in the log. That is the honest combination for testing the block;
+`--remote` is the one that works.
 
 pi keeps only the last `--exclude-tools` it is given, so a caller's own
 `--exclude-tools` (or `-xt`) is merged into the launcher's list rather than
@@ -223,6 +226,9 @@ both reading `untrustedFolders` in `config/elm-pi.json`:
   (`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.pi`, `~/Library/Keychains`, `/etc`,
   `/usr`, ...). `exact` entries are the folder itself, so a project inside
   `~/Documents` or OneDrive is fine; `tree` entries cover everything beneath.
+  The check compares the folder itself, not its spelling, so `~/downloads`,
+  `//Users/you` or a decomposed-Unicode spelling of home are refused like the
+  listed folder.
   `PI_FORCE=1` starts there anyway. `--version`/`-v`, `--list-models` and
   `pi update` run anywhere, and sub-agent children are not checked: they start
   where their parent already chose.
@@ -238,9 +244,10 @@ both reading `untrustedFolders` in `config/elm-pi.json`:
 Separately, the gate's `path` rules deny reading or writing credential stores
 wherever the session started: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.azure`,
 `~/.config/gh` and `gcloud`, `~/.kube/config`, `~/.docker/config.json`,
-`~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, the macOS keychains,
-browser profiles, Mail and Messages, other agents' state (`~/.pi`,
-`~/.claude`), and `.env` and key files anywhere.
+`~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.password-store`,
+the macOS keychains and the Linux keyrings (`~/.local/share/keyrings`),
+browser profiles, Mail and Messages, other agents' state (`~/.pi`, `~/.claude`),
+and `.env` and key files anywhere.
 
 ### 6. Egress proxy (`proxy/egress.py`)
 
@@ -363,10 +370,13 @@ quoted or escaped (`'ssh' host`), by its full path, with a tab or a second
 space, behind `sudo`, `env`, `xargs`, `command`, `exec`, `nohup`, `timeout` and
 the like (which the gate would otherwise ask about, or allow), run through
 `pixi run`/`pixi exec` (conda-forge ships openssh), `uv run`, `uvx`, `pipx run`
-or `parallel`, or inside
-`bash -c`/`eval` - is refused by `agent/extensions/command-guard.ts`, which
-reads each command the way the shell will run it and applies the gate's own
-rules to that, with their reasons. It loads wherever the gate does: plain
+or `parallel`, behind `builtin` or `env -S`, brace-expanded (`ss{h,} host`),
+in a function's body or a substitution inside `${...}`, `$(( ))` or an array,
+or inside `bash -c`/`eval` (or `flock -c`, `watch`) - is refused by
+`agent/extensions/command-guard.ts`, which reads each command the way the
+shell will run it and applies the gate's own rules to that, with their
+reasons. A command nested too deeply, or brace-expanding to more than 1024
+words, for the guard to read is refused outright. It loads wherever the gate does: plain
 sessions, `--fast`, `-ne` and workflow agents. The guard only refuses: an ask
 the text as written would miss (`git  push`, `'git' push`, `/usr/bin/git push`)
 is refused with the plain spelling to use, so the gate can then ask. A
@@ -443,8 +453,9 @@ PI_ELM_UNLOCK=1 pi ...                                        # layers 1 and 2 o
 PI_ELM_UNLOCK=1 PI_ELM_ALLOWED_PROVIDERS="elm,elm-shim,anthropic" pi ...   # + layer 3
 ```
 
-Layer 6 still allows only the gateway, so a request to the provider is
-refused by the proxy until its host is allowed too, for example
+Layer 6 still refuses any host not on its allowlist (the gateway and the
+package sources), so a request to the provider is refused by the proxy until
+its host is allowed too, for example
 `ELM_PI_PROXY_ALLOW=api.anthropic.com`.
 
 Permanently, for a host or a person with funded access, change the policy at

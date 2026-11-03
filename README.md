@@ -166,7 +166,7 @@ wrapper's fault?".
 | `--fast` | skip the npm package set, which is most of the startup time. The policy extensions and the permission gate still load. No sub-agents, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
 | `--llama` | Llama 3.3 70B via the local shim. A fallback, **not** a speed-up — Qwen is faster here. |
 | `--with-all` | every optional extra, without `--remote`: sets up the agent's Python and the offline PyPI index if missing (once, ~2 GB, recorded so `pi update` keeps them), and offers every tool otherwise left out for size, the `workflow` tools included. The web, the open proxy and computer use stay off. |
-| `--workflows` | offer the `workflow` tool (pi-dynamic-workflows) for this run. Left out otherwise: it is used only on request, and its definition would go with every request. |
+| `--workflows` | offer the `workflow` tool (pi-dynamic-workflows) for this run (`PI_ELM_WORKFLOWS=1` does the same). Left out otherwise: it is used only on request, and its definition would go with every request. |
 | `--remote` | web tools and computer use (screen and app control) on for this run, and the egress proxy records every destination instead of allowing only ELM and the package sources (PyPI, conda-forge, container registries). Models are unaffected: still ELM only. `PI_ELM_WEB=1` turns the tools on without opening the proxy. |
 | `--help` | the launcher's flags and environment, then pi's own help, run with this install's config, offline and with credentials scrubbed |
 
@@ -192,7 +192,7 @@ Hard-won settings that are in here deliberately. Full measurements in
 - **Startup is the npm packages, not pi.** They ship raw TypeScript and are
   transpiled at every launch; `--fast` skips them. Measured when the set was
   three packages: 1.4s to start against 4.7s, and 3.5s against 8.0s end to end
-  on a small edit task. The set is now thirteen and has not been re-measured.
+  on a small edit task. The set is now sixteen and has not been re-measured.
 - **Prefix caching gives ~8x.** Long stable context is cheap; extra agent *turns*
   are what cost. Verified byte-stable prompt prefixes across a session; the
   skill router adds skills as a message after your request, not to the system

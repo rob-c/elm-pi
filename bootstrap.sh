@@ -58,7 +58,7 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
                       and pi too if it is not at its tested version
 
   --no-packages       pi only: no sub-agents, web access or anchor edit
-  --no-tools          skip the bundled fd/rg/jq/yq/shellcheck/ast-grep/uv
+  --no-tools          no bundled fd/rg/jq/yq/shellcheck/ast-grep/uv/mlr/resvg/pixi/ruff
   --with-python       give the agent its own Python: uv-managed CPython and the
                       analysis stack in agent/python (~1GB); `pi setup --python`
   --with-pypi-index   an offline search index of PyPI for the agent, `pypi-search`
@@ -81,7 +81,8 @@ the installer - so an update keeps the install you chose.
 
 Environment: ELM_PI_PYTHON, ELM_PI_BUNDLED_PYTHON, ELM_PI_NODE_VERSION, ELM_PI_NPM_USERCONFIG,
 PI_VERSION, ELM_PI_TOOLS, FD_VERSION, RG_VERSION, JQ_VERSION, YQ_VERSION,
-SHELLCHECK_VERSION, ASTGREP_VERSION, UV_VERSION.
+SHELLCHECK_VERSION, ASTGREP_VERSION, UV_VERSION, MLR_VERSION, RESVG_VERSION,
+PIXI_VERSION, RUFF_VERSION.
 
 Your shell's conda/venv/pyenv Python, nvm/volta Node, ~/.npmrc, ~/.npm and
 PYTHON*/NODE_*/npm_config_* variables are ignored: see lib/sandbox.sh.
@@ -331,7 +332,10 @@ else
   echo "    downloading $TAR"
   curl -q -fsSL -o "$TMP/$TAR" "https://nodejs.org/dist/$NODE_VERSION/$TAR"
   curl -q -fsSL -o "$TMP/SHASUMS256.txt" "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt"
-  want=$(grep " $TAR\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')
+  # The exact file's line - not the .tar.xz beside it - and awk, not grep: a
+  # grep that finds nothing fails the pipeline, and set -e ends the install
+  # before the mismatch message below.
+  want=$(awk -v t="$TAR" '{ f = $2; sub(/^\*/, "", f) } f == t { print $1; exit }' "$TMP/SHASUMS256.txt")
   got=$(sha256_of "$TMP/$TAR") || die "cannot verify $TAR without a sha256 tool"
   if [ -z "$want" ] || [ "$want" != "$got" ]; then die "checksum mismatch for $TAR"; fi
   rm -rf .node && mkdir -p .node
@@ -614,7 +618,10 @@ while IFS= read -r _d; do
     echo "    agent/bin/brew -> scripts/brew (Homebrew at $_d)"
     break
   fi
-done < <(elm_clean_path "${ELM_PI_USER_PATH:-$PATH}" | tr ':' '\n'; printf '%s\n' /opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin)
+# elm_clean_path ends in no newline: the echo keeps its last entry off the
+# first of the standard places.
+done < <({ elm_clean_path "${ELM_PI_USER_PATH:-$PATH}"; echo; } | tr ':' '\n'
+         printf '%s\n' /opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin)
 if [ "$AUTH_LOCK" = "1" ]; then
   # /login writes the credential it obtains to agent/auth.json. Read-only means
   # that write fails, so a commercial subscription cannot be attached to this
@@ -725,7 +732,7 @@ if [ "$WITH_TOOLS" = "1" ]; then
 
   install_tool() {   # $1 binary  $2 version  $3 asset  $4 url  $5 sha256 url ("" if none)
     local bin="$1" version="$2" asset="$3" url="$4" shaurl="$5"
-    local dest="agent/bin/$bin" want got found
+    local dest="agent/bin/$bin" want got found sums vpat
     local cached="$TOOL_CACHE/$bin/$version/$asset" from_cache=0
     want_tool "$bin" || { echo "    $bin skipped (not in ELM_PI_TOOLS)"; return 0; }
     # Already the pinned version? Then there is nothing to update. These are
@@ -733,8 +740,11 @@ if [ "$WITH_TOOLS" = "1" ]; then
     # same as the Node step above - it does not mean "fetch 105MB again". Only
     # a changed pin, a missing binary, or one that will not run gets a
     # download; --force gets one regardless.
+    # The version as a whole word, so 0.17.10 is not taken for a pin of 0.17.1.
+    # shellcheck disable=SC2016 # a sed bracket expression, not an expansion
+    vpat="$(printf '%s' "$version" | sed 's/[][\.*^$(){}?+|/]/\\&/g')"
     if [ "$FORCE" != "1" ] && [ -x "$dest" ] \
-       && "$dest" --version 2>/dev/null | grep -q -- "$version"; then
+       && "$dest" --version 2>/dev/null | grep -Eq -- "(^|[^0-9.])$vpat([^0-9.]|\.([^0-9]|\$)|\$)"; then
       echo "    $bin $version already in agent/bin"
       return 0
     fi
@@ -754,9 +764,14 @@ if [ "$WITH_TOOLS" = "1" ]; then
     # version someone pinned by hand falls back to the project's own published
     # checksum, and installs with a warning when there is none to be had.
     want="$(awk -v a="$bin/$version/$asset" '$2 == a {print $1}' templates/tools.sha256 2>/dev/null | head -1)"
+    # "hash  asset", sha256sum's binary-mode "hash *asset", or a bare hash.
     if [ -z "$want" ] && [ -n "$shaurl" ]; then
-      want="$(curl -q -fsSL "$shaurl" 2>/dev/null \
-              | awk -v a="$asset" '$2 == a {print $1; exit} NF == 1 {print $1; exit}')"
+      if sums="$(curl -q -fsSL "$shaurl" 2>/dev/null)"; then
+        want="$(awk -v a="$asset" '{ f = $2; sub(/^\*/, "", f) }
+                f == a {print $1; exit} NF == 1 {print $1; exit}' <<<"$sums")"
+      else
+        warn "could not fetch the published checksum $shaurl"
+      fi
     fi
     got="$(sha256_of "$TOOLS_TMP/$asset")" || die "cannot verify $asset without a sha256 tool"
     if [ -n "$want" ]; then
@@ -1029,12 +1044,29 @@ OWNED = {
     ),
 }
 
+def as_json(text):
+    # A value pasted into JSON text has to be escaped first: a backslash or a
+    # quote in it would otherwise end the string or start an escape.
+    return json.dumps(text)[1:-1]
+
 def load(path):
     with open(path) as fh:
         raw = fh.read()
-    raw = raw.replace("@QWEN_MODEL@", model_ids["qwen"])
-    raw = raw.replace("@LLAMA_MODEL@", model_ids["llama"])
+    raw = raw.replace("@QWEN_MODEL@", as_json(model_ids["qwen"]))
+    raw = raw.replace("@LLAMA_MODEL@", as_json(model_ids["llama"]))
     return json.loads(raw, object_pairs_hook=collections.OrderedDict)
+
+def same(a, b):
+    # Equal as JSON is: Python's 0 == False and 1 == True do not hold there
+    # (pi's schema rejects 0 for a boolean), 70.0 is still 70, and an object's
+    # key order does not matter, which OrderedDict's == says it does.
+    if isinstance(a, bool) or isinstance(b, bool):
+        return type(a) is type(b) and a == b
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
+    return a == b
 
 def brief(value):
     text = json.dumps(value)
@@ -1051,10 +1083,10 @@ for rel, keys in OWNED.items():
         if key not in tmpl:
             continue
         raw = json.dumps(tmpl[key])
-        raw = raw.replace("@AGENT_DIR@", os.path.join(HERE, "agent"))
-        raw = raw.replace("@INSTALL_DIR@", HERE)
+        raw = raw.replace("@AGENT_DIR@", as_json(os.path.join(HERE, "agent")))
+        raw = raw.replace("@INSTALL_DIR@", as_json(HERE))
         want = json.loads(raw)
-        if live.get(key) != want:
+        if not same(live.get(key), want):
             changed.append((key, live.get(key), want))
             live[key] = want
     if changed:
@@ -1095,7 +1127,7 @@ if os.path.exists(models_path):
         if "qwen" not in m.get("id", "").lower():
             continue
         for key in ("samplingParams", "samplingParamsByThinkingLevel", "compat"):
-            if key in tmpl_qwen and m.get(key) != tmpl_qwen[key]:
+            if key in tmpl_qwen and not same(m.get(key), tmpl_qwen[key]):
                 print(f"    agent/models.json: {key} {json.dumps(m.get(key))} -> {json.dumps(tmpl_qwen[key])}")
                 m[key] = tmpl_qwen[key]
                 models_dirty = True
@@ -1145,7 +1177,12 @@ want = json.load(open(os.path.join(here, "templates/hashline/config.json")))
 path = os.path.join(here, "agent/hashline/config.json")
 try:
     live = json.load(open(path))
-except (OSError, ValueError):
+except OSError:
+    live = {}
+except ValueError:
+    live = None
+if not isinstance(live, dict):
+    print("    agent/hashline/config.json was not a JSON object - replaced")
     live = {}
 changed = sorted(k for k, v in want.items() if live.get(k) != v)
 live.update(want)
@@ -1163,7 +1200,12 @@ want = json.load(open(os.path.join(here, "templates/workflows/settings.json")))
 for path in (os.path.join(here, "agent", "workflows", "settings.json"),):
     try:
         live = json.load(open(path))
-    except (OSError, ValueError):
+    except OSError:
+        live = {}
+    except ValueError:
+        live = None
+    if not isinstance(live, dict):
+        print(f"    {path} was not a JSON object - replaced")
         live = {}
     changed = {k: v for k, v in want.items() if live.get(k) != v}
     if changed:
@@ -1432,6 +1474,13 @@ if elm_py "$HERE/scripts/check_config.py" --root "$HERE" --config; then
   echo "    config: agent/models.json and agent/settings.json match pi $("$HERE/.node/bin/node" -p 'require("./node_modules/@earendil-works/pi-coding-agent/package.json").version')'s schemas"
 else
   die "agent/models.json or agent/settings.json has values this pi rejects (above)"
+fi
+# The gate keeps a config the user edited, so a rule it would read differently
+# from how it is written only warns.
+if elm_py "$HERE/scripts/check_config.py" --root "$HERE" --rules; then
+  echo "    permission rules: each applies in the order and sense written"
+else
+  warn "pi-permission-system applies the rules above differently from how they read (see scripts/check_config.py) - rewrite them in agent/extensions/pi-permission-system/config.json"
 fi
 if [ "$WITH_PACKAGES" = "1" ]; then
   if elm_py "$HERE/scripts/check_config.py" --root "$HERE" --themes; then

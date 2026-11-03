@@ -519,7 +519,7 @@ class ScriptSyntaxTests(unittest.TestCase):
         uncovered = [p.name for p in SCRIPT_FILES
                      if kind(p) in found and f"scripts/{p.name}" not in found[kind(p)]]
         self.assertEqual([], uncovered)
-        self.assertRegex(check, r"\nbash -n .*\$SHELL_SCRIPTS\n")
+        self.assertRegex(check, r"\nfor f in .*\$SHELL_SCRIPTS; do bash -n \"\$f\"; done\n")
         self.assertRegex(check, r"ast\.parse.*\n.*\$PYTHON_SCRIPTS\n")
 
 

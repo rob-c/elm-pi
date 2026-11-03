@@ -78,13 +78,33 @@ _pi_flag tree -C
 _pi_flag shellcheck --color=always
 _pi_flag pytest --color=yes
 
-# Older diffs have no --color, so ask before using it.
+# Older diffs have no --color, so ask before using it. Comparing directories,
+# diff heads each pair of files with its own command line, so there the added
+# flag is taken back out of those lines (and without sed, colour is left off):
+# what diff says must not change. Any argument that may mean -r or name a
+# directory counts; a wrong guess costs a sed. LC_ALL=C: sed must pass any
+# bytes through, a binary's included.
 _pi_has diff && diff() {
 	if _pi_here && command diff --color=always /dev/null /dev/null >/dev/null 2>&1; then
-		command diff --color=always "$@"
-	else
-		command diff "$@"
+		local arg dirs=""
+		for arg in "$@"; do
+			case "$arg" in
+				--rec*) dirs=1 ;;
+				--*=*) [ -d "${arg#*=}" ] && dirs=1 ;;
+				--*) ;;
+				-*r*) dirs=1 ;;
+				*) [ -d "$arg" ] && dirs=1 ;;
+			esac
+		done
+		if [ -z "$dirs" ]; then
+			command diff --color=always "$@"
+			return
+		elif _pi_has sed; then
+			command diff --color=always "$@" | LC_ALL=C command sed -E $'s/^((\e\\[[0-9;]*m)*)diff --color=always /\\1diff /'
+			return "${PIPESTATUS[0]}"
+		fi
 	fi
+	command diff "$@"
 }
 
 _pi_has ruff && ruff() { if _pi_here; then CLICOLOR_FORCE=1 command ruff "$@"; else command ruff "$@"; fi; }
