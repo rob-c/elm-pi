@@ -75,7 +75,8 @@ def _proxy_candidates():
         files = []
     for path in files:
         try:
-            yield "http://127.0.0.1:%d" % int(open(path).read().strip())
+            with open(path) as f:
+                yield "http://127.0.0.1:%d" % int(f.read().strip())
         except (OSError, ValueError):
             continue
 
@@ -182,7 +183,7 @@ def flatten_messages(messages):
         elif role == "tool":
             name = m.get("name") or "function"
             out.append({"role": "user",
-                        "content": (f"FUNCTION RESULT ({name}):\n{m.get('content','')}\n\n"
+                        "content": (f"FUNCTION RESULT ({name}):\n{m.get('content') or ''}\n\n"
                                     "If the task is not finished, emit the next function call "
                                     "as a single-line JSON object NOW. Do not describe the action "
                                     "- perform it. If the task is finished, give the final answer.")})
@@ -193,6 +194,28 @@ def flatten_messages(messages):
 
 
 _JSON_CALL = re.compile(r'\{.*?"name"\s*:\s*".+?".*?\}\s*$', re.S)
+
+def _span_end(s, start):
+    """Index just past the {...} that opens at s[start], or None if it never closes.
+
+    Braces inside JSON strings do not count: a call writing code ("if (x) {")
+    would otherwise end the span early, or never, and the call was lost.
+    """
+    depth, in_str, escaped = 0, False, False
+    for i in range(start, len(s)):
+        ch = s[i]
+        if in_str:
+            if escaped: escaped = False
+            elif ch == "\\": escaped = True
+            elif ch == '"': in_str = False
+        elif ch == '"': in_str = True
+        elif ch == "{": depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return None
+
 
 def extract_call(text, valid_names):
     """Return (tool_calls, leftover_text) parsed out of the model's prose."""
@@ -208,28 +231,13 @@ def extract_call(text, valid_names):
         candidates.append(m.group(0))
     # Scan for ANY balanced {...} span containing "name" - Llama often wraps the
     # call in prose ("Let me read it: {...} now."), which earlier versions missed.
+    # A call that opens the reply and is followed by prose is the span at 0.
     for start in [i for i, ch in enumerate(s) if ch == "{"]:
-        depth = 0
-        for i in range(start, len(s)):
-            if s[i] == "{": depth += 1
-            elif s[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    span = s[start:i + 1]
-                    if '"name"' in span:
-                        candidates.append(span)
-                    break
+        end = _span_end(s, start)
+        if end and '"name"' in s[start:end]:
+            candidates.append(s[start:end])
         if len(candidates) > 4:
             break
-    # Also try the first balanced {...} span, for calls with trailing prose.
-    if s.startswith("{"):
-        depth = 0
-        for i, ch in enumerate(s):
-            if ch == "{": depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    candidates.append(s[:i + 1]); break
     for cand in candidates:
         obj = None
         # strict=False tolerates the literal newlines Llama emits inside JSON
@@ -242,9 +250,11 @@ def extract_call(text, valid_names):
         if obj is None:
             continue
         name = obj.get("name")
-        if not name or (valid_names and name not in valid_names):
+        if not isinstance(name, str) or not name or (valid_names and name not in valid_names):
             continue
         args = obj.get("arguments", obj.get("parameters", {}))
+        if args is None:                      # pi validates arguments as an object
+            args = {}
         if not isinstance(args, str):
             args = json.dumps(args)
         return [{
@@ -367,6 +377,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             with self._upstream("/chat/completions", json.dumps(up).encode(), self.headers) as r:
                 result = json.loads(r.read())
+            if not isinstance(result, dict):
+                raise ValueError("upstream reply is not a JSON object")
+            # A reply the code below would index into must have that shape, or
+            # the handler dies and pi sees the connection drop instead of a 502.
+            choices = result.get("choices") or [{}]
+            if "error" not in result and not (
+                    isinstance(choices, list) and isinstance(choices[0], dict)
+                    and isinstance(choices[0].get("message") or {}, dict)
+                    and isinstance((choices[0].get("message") or {}).get("content") or "", str)):
+                raise ValueError("upstream reply has no usable choice")
         except urllib.error.HTTPError as e:
             self._send(e.code, e.read()); return
         except Exception as e:
@@ -375,7 +395,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if "error" in result:
             self._send(400, json.dumps(result).encode()); return
 
-        choice = (result.get("choices") or [{}])[0]
+        choice = choices[0]
         msg = choice.get("message", {}) or {}
         calls, leftover = extract_call(msg.get("content") or "", valid)
         if calls:
@@ -383,7 +403,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             choice["finish_reason"] = "tool_calls"
         else:
             msg = {"role": "assistant", "content": leftover}
-            choice.setdefault("finish_reason", "stop")
+            choice["finish_reason"] = choice.get("finish_reason") or "stop"
         choice["message"] = msg
         result["choices"] = [choice]
 
@@ -409,7 +429,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             emit({}, "tool_calls")
         else:
             emit({"content": msg.get("content") or ""})
-            emit({}, "stop")
+            emit({}, choice["finish_reason"])
         done = dict(base); done["choices"] = [{"index": 0, "delta": {}, "finish_reason": None}]
         done["usage"] = result.get("usage")
         b = sse(done) + b"data: [DONE]\n\n"

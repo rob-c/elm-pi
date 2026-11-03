@@ -40,6 +40,7 @@ import errno
 import glob
 import json
 import os
+import re
 import select
 import socket
 import sys
@@ -113,7 +114,9 @@ def now():
 
 class Proxy:
     def __init__(self, allow, log_path, upstream=None):
-        self.allow = [h.lower().lstrip(".") for h in allow if h]
+        # Leading dots are the "and subdomains" spelling, trailing ones the
+        # absolute-FQDN spelling; neither is part of the name a host matches.
+        self.allow = [h.lower().strip(".") for h in allow if h]
         # "*" is open mode: no gate, but still a record of every destination.
         self.open_mode = "*" in self.allow
         self.seen_open = set()
@@ -304,7 +307,12 @@ class Proxy:
             self.deny(client, target, f"plain HTTP {method} without a host")
             return
         scheme, _, rest = target.partition("://")
-        authority, slash, path = rest.partition("/")
+        # The authority ends at the path, the query or the fragment, whichever
+        # comes first: "http://host?q" has no path, and reading "host?q" as the
+        # host refused allowed hosts - and, behind an upstream that parses it
+        # properly, let "http://evil.example?.allowed.host" through.
+        authority = re.match(r"[^/?#]*", rest).group()
+        path = rest[len(authority):]
         host, _, port = authority.rpartition(":")
         if not host:
             host, port = authority, "80"
@@ -320,7 +328,9 @@ class Proxy:
         # Rewrite the request line to origin-form, which is what an origin
         # server expects, and leave every header as the client wrote it.
         line, _, tail = head.partition("\r\n")
-        origin_line = f"{method} /{path} {line.rsplit(' ', 1)[-1]}"
+        if not path.startswith("/"):
+            path = "/" + path
+        origin_line = f"{method} {path} {line.rsplit(' ', 1)[-1]}"
         request = (origin_line + "\r\n" + tail).encode("latin-1", "replace") + pending
 
         if self.upstream:
@@ -342,7 +352,10 @@ class Proxy:
             server.sendall(head.encode("latin-1") + pending)
             reply = self.read_upstream_reply(server)
             client.sendall(reply)
-            if b" 200 " not in reply.split(b"\r\n", 1)[0]:
+            # The code, not a substring of the line: "403 Blocked 200 times"
+            # is a refusal.
+            status = reply.split(b"\r\n", 1)[0].split()
+            if len(status) < 2 or status[1] != b"200":
                 server.close()
                 return
         else:
@@ -365,9 +378,14 @@ class Proxy:
         # just goes round again; only a close or an error ends the tunnel.
         for sock in (a, b):
             tune_keepalive(sock)
+        # The sides still sending. An EOF is a half-close, not a hang-up: a
+        # client that shuts its write side once the request is out (nc -N,
+        # shutdown(SHUT_WR)) still wants the response, and ending both
+        # directions on it meant that response never arrived.
+        sending = [a, b]
         try:
-            while True:
-                readable, _, errored = select.select([a, b], [], [a, b], 60)
+            while sending:
+                readable, _, errored = select.select(sending, [], sending, 60)
                 if errored:
                     self.log("DROPPED", target, "socket error while tunnelling")
                     break
@@ -377,8 +395,18 @@ class Proxy:
                     dst = b if src is a else a
                     data = src.recv(BUF)
                     if not data:
-                        return
-                    dst.sendall(data)
+                        sending.remove(src)
+                        try:
+                            dst.shutdown(socket.SHUT_WR)
+                        except OSError:
+                            return             # the other side is gone too
+                        continue
+                    try:
+                        dst.sendall(data)
+                    except OSError:
+                        if dst in sending:
+                            raise
+                        return                 # it had half-closed; now it has gone
         except OSError as err:
             # A reset mid-stream used to vanish here. It is the one thing worth
             # knowing when pi reports a connection error and the log is empty.
@@ -467,9 +495,11 @@ class Proxy:
         # The file advertises a live proxy to the tool-call shim, so it must not
         # outlive the proxy. A crash can still leave one behind, which is why
         # the shim tests the port before believing it.
+        if self.port_file is None:
+            return                              # not serving yet: nothing to drop
         try:
             os.unlink(self.port_file)
-        except (OSError, AttributeError):
+        except OSError:
             pass
 
 
@@ -517,6 +547,12 @@ def parse_upstream(value):
         return None
     v = value.split("://", 1)[-1].rstrip("/")
     v = v.rsplit("@", 1)[-1]  # drop any credentials; we only need host:port
+    if v.startswith("["):
+        # An IPv6 literal: its colons are not the port separator, and the
+        # brackets are URL syntax that create_connection() cannot resolve.
+        host, _, port = v[1:].partition("]")
+        port = port[1:] if port.startswith(":") else (port or "3128")
+        return (host, int(port))
     host, _, port = v.rpartition(":")
     if not host:
         host, port = v, "3128"

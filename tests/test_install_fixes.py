@@ -54,7 +54,8 @@ class Fixture:
                        check=True)
         write(self.root / "agent/settings.json", "{}\n")
         write(self.root / "agent/python-path", sys.executable + "\n")
-        for name in ("elm-only", "protected-paths", "trust-guard", "pinned-instructions", "todo", "skill-router", "elm-shim"):
+        for name in ("elm-only", "protected-paths", "trust-guard", "pinned-instructions", "command-guard", "todo",
+                     "skill-router", "elm-shim"):
             write(self.root / f"agent/extensions/{name}.ts", "export default () => {};\n")
         self.gate = write(self.root / "agent/npm/node_modules/@gotgenes/pi-permission-system/src/index.ts", "\n")
         write(self.root / "proxy/egress.py", "\n")
@@ -123,7 +124,7 @@ class LauncherTests(unittest.TestCase):
     # --- item 7: one policy list, gate required, exclusions merged -----------------
     def test_no_extensions_loads_the_same_policy_as_fast(self):
         policy = {str(self.fx.root / f"agent/extensions/{n}.ts")
-                  for n in ("elm-only", "protected-paths", "trust-guard", "pinned-instructions")} | {str(self.fx.gate)}
+                  for n in ("elm-only", "protected-paths", "trust-guard", "pinned-instructions", "command-guard")} | {str(self.fx.gate)}
         for flag in ("--no-extensions", "-ne"):
             r = self.fx.run(flag, "-p", "x")
             self.assertEqual(0, r.returncode, r.stderr)

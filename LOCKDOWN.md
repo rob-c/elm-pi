@@ -41,7 +41,9 @@ from the catalogue.
 ### 2. Default-deny argument guard (`pi`)
 
 The parser allows only providers declared in `config/elm-pi.json`, compares
-case-insensitively like pi itself, honours repeated-option and `--` semantics,
+case-insensitively like pi itself, honours repeated-option and `--` semantics
+as pi's own parser does (a `--` that is the value of an option such as `--name`
+or `--append-system-prompt` does not end the options),
 and refuses everything else with exit code 2:
 
 ```
@@ -68,7 +70,7 @@ guard; project-local extensions in a repository's `.pi/` stay off unless
 
 ### 3. Catalogue strip (`agent/extensions/elm-only.ts`)
 
-The load-bearing one. pi 1.4 ships 42 built-in providers. Registering a provider with
+The load-bearing one. pi 1.5 ships 42 built-in providers. Registering a provider with
 an empty `models` array **replaces** its catalogue, so the extension strips every
 non-allowed provider to zero models — once at extension load (covers
 `--list-models` and other pre-session paths), then again at session start (covers
@@ -221,7 +223,7 @@ both reading `untrustedFolders` in `config/elm-pi.json`:
   (`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.pi`, `~/Library/Keychains`, `/etc`,
   `/usr`, ...). `exact` entries are the folder itself, so a project inside
   `~/Documents` or OneDrive is fine; `tree` entries cover everything beneath.
-  `PI_FORCE=1` starts there anyway. `--version`, `--list-models` and
+  `PI_FORCE=1` starts there anyway. `--version`/`-v`, `--list-models` and
   `pi update` run anywhere, and sub-agent children are not checked: they start
   where their parent already chose.
 - **`trust-guard.ts` keeps project trust off the same folders.** Trust decides
@@ -268,7 +270,8 @@ environment and the packages already in it stay usable offline.
 `api.anaconda.org` and `prefix.dev` for searching them - the same read-only
 trade as PyPI, with the same caveat that a request names a package the agent
 chose. pixi keeps everything in `agent/pixi`; another channel than conda-forge
-asks the user, and `pixi upload`/`auth` are denied.
+(a `-c`/`--channel` option, a `channel::package` spec, `pixi workspace channel
+add`) asks the user, and `pixi upload`/`auth` are denied.
 
 No certificate, no interception, no decryption: HTTPS through a proxy opens
 with a plaintext `CONNECT host:443`, which is all an allowlist needs. The
@@ -327,13 +330,18 @@ not pass through the proxy (Docker's engine, and Podman on macOS, live in their
 own daemon or VM). The agent may pull images and run them, but every
 `run`/`create` must carry `--network=none`; the rest are denied with that
 reason. `push`, `login` and a remote engine (`-H`, `--context`,
-`podman --remote`/`--connection`) are denied; `build` and `compose` ask,
+`podman --remote`/`--connection`, or `DOCKER_HOST`, `CONTAINER_HOST`,
+`DOCKER_CONTEXT` and `CONTAINER_CONNECTION` set in the command or in pi's own
+environment to anything but a local socket) are denied; `build` and `compose` ask,
 since a Dockerfile's `RUN` steps have an open network. The registries are on
 the proxy's list for a Podman that pulls through it. A bind mount bypasses the
 agent's path protections, so the `containers` skill mounts only the project
-folder - a rule of practice, not one the gate can check. The same caveats as
-below apply: `--network=none` is matched as text anywhere in the command, and
-a `DOCKER_HOST` set in the environment is not seen.
+folder - a rule of practice, not one the gate can check. The rules match
+`--network=none` as text, so `command-guard.ts` also reads the run's own
+options: the last `--network`/`--net` before the image must be `none`, and one
+in the command the container runs (`alpine sh -c 'echo --network=none'`) does
+not count. An option the guard does not know ends that reading early, which
+refuses the run rather than guessing.
 
 Software installs follow the same line. `brew install`, `upgrade`, `fetch` and
 the rest ask the user every time; once approved, `agent/bin/brew` runs that
@@ -342,14 +350,30 @@ its source lives, and writes it to `agent/egress.log` as `UNPROXIED`. The
 approval is the control: core formulae only - casks, third-party taps and
 formula files are denied, since their own code would run unfiltered - and
 calling Homebrew by its full path, past the wrapper, is denied too. Read-only
-`brew info`/`list`/`deps` stay behind the proxy. apt, dnf, yum, zypper, pacman,
-apk, snap, flatpak, MacPorts, `dpkg -i` and `rpm -i` are denied outright: they
-need an administrator, and the agent gives the user the command instead.
+`brew info`/`list`/`deps` stay behind the proxy. Installs, upgrades and
+removals through apt, dnf, yum, zypper, pacman, apk, snap, flatpak, MacPorts,
+`dpkg` and `rpm` are denied outright, their aliases and long options too
+(`zypper rm`, `pacman --sync`, `rpm --install`): they need an administrator,
+and the agent gives the user the command instead.
 
 Each denial tells the model why, so it stops rather than retrying around it.
-The rules see through chains (`cd x && ssh ...`) and through `env`, `xargs`,
-`sudo` and the like; `bash -c "ssh ..."` is not parsed inside and drops to
-asking you. `git push` still asks: over HTTPS the proxy refuses it anyway, and
+The gate matches each command of a chain (`cd x && ssh ...`) and of a
+substitution as written. A denied command spelled so its rules miss it -
+quoted or escaped (`'ssh' host`), by its full path, with a tab or a second
+space, behind `sudo`, `env`, `xargs`, `command`, `exec`, `nohup`, `timeout` and
+the like (which the gate would otherwise ask about, or allow), run through
+`pixi run`/`pixi exec` (conda-forge ships openssh), `uv run`, `uvx`, `pipx run`
+or `parallel`, or inside
+`bash -c`/`eval` - is refused by `agent/extensions/command-guard.ts`, which
+reads each command the way the shell will run it and applies the gate's own
+rules to that, with their reasons. It loads wherever the gate does: plain
+sessions, `--fast`, `-ne` and workflow agents. The guard only refuses: an ask
+the text as written would miss (`git  push`, `'git' push`, `/usr/bin/git push`)
+is refused with the plain spelling to use, so the gate can then ask. A
+`bash -c` with nothing denied inside still asks you, `parallel -S` (which runs
+its commands on other machines over SSH) is denied, and a command name the
+shell computes (`$x host`) is not known before it runs. `git push` asks, with global
+options too (`git -C dir push`): over HTTPS the proxy refuses it anyway, and
 over SSH it is your call each time. Like everything here, these are command
 names, not enforcement: a copied or renamed binary gets past them, and so do
 `!` commands you type yourself, which the gate does not judge. On Linux a network namespace with no other route out

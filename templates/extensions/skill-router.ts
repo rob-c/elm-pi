@@ -65,6 +65,17 @@ interface RoutingDetails {
 }
 
 /**
+ * The pattern with \b made Unicode-aware. JavaScript's \b knows only ASCII word
+ * characters, even under the u flag, so the \b after "5σ" or around "χ²" could
+ * never match and those requests routed nothing.
+ */
+function unicodeWords(pattern: RegExp): RegExp {
+	const word = "[\\p{L}\\p{N}_]";
+	const boundary = `(?:(?<=${word})(?!${word})|(?<!${word})(?=${word}))`;
+	return new RegExp(pattern.source.replaceAll("\\b", boundary), `${pattern.flags}u`);
+}
+
+/**
  * Skill -> what a request that needs it tends to say. Order is priority.
  *
  * Every word here is one that everyday software work does not use the same
@@ -74,22 +85,27 @@ interface RoutingDetails {
  * request. A `^(?=...)(?=...)` alternative is that second kind: both words
  * anywhere in the request - "fit" with "data", "curve", "peak"..., but not
  * "fits on one line" or "overrides fit()". tests/test_skill_router.py runs this
- * table against both kinds of request.
+ * table against both kinds of request. A skill may have a second, case-sensitive
+ * entry for a name that is only a physics term in its own casing ("ROOT file",
+ * not "root file system").
  */
-export const ROUTES: Array<[string, RegExp]> = [
+export const ROUTES: Array<[string, RegExp]> = ([
 	["data-fitting", /^(?=[\s\S]*\b(fit|fits|fitting|fitted|slopes?|calibrat\w*)\b(?!\s*\())(?=[\s\S]*\b(data|dataset|points|measure\w*|curves?|spectr\w*|peaks?|counts|events|histograms?|decays?|gaussian|exponential|polynomial|straight line|parameters|residuals|calibration|resonance|lineshape)\b)|\b(half[- ]?li(fe|ves)|decay (constant|curve|rate)s?|chi2|chi-?squared?|χ²|least[- ]squares|curve_fit|iminuit|lmfit|best[- ]fit|goodness[- ]of[- ]fit|fit (function|range|parameters|results?|quality)|(linear|polynomial|logistic|nonlinear|weighted) regression|pulls)\b/i],
-	["statistics-and-significance", /\b(p-?values?|\d+(\.\d+)?\s*(σ|sigma)|(statistical|discovery|observed|expected|local|global) significance|statistically significant|confidence (level|interval|belt)s?|credible intervals?|upper limits?|CLs (method|limits?|values?)|exclusion (limit|contour|region)s?|(null|alternative|background[- ]only|signal[- ]plus[- ]background) hypothes[ie]s|likelihood[- ]ratio|test statistic|look[- ]elsewhere|feldman[- ]cousins|(detector|trigger|selection|reconstruction|tagging|signal|cut|event|identification) efficienc(y|ies)|efficiency (correction|map|curve)s?)\b/i],
+	["statistics-and-significance", /\b(p[- ]?values?|\d+(\.\d+)?\s*(σ|sigma)|\d+(\.\d+)?\s*% (CL|C\.L|confidence level|credibility)|(statistical|discovery|observed|expected|local|global) significance|statistically significant|confidence (level|interval|belt)s?|credible intervals?|CLs (method|limits?|values?)|exclusion (limit|contour|region)s?|(null|alternative|background[- ]only|signal[- ]plus[- ]background) hypothes[ie]s|likelihood[- ]ratio|test statistic|look[- ]elsewhere|feldman[- ]cousins|(detector|trigger|selection|reconstruction|tagging|signal|cut|event|identification) efficienc(y|ies)|efficiency (correction|map|curve)s?)\b|^(?=[\s\S]*\bupper limits?\b)(?=[\s\S]*\b(CLs?|confidence|credible|cross[- ]sections?|signal|branching (ratio|fraction)s?|exclusion|frequentist|bayesian|poisson)\b)/i],
 	["uncertainty-propagation", /\b(uncertaint(y|ies)|error bars?|error propagation|(statistical|systematic|measurement) (errors?|uncertaint\w*)|systematics|significant figures|sig figs|weighted (average|mean)s?|(in|added in) quadrature|covariance matrix|correlated (errors|inputs|uncertaint\w*))\b/i],
-	["histogram-analysis", /\b(histograms?|binning|(equal|variable|log|fixed|fine|coarse|\d+) bins|bin (width|edges|contents|counts?)|cut ?flow|event selection|uproot|TTree|TH1\w*|ROOT files?)\b/i],
+	["histogram-analysis", /\b(histograms?|binning|(equal|variable|log|fixed|fine|coarse|\d+) bins|bin (width|edges|contents|counts?)|cut ?flow|event selection|uproot|TTree|TH1\w*)\b/i],
+	["histogram-analysis", /\bROOT files?\b/],
 	["derivation-checks", /\b(derive(?!\s*(\(|from\b))|deriving(?!\s*(\(|from\b))|derivations?|derivatives?|closed[- ]form|analytic(al)? (solution|result|expression|form|continuation)s?|analytically|dimensional analysis|limiting cases?|natural units|sympy)\b|^(?=[\s\S]*\b(prove|show that)\b)(?=[\s\S]*\b(equations?|formula|identity|integral|expression|theorem|lemma|operator|commutator|hamiltonian|lagrangian|potential|eigenvalues?|inequality|series)\b)/i],
 	["numerical-methods", /\b(ODEs?|PDEs?|differential equations?|numerical(ly)? (integrat\w*|solution|methods?|stability|precision|error)|numerically (stable|unstable|solve|integrat\w*|evaluat\w*|comput\w*|approximat\w*)|integrat(e|ing|ion) (this |the |an? )?(ODEs?|PDEs?|equations?|system|trajector(y|ies)|orbits?|over|from)|integrators?|integrals? (of|over|from)|quadrature (rule|method|integration)|monte[- ]?carlo|convergence (stud(y|ies)|tests?|checks?|order|rate|criteri\w*)|(order|rate) of convergence|stiff(ness)?( ODEs?| systems?| equations?| problems?| solvers?)?|eigen(value|vector|state|function|mode|system|problem|decomposition)s?|root[- ]find(ing|er)|newton[- ]raphson|runge[- ]kutta|RK4|solve_ivp|odeint|finite[- ](difference|element|volume)s?|floating[- ]point (error|precision|rounding)|round[- ]?off error|catastrophic cancellation|condition number|ill[- ]conditioned)\b|^(?=[\s\S]*\bsimulat\w*)(?=[\s\S]*\b(physics|particles?|ODEs?|PDEs?|equations? of motion|trajector(y|ies)|orbits?|time ?steps?|dynamics|lattice|n-body|monte[- ]?carlo|diffusion|ising|spins?|fluid|heat|waves?|pendulum|oscillators?|planet\w*|molecul\w*)\b)/i],
-	["physical-constants", /\b((physical|fundamental|physics) constants?|(planck|boltzmann|avogadro|gravitational|fine[- ]structure|rydberg|coulomb|stefan[- ]boltzmann|hubble|fermi|coupling) constants?|speed of light|elementary charge|(electron|proton|neutron|muon|pion|kaon|higgs|top quark|[WZ] boson) (mass|charge|lifetime|width)|(masses|mass|lifetimes?|widths?) of (the )?(electron|proton|neutron|muon|tau|pion|kaon|higgs|top|bottom|charm|[a-z]+ quark|[WZ]|[WZ] boson|B meson|D meson|neutrinos?|nucle(us|i)|particles?|mesons?|baryons?|hadrons?|leptons?)|branching (ratio|fraction)s?|(strong|weak|electromagnetic|yukawa|gauge) couplings?|PDG|CODATA|particle data group)\b/i],
+	["physical-constants", /\b((physical|fundamental|physics) constants?|(planck|boltzmann|avogadro|gravitational|fine[- ]structure|rydberg|coulomb|stefan[- ]boltzmann|hubble|fermi|coupling) constants?|speed of light|elementary charge|(electron|proton|neutron|muon|pion|kaon|higgs|top quark|[WZ] boson) (mass|charge|lifetime|width)|(masses|mass|lifetimes?|widths?) of (the )?(electron|proton|neutron|muon|tau|pion|kaon|higgs|top|bottom|charm|quarks|[a-z]+ quarks?|[WZ]|[WZ] boson|B meson|D meson|neutrinos?|nucle(us|i)|particles?|mesons?|baryons?|hadrons?|leptons?)|branching (ratio|fraction)s?|(strong|weak|electromagnetic|yukawa|gauge) couplings?|PDG|CODATA|particle data group)\b/i],
 	["physics-documents", /\b(slides|slide ?deck|beamer|lectures?|lecture notes|problem sheets?|lab reports?|(physics|research|scientific|journal|conference) (paper|report|article)s?|(write|draft)( up)? (a |the |my )?(paper|thesis)|thesis|dissertation|latex|\.tex|bibtex|siunitx|overleaf)\b/i],
-	["scientific-cpp", /(\bC\+\+|\bcpp\b|\bcmake\b|\bEigen\b|\bGSL\b|\bg\+\+|\bclang\b|\bROOT macros?\b)/i],
+	["scientific-cpp", /(\bC\+\+|\bcpp\b|\bcmake\b|\bEigen\b|\bGSL\b|\bg\+\+|\bclang\b)/i],
+	// CERN's ROOT by its capitals, as for histogram-analysis: "root macro" is not it.
+	["scientific-cpp", /\bROOT macros?\b/],
 	["scientific-python", /\b(python|numpy|scipy|matplotlib|pandas|jupyter|ipynb|plot(s|ted|ting)?)\b/i],
-	["installing-software", /\b(install(ing|ed|s)?|brew|homebrew|apt-get|apt|yum|dnf|zypper|command not found|not installed|(module|import)error|no module named|missing (tool|program|package|library|libraries|dependenc(y|ies)|compiler))\b/i],
+	["installing-software", /\b(install(ing|ed|s)?|brew|homebrew|apt-get|apt (install|search|show|policy|update|upgrade)|yum|dnf|zypper|command not found|not installed|(module|import)error|no module named|missing (tool|program|package|library|libraries|dependenc(y|ies)|compiler))\b/i],
 	["containers", /\b(docker|podman|texlive|tex live|latexmk|pdflatex|xelatex|lualatex|compile (the |this |my |a )?(pdf|latex|\.?tex|document|paper|thesis|slides))\b/i],
-];
+] as Array<[string, RegExp]>).map(([name, pattern]): [string, RegExp] => [name, unicodeWords(pattern)]);
 const MAX_ROUTED = 4;
 /** How many of the matches are inlined in full rather than named. */
 const MAX_INLINED = 2;
@@ -112,7 +128,7 @@ export function requestText(prompt: string): string {
 /** Skills the request matches, best first. */
 export function routesFor(prompt: string): string[] {
 	const text = requestText(prompt);
-	return ROUTES.filter(([, pattern]) => pattern.test(text)).map(([name]) => name);
+	return [...new Set(ROUTES.filter(([, pattern]) => pattern.test(text)).map(([name]) => name))];
 }
 
 /**

@@ -34,16 +34,34 @@ elm_policy_model_allowed() {
   [ "$provider" != "$candidate" ] && elm_policy_provider_allowed "$provider"
 }
 
+# True when pi takes the argument after $1 as that option's value whatever it
+# is, "--" and other options included: the options pi 1.5.0's parser
+# (dist/cli/args.js) reads with args[++i] whenever there is a next argument.
+# The others that take a value take it only when it does not start with "-"
+# (--mode, --list-models, an unknown --flag) or is "---" text (-p), so never
+# an option or "--". Whoever walks pi's arguments skips these values, or
+# `--name -- --model x` reads as prompt text to them and as a model to pi.
+elm_policy_takes_value() {
+  case "$1" in
+    --provider|--model|--api-key|--system-prompt|--append-system-prompt|--name|-n|\
+    --session|--session-id|--fork|--session-dir|--models|--tools|-t|--exclude-tools|-xt|\
+    --thinking|--export|--extension|-e|--skill|--prompt-template|--theme) return 0 ;;
+  esac
+  return 1
+}
+
 # True when pi's own extension discovery is disabled. Parse the short alias as
 # well as the long spelling, and stop at -- because everything after it is
-# literal prompt text.
+# literal prompt text - the -- pi reads as such, not an option's value.
 elm_policy_extensions_disabled() {
-  local arg
+  local arg value=0
   for arg in "$@"; do
+    if [ "$value" = "1" ]; then value=0; continue; fi
     case "$arg" in
       --) return 1 ;;
       --no-extensions|-ne) return 0 ;;
     esac
+    if elm_policy_takes_value "$arg"; then value=1; fi
   done
   return 1
 }
@@ -51,7 +69,8 @@ elm_policy_extensions_disabled() {
 # Sets ELM_POLICY_ERROR and returns non-zero when the effective final routing
 # arguments leave the allowlist, or when they load an extension of the caller's
 # choosing. pi itself uses the last repeated option, so the guard does too.
-# Tokens after -- are prompt text, not options.
+# Tokens after -- are prompt text, not options, unless that -- is the value of
+# an option before it (elm_policy_takes_value): pi reads on as options then.
 #
 # -e/--extension is refused whatever it names. An extension runs inside pi with
 # this install's access and its own network code: pi's own ssh.ts example sends
@@ -97,6 +116,7 @@ elm_policy_check_args() {
       --api-key=*) api_key=1 ;;
       -e|--extension) prev="extension" ;;
       --extension=*) extension="${arg#*=}" ;;
+      *) if elm_policy_takes_value "$arg"; then prev="value"; fi ;;
     esac
   done
 
@@ -120,16 +140,20 @@ elm_policy_check_args() {
     return 1
   fi
   if [ -n "$models" ]; then
-    local old_ifs="$IFS" item
-    IFS=','
-    for item in $models; do
+    # Split on commas by hand, as pi does, dropping empty patterns as it does.
+    # Not IFS=, and an unquoted expansion: that IFS reached the allowlist split
+    # in elm_policy_provider_allowed, and the expansion globbed elm/* against
+    # the current folder.
+    local rest="$models," item
+    while [ -n "$rest" ]; do
+      item="$(elm_policy_trim "${rest%%,*}")"
+      rest="${rest#*,}"
+      [ -n "$item" ] || continue
       if ! elm_policy_model_allowed "$item"; then
-        IFS="$old_ifs"
-        ELM_POLICY_ERROR="model pattern \"$(elm_policy_trim "$item")\" is outside the allowed providers."
+        ELM_POLICY_ERROR="model pattern \"$item\" is outside the allowed providers."
         return 1
       fi
     done
-    IFS="$old_ifs"
   fi
   return 0
 }

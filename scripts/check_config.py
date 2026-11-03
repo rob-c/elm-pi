@@ -41,8 +41,9 @@ HANDLED = {"$ref", "anyOf", "const", "enum", "type", "minLength", "pattern", "mi
 TYPES = {
     "string": lambda v: isinstance(v, str),
     "boolean": lambda v: isinstance(v, bool),
-    # bool is an int in Python and never a number in JSON
-    "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
+    # bool is an int in Python and never a number in JSON; 2.0 is an integer
+    # to JSON Schema, as to pi's JavaScript
+    "integer": lambda v: (isinstance(v, int) and not isinstance(v, bool)) or (isinstance(v, float) and v.is_integer()),
     "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
     "object": lambda v: isinstance(v, dict),
     "array": lambda v: isinstance(v, list),

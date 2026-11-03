@@ -93,7 +93,7 @@ function providerPrefix(model: string): string | undefined {
 
 /** Strip the provider and any `:thinking` suffix, leaving the gateway's own id.
  * Only the FIRST segment is the provider: ELM ids contain slashes of their own,
- * as in elm/Qwen/Qwen3.5-397B-A17B-FP8. */
+ * as in elm/<org>/<model>. */
 function modelId(model: string, prefix: string): string {
 	return model.slice(prefix.length).split(":")[0].trim().toLowerCase();
 }

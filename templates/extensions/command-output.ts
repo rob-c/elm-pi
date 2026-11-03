@@ -51,15 +51,21 @@ const COLOUR: Record<Kind, ThemeColor> = {
 
 // "0 errors", "no failures": a count of nothing is not a problem.
 const NOTHING = /\b(?:0|no|zero)\s+(?:errors?|failures?|failed|warnings?)\b/gi;
+// Nor is a label for a count: valgrind's `ERROR SUMMARY: 0 errors`, and
+// unittest's `OK (expected failures=1)`, failures the tests were meant to have.
+const LABELS = /\bERROR SUMMARY:|\bexpected failures?\b/gi;
+// A word followed by an extension is a file name (src/errors.rs), not a report.
 const ERROR_WORDS =
-	/\b(?:error|errors|failed|failure|failures|fatal|exception|traceback|panic(?:ked)?|segmentation fault|core dumped|permission denied|connection refused|could not|no such file|not found|undefined reference|aborted)\b/i;
-// Case matters for these: ValueError, pytest's `E   assert`, Go's FAIL, npm ERR!.
-const ERROR_MARKS = /[a-z](?:Error|Exception)\b|^E\s|^FAIL\b|\bERR!|[✗✘]/;
+	/\b(?:error|errors|failed|failure|failures|fatal|exception|traceback|panic(?:ked)?|segmentation fault|core dumped|permission denied|connection refused|could not|no such file|not found|undefined reference|aborted)\b(?!\.[A-Za-z])/i;
+// Case matters for these: ValueError and OSError, pytest's `E   assert`, Go's
+// FAIL and `--- FAIL: TestSlope`, npm ERR!, TeX's `! Undefined control sequence.`.
+const ERROR_MARKS = /[A-Za-z](?:Error|Exception)\b|^E\s|^\s*(?:--- )?FAIL\b|\bERR!|^! |[✗✘]/;
 const WARNING = /\b(?:warn|warning|warnings|deprecated|deprecation)\b|⚠/i;
 const WARNING_MARKS = /[a-z]Warning\b/;   // DeprecationWarning, RuntimeWarning
 // A linter's finding: `fit.py:3:8: F401 ...` (ruff, flake8), `SC2086` (shellcheck).
-const LINT = /:\d+(?::\d+)?:? [A-Z]{1,3}\d{2,4}\b/;
-const SUCCESS = /\b(?:passed|succeeded|successfully|success)\b|^(?:OK|ok)\b|[✓✔]|\bAll checks passed\b/;
+const LINT = /:\d+(?::\d+)?:? [A-Z]{1,3}\d{2,4}\b|\bSC\d{4}\b/;
+// pytest -v's PASSED, pip's `Successfully installed`, unittest's OK, Go's ok.
+const SUCCESS = /\b(?:passed|succeeded|successfully|success)\b|^ok\b|[✓✔]|\bAll checks passed\b/i;
 // src/fit.py:42:7, ./run.sh:3, and Python's `File "fit.py", line 42`.
 const LOCATION = /(?:(?<![\w/.~-])(?:[A-Za-z]:)?[\w.~/@+-]*[\w-]\.[A-Za-z]\w*:\d+(?::\d+)?)|File "[^"]+", line \d+/g;
 
@@ -76,7 +82,7 @@ export function classify(line: string, diff: boolean): Kind {
 		if (line.startsWith("-")) return "removed";
 		return "plain";
 	}
-	const text = line.replace(NOTHING, "");
+	const text = line.replace(NOTHING, "").replace(LABELS, "");
 	if (ERROR_WORDS.test(text) || ERROR_MARKS.test(text)) return "error";
 	if (WARNING.test(text) || WARNING_MARKS.test(text) || LINT.test(text)) return "warning";
 	if (SUCCESS.test(text)) return "success";
@@ -134,7 +140,9 @@ export function colourText(raw: string): string {
 		return line
 			.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
 			.replace(/\x1b\[[0-9;:?]*[ -/]*[@-~]/g, (seq) => (/^\x1b\[[0-9;:]*m$/.test(seq) ? seq : ""))
-			.replace(/\x1b(?!\[[0-9;:]*m)[@-_]?/g, "")
+			// Any other escape ends at its first byte in 0-~: `tput sgr0`'s
+			// charset reset ESC ( B, save-cursor ESC 7, reset ESC c.
+			.replace(/\x1b(?!\[[0-9;:]*m)[ -/]*[0-~]?/g, "")
 			.replace(/[\x00-\x08\x0b-\x1a\x1c-\x1f\x7f]/g, "")
 			.replace(/\t/g, "   ");
 	});
@@ -168,7 +176,12 @@ export function carryColour(lines: string[]): string[] {
 }
 
 function seconds(ms: number): string {
-	return ms < 1000 ? `${ms}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m${Math.round((ms % 60_000) / 1000)}s`;
+	if (ms < 1000) return `${ms}ms`;
+	// Rounded before the unit is chosen or the minutes split off, so 59960ms
+	// reads 1m0s, not 60.0s, and 119999ms reads 2m0s, not 1m60s.
+	if (Math.round(ms / 100) < 600) return `${(Math.round(ms / 100) / 10).toFixed(1)}s`;
+	const s = Math.round(ms / 1000);
+	return `${Math.floor(s / 60)}m${s % 60}s`;
 }
 
 interface ResultLike {
@@ -319,7 +332,10 @@ export default function commandOutput(pi: ExtensionAPI) {
 				component.clear();
 				const outcome = readResult(result as ResultLike, context.isError, context.durationMs);
 				component.addChild(new Text(`\n${theme.fg(outcome.failed ? "error" : "success", theme.bold(outcome.status))}`, 0, 0));
-				const body = bodyLines(outcome.lines, options.expanded, theme, () => keyHint("app.tools.expand", "to expand"), outcome.colour);
+				// pi 1.5 passes keyHint in the context: the imported one can be this
+				// extension's own copy, which does not see the user's keybindings.
+				const hint = (context as { keyHint?: typeof keyHint }).keyHint ?? keyHint;
+				const body = bodyLines(outcome.lines, options.expanded, theme, () => hint("app.tools.expand", "to expand"), outcome.colour);
 				// The same tint pi gives the box (tool-execution.js), restored after each line.
 				if (body.length) component.addChild(new TerminalPanel(body, theme.getBgAnsi(context.isError ? "toolErrorBg" : "toolSuccessBg")));
 				const rows: string[] = [];

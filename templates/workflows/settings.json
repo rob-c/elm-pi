@@ -6,6 +6,7 @@
     "elm-only",
     "protected-paths",
     "@gotgenes/pi-permission-system",
+    "command-guard",
     "cc-safety-net",
     "pinned-instructions"
   ]

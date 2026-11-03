@@ -94,7 +94,8 @@ print("  reply:", d["choices"][0]["message"].get("content"))
 '
 
 # One state file feeds every generated consumer: the main model, sub-agent
-# overrides, task-model profiles, agent frontmatter and the launcher environment.
+# overrides, task-model profiles, the launcher environment, and AGENTS.md, the
+# agent definitions and the extensions, rendered again from templates/.
 elm_py "$HERE/scripts/elm_config.py" --root "$HERE" set-model qwen "$MODEL_ID"
 
 elm_py - "$HERE" "$MODEL_ID" "$BASE" qwen <<'PY'

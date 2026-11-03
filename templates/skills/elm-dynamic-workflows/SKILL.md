@@ -34,8 +34,8 @@ one in its prompt exactly what to return and to keep scratch under `.pi/tmp/`.
 no `model` runs on the session model. Naming one is how a real run here lost five
 agents at once: the script asked for `elm/qwen-3.5-397b`, an id that does not
 exist, and every agent came back `404 model_not_found`. If a run genuinely needs
-a specific model, the only two are `elm/Qwen/Qwen3.5-397B-A17B-FP8` and
-`elm-shim/meta-llama/Llama-3.3-70B-Instruct`, as exact provider/id pairs;
+a specific model, the only two are `elm/@QWEN_MODEL@` and
+`elm-shim/@LLAMA_MODEL@`, as exact provider/id pairs;
 `agent/extensions/workflow-model-scope.ts` refuses anything else before a session
 is created.
 

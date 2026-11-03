@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced before every bash command (settings.json "shellCommandPrefix").
 #
 # pi reads a command's output through a pipe, so tools see no terminal and
@@ -19,8 +20,10 @@ esac
 # since inside $(...) fd 1 is the substitution's own pipe.
 { _pi_out=$("${_pi_stat[@]}" /dev/fd/3 2>/dev/null); } 3>&1
 
-# True when this call's output goes straight back to pi.
+# True when this call's output goes straight back to pi. NO_COLOR is read
+# again here, so `NO_COLOR=1 git diff` and an export inside the command count.
 _pi_here() {
+	[ -z "${NO_COLOR-}" ] || return 1
 	local id
 	{ id=$("${_pi_stat[@]}" /dev/fd/3 2>/dev/null); } 3>&1
 	[ -n "$id" ] && [ "$id" = "$_pi_out" ]
@@ -36,7 +39,7 @@ _pi_has git && git() {
 	local i=1 sub=""
 	while [ "$i" -le $# ]; do
 		case "${!i}" in
-			-C | -c | --git-dir | --work-tree | --namespace) i=$((i + 2)) ;;
+			-C | -c | --config-env | --git-dir | --work-tree | --namespace) i=$((i + 2)) ;;
 			-*) i=$((i + 1)) ;;
 			*) sub=${!i}; break ;;
 		esac
@@ -90,7 +93,7 @@ _pi_has ruff && ruff() { if _pi_here; then CLICOLOR_FORCE=1 command ruff "$@"; e
 _pi_python() {
 	_pi_has "$1" || return 0
 	eval "$1() {
-		if [ \"\$1 \$2\" = \"-m pytest\" ] && _pi_here; then command $1 -m pytest --color=yes \"\${@:3}\"
+		if [ \"\${1-} \${2-}\" = \"-m pytest\" ] && _pi_here; then command $1 -m pytest --color=yes \"\${@:3}\"
 		else command $1 \"\$@\"; fi
 	}"
 }

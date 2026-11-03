@@ -175,6 +175,7 @@
   "requiredExtensions": [
     "elm-only.ts",
     "protected-paths.ts",
+    "command-guard.ts",
     "todo.ts",
     "elm-shim.ts",
     "workflow-model-scope.ts",

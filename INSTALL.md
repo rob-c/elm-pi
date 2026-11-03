@@ -228,6 +228,7 @@ pi install.
 | `agent/extensions/elm-only.ts` | the ELM-only policy — always refreshed |
 | `agent/extensions/elm-shim.ts` | registers the Llama tool-shim provider |
 | `agent/extensions/protected-paths.ts` | blocks writes to `.env`, `.git/`, `node_modules/` |
+| `agent/extensions/command-guard.ts` | refuses a `bash` command the permission gate's rules deny when it is spelled so they miss it: quoted or escaped (`'ssh' host`), by full path, after `sudo`, `env`, `xargs`, `command` or `exec`, inside `bash -c`, or with extra whitespace (see [LOCKDOWN.md](LOCKDOWN.md)) |
 | `agent/extensions/todo.ts` | adds a `todo` tool for multi-step work |
 | `agent/extensions/pinned-instructions.ts` | `pin_instruction`: standing instructions kept in the system prompt, where compaction cannot summarise them away |
 | `agent/extensions/skill-router.ts` | adds the skills a request needs (see [Skills](#skills-and-the-skill-router)) |

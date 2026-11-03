@@ -104,12 +104,21 @@ Useful environment:
 pi's own flags follow.
 EOU
 }
+# pi reads a "--" that is an option's value (`--name -- --help`) as that value
+# and goes on parsing options, so the help check skips option values as the
+# argument guard does. lib/policy.sh only defines functions; a checkout that
+# lost it still answers --help, stopping at the first --.
+# shellcheck source=/dev/null
+[ -f "$HERE/lib/policy.sh" ] && . "$HERE/lib/policy.sh"
 WANTS_HELP=0
+help_value=0
 for a in "$@"; do
+  if [ "$help_value" = "1" ]; then help_value=0; continue; fi
   case "$a" in
     --) break ;;   # prompt text from here on
     -h|--help) WANTS_HELP=1; break ;;
   esac
+  if command -v elm_policy_takes_value >/dev/null 2>&1 && elm_policy_takes_value "$a"; then help_value=1; fi
 done
 
 # Telemetry is off, and not a knob: it reports the install to pi.dev.
@@ -331,20 +340,29 @@ export PI_SUBAGENT_PI_BINARY="${PI_SUBAGENT_PI_BINARY:-$HERE/pi}"
 #
 # --fast keeps the policy extensions (POLICY_EXTENSIONS below: the ELM-only
 # guard agent/extensions/elm-only.ts, the write protections, pinned
-# instructions and the permission gate), todo and the skill router, and pi's
+# instructions, the command guard and the permission gate), todo and the skill router, and pi's
 # built-in edit tool; it drops anchor editing, subagent/bg_wait and web search.
 # Use a plain `pi` for real multi-step work.
 FAST=0; LLAMA=0; REMOTE=0; WORKFLOWS="${PI_ELM_WORKFLOWS:-0}"; WITH_ALL=0; ARGS=()
 # As given, for the re-launch after --with-all has set something up.
 ORIG_ARGS=("$@")
+# Up to the -- that ends pi's options, as pi reads them: after it, and as the
+# value of an option before it, `--remote` is text, passed on as given.
+flag_prev=""
 for a in "$@"; do
+  if [ -n "$flag_prev" ]; then
+    ARGS+=("$a")
+    [ "$flag_prev" = "stop" ] || flag_prev=""
+    continue
+  fi
   case "$a" in
+    --) flag_prev="stop"; ARGS+=("$a") ;;
     --fast) FAST=1 ;;
     --llama) LLAMA=1 ;;
     --remote) REMOTE=1 ;;
     --workflows) WORKFLOWS=1 ;;
     --with-all) WITH_ALL=1; WORKFLOWS=1 ;;
-    *) ARGS+=("$a") ;;
+    *) ARGS+=("$a"); if elm_policy_takes_value "$a"; then flag_prev="value"; fi ;;
   esac
 done
 set -- ${ARGS[@]+"${ARGS[@]}"}
@@ -417,7 +435,7 @@ fi
 # does `pi update`. Keep them usable when a key has expired or a fresh install
 # still needs configuring; ordinary sessions continue to fail early with guidance.
 NEEDS_ELM_KEY=1
-case "${1:-}" in update|setup|--list-models|--version) NEEDS_ELM_KEY=0 ;; esac
+case "${1:-}" in update|setup|--list-models|--version|-v) NEEDS_ELM_KEY=0 ;; esac
 if [ "$NEEDS_ELM_KEY" = "1" ] && [ -z "${ELM_API_KEY:-}" ]; then
   echo "ELM_API_KEY is not set. Copy $HERE/.env.example to $HERE/.env and add your ELM key." >&2
   echo "Run $HERE/bootstrap.sh if this install has not been set up yet." >&2
@@ -508,7 +526,7 @@ case " $* " in *" elm-shim"*|*"elm-shim/"*) WANTS_SHIM=1 ;; esac
 # pinned instructions. The permission gate ships as a package, so it is named by
 # path; a release that moves its entry point must not quietly drop the gate,
 # so a missing entry in an installed package stops the launch.
-POLICY_EXTENSIONS="elm-only protected-paths trust-guard pinned-instructions"
+POLICY_EXTENSIONS="elm-only protected-paths trust-guard pinned-instructions command-guard"
 GATE_PKG="$HERE/agent/npm/node_modules/@gotgenes/pi-permission-system"
 GATE="$GATE_PKG/src/index.ts"
 add_policy_extensions() {
@@ -552,11 +570,19 @@ fi
 if [ "$FAST" != "1" ] && elm_policy_extensions_disabled "$@"; then
   add_policy_extensions
 fi
+# Unless the caller already chose: a --model or --provider among pi's options,
+# not those words inside the prompt or an option's value.
 if [ "$LLAMA" = "1" ]; then
-  case " $* " in
-    *" --model "*|*" --model="*|*" --provider "*) : ;;   # caller already chose
-    *) PRE+=(--model "$LLAMA_MODEL") ;;
-  esac
+  llama_chosen=0; llama_prev=""
+  for a in "$@"; do
+    if [ "$llama_prev" = "value" ]; then llama_prev=""; continue; fi
+    case "$a" in
+      --) break ;;
+      --model|--model=*|--provider) llama_chosen=1; break ;;
+    esac
+    if elm_policy_takes_value "$a"; then llama_prev="value"; fi
+  done
+  [ "$llama_chosen" = "1" ] || PRE+=(--model "$LLAMA_MODEL")
 fi
 # ---------------------------------------------------------------------------
 
@@ -602,11 +628,13 @@ if [ -n "$XT_LIST" ]; then
   for a in "$@"; do
     if [ "$xt_prev" = "stop" ]; then XT_ARGS+=("$a"); continue; fi
     if [ "$xt_prev" = "value" ]; then XT_USER="${XT_USER:+$XT_USER,}$a"; xt_prev=""; continue; fi
+    # Another option's value, "-xt" or "--" included, is passed on as it is.
+    if [ "$xt_prev" = "other" ]; then XT_ARGS+=("$a"); xt_prev=""; continue; fi
     case "$a" in
       --) xt_prev="stop"; XT_ARGS+=("$a") ;;
       --exclude-tools|-xt) xt_prev="value" ;;
-      --tools|-t) XT_TOOLS=1; XT_ARGS+=("$a") ;;
-      *) XT_ARGS+=("$a") ;;
+      --tools|-t) XT_TOOLS=1; xt_prev="other"; XT_ARGS+=("$a") ;;
+      *) XT_ARGS+=("$a"); if elm_policy_takes_value "$a"; then xt_prev="other"; fi ;;
     esac
   done
   # A trailing flag with no value is pi's to report, not ours to swallow.

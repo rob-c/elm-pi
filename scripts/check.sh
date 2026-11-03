@@ -11,12 +11,33 @@ elm_select_python "$HERE" || { echo "check.sh: $ELM_PY_ERROR" >&2; exit 1; }
 SOURCE_ONLY=0
 [ "${1:-}" = "--source-only" ] && SOURCE_ONLY=1
 
-bash -n install.sh bootstrap.sh configure.sh pi pi.orig shim/run.sh lib/*.sh scripts/*.sh
-elm_py -c 'import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in ["patch-pi.py", "proxy/egress.py", "shim/shim.py", "scripts/elm_config.py", "scripts/verify_install.py", "scripts/check_config.py", "scripts/pin_versions.py"]]'
+# Every shell and Python script in scripts/, by extension or shebang, so a new
+# one is checked without being added to a list here: the agent's tools
+# (brew, conda-search, pypi-search) have no extension, and a hand-kept list
+# missed them.
+SHELL_SCRIPTS="" PYTHON_SCRIPTS=""
+for f in scripts/*; do
+  [ -f "$f" ] || continue
+  case "$f" in
+    *.sh) SHELL_SCRIPTS="$SHELL_SCRIPTS $f" ;;
+    *.py) PYTHON_SCRIPTS="$PYTHON_SCRIPTS $f" ;;
+    *) case "$(head -n 1 "$f")" in
+         '#!'*bash*|'#!/bin/sh') SHELL_SCRIPTS="$SHELL_SCRIPTS $f" ;;
+         '#!'*python*) PYTHON_SCRIPTS="$PYTHON_SCRIPTS $f" ;;
+       esac ;;
+  esac
+done
+
+# shellcheck disable=SC2086 # the lists split on spaces; no script name has one
+bash -n install.sh bootstrap.sh configure.sh pi pi.orig shim/run.sh lib/*.sh $SHELL_SCRIPTS
+# shellcheck disable=SC2086
+elm_py -c 'import ast, pathlib, sys; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in sys.argv[1:]]' \
+  patch-pi.py proxy/egress.py shim/shim.py $PYTHON_SCRIPTS
 elm_py -m unittest discover -s tests -v
 
 if command -v shellcheck >/dev/null 2>&1; then
-  shellcheck -x install.sh bootstrap.sh configure.sh pi pi.orig shim/run.sh lib/*.sh scripts/*.sh
+  # shellcheck disable=SC2086
+  shellcheck -x install.sh bootstrap.sh configure.sh pi pi.orig shim/run.sh lib/*.sh $SHELL_SCRIPTS
 fi
 
 # The type check needs a node and typescript and nothing else, so it does not

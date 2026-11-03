@@ -11,6 +11,10 @@
  * here and missed the ones that do. Verified at the time: the agent changed
  * `bare = false` to `bare = true` in a repository's `.git/config` through
  * `replace`, with this extension loaded.
+ *
+ * Names are compared case-insensitively. macOS's default filesystem is
+ * case-insensitive, so a write to `.GIT/config` lands in `.git/config`; on a
+ * case-sensitive filesystem the cost is only refusing an oddly named file.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -58,10 +62,12 @@ function blockedReason(rawPath: string): string | undefined {
 		.split("/")
 		.filter((segment) => segment !== "" && segment !== ".");
 
-	for (const segment of segments) {
+	// Lower-cased, the segment is also the canonical name the reason gives.
+	const names = segments.map((segment) => segment.toLowerCase());
+	for (const segment of names) {
 		if (BLOCKED_DIRS.has(segment)) return `"${segment}" is protected`;
 	}
-	const name = segments[segments.length - 1];
+	const name = names[names.length - 1];
 	if (name && isDotenv(name)) return "dotenv files are protected";
 	return undefined;
 }

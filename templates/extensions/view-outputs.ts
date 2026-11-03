@@ -440,10 +440,22 @@ function header(path: string, result: Rendered, cwd: string): string {
 	const name = (path.startsWith(`${cwd}/`) ? relative(cwd, path) : path) + (result.via ? ` (converted with ${result.via})` : "");
 	if (result.pages <= 1) return `${name}:`;
 	const shown = result.shown.map((i) => i + 1);
-	const range = shown.length ? `pages ${shown[0]}-${shown[shown.length - 1]}` : "no pages";
+	const range = shown.length ? `${shown.length > 1 ? "pages" : "page"} ${spans(shown)}` : "no pages";
+	const last = shown[shown.length - 1];
 	const more =
-		shown.length && shown[shown.length - 1] < result.pages
-			? ` - view it with pages "${shown[shown.length - 1] + 1}-${result.pages}" for the rest`
+		shown.length && last < result.pages
+			? ` - view it with pages "${spans(Array.from({ length: result.pages - last }, (_, i) => last + 1 + i))}" for the rest`
 			: "";
 	return `${name}: ${result.pages} pages, showing ${range}${more}.`;
+}
+
+/** [1,2,3,7] -> "1-3,7", in the syntax `pages` takes: "2,4" must not read as 2-4. */
+function spans(pages: number[]): string {
+	const parts: string[] = [];
+	for (let i = 0; i < pages.length; i++) {
+		const from = pages[i];
+		while (i + 1 < pages.length && pages[i + 1] === pages[i] + 1) i++;
+		parts.push(from === pages[i] ? `${from}` : `${from}-${pages[i]}`);
+	}
+	return parts.join(",");
 }

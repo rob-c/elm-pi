@@ -6,11 +6,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 from pathlib import Path
 
 
 TOKENS = {"qwen": "@QWEN_MODEL@", "llama": "@LLAMA_MODEL@"}
+# Config people tune, which bootstrap.sh writes only when it is absent: set-model
+# moves the model id in it and leaves everything else as it is.
+CONFIGS = ("agent/models.json", "agent/settings.json", "agent/config/pi-task-models/config.json")
 
 
 def load(root: Path) -> tuple[dict, dict]:
@@ -59,13 +63,19 @@ def write_runtime(root: Path) -> None:
     os.chmod(path, 0o600)
 
 
+def replace_id(text: str, old: str, new: str) -> str:
+    """OLD replaced where it stands as a whole model id - "OLD", "elm/OLD",
+    "OLD (ELM)" - and not inside a longer one such as a hand-added "OLD-NEW"."""
+    return re.sub(rf"(?<![\w.-]){re.escape(old)}(?![\w.-])", lambda _: new, text)
+
+
 def replace_json(value, old: str, new: str):
     if isinstance(value, dict):
         return {replace_json(k, old, new): replace_json(v, old, new) for k, v in value.items()}
     if isinstance(value, list):
         return [replace_json(v, old, new) for v in value]
     if isinstance(value, str):
-        return value.replace(old, new)
+        return replace_id(value, old, new)
     return value
 
 
@@ -77,21 +87,26 @@ def set_model(root: Path, name: str, model: str) -> None:
     state_path.write_text(json.dumps(current, indent=2) + "\n")
     os.chmod(state_path, 0o600)
 
-    # Update every generated runtime consumer, including dictionary keys such as
-    # modelThinkingLevels. Hand-tuned unrelated values remain untouched.
-    for rel in (
-        "agent/models.json",
-        "agent/settings.json",
-        "agent/config/pi-task-models/config.json",
-    ):
+    # The tuned config, including dictionary keys such as modelThinkingLevels.
+    # Hand-tuned unrelated values remain untouched.
+    for rel in CONFIGS:
         path = root / rel
         if path.exists():
             data = json.loads(path.read_text())
             path.write_text(json.dumps(replace_json(data, old, model), indent=2) + "\n")
-    for rel in ("agent/agents/qwen.md", "agent/agents/llama.md", "agent/extensions/elm-shim.ts"):
-        path = root / rel
-        if path.exists():
-            path.write_text(path.read_text().replace(old, model))
+    # Every other installed file with a model id in it - AGENTS.md, the agent
+    # definitions, the extensions - is code bootstrap.sh renders from templates/
+    # on every run: render it the same way again, so none keeps the old id
+    # until the next bootstrap. One that is not installed (elm-shim.ts under
+    # --no-shim) is not created.
+    templates = root / "templates"
+    for source in sorted(templates.rglob("*")):
+        rel = source.relative_to(templates).as_posix()
+        destination = root / "agent" / rel
+        if f"agent/{rel}" in CONFIGS or not (source.is_file() and destination.is_file()):
+            continue
+        if any(token in source.read_text() for token in TOKENS.values()):
+            render_file(root, source, destination)
     write_runtime(root)
 
 

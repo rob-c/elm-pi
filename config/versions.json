@@ -1,6 +1,6 @@
 {
   "core": {
-    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@earendil-works/pi-coding-agent": "1.5.0",
     "mupdf": "1.28.1"
   },
   "packages": {

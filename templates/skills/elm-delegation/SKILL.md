@@ -151,7 +151,7 @@ Splitting a fan-out across both models makes it **slower**, not faster: the Llam
 half sets the wall time. Qwen also holds up under concurrency - 12 parallel
 sub-agents came back in 2.5s.
 
-`elm-shim/meta-llama/Llama-3.3-70B-Instruct` remains available for when Qwen is
+`elm-shim/@LLAMA_MODEL@` remains available for when Qwen is
 rate-limited or unavailable, and it reaches tool calling through a local
 translating proxy (the `elm-shim` provider, started automatically by the
 `elm-shim` extension); its native ELM endpoint cannot call tools at all. The shim

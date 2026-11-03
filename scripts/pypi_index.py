@@ -96,6 +96,10 @@ def search(terms: list[str], all_terms: bool, limit: int, db: Path) -> int:
     if not db.exists():
         print(f"pypi-search: no index at {db}. It is built by bootstrap.sh --with-pypi-index.", file=sys.stderr)
         return 1
+    # rows[:limit] with a negative limit drops matches from the end instead
+    if limit < 1:
+        print(f"pypi-search: -n takes a positive number of results, not {limit}", file=sys.stderr)
+        return 2
     words = [w for w in re.findall(r"\w+", " ".join(terms).lower()) if w]
     if not words:
         print("pypi-search: give some words to search for, e.g. pypi-search spectral line fitting", file=sys.stderr)
