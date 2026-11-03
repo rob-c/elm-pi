@@ -355,9 +355,9 @@ class LauncherBehaviourClaimTests(unittest.TestCase):
         self.assertIn("the launcher writes `.pi/.gitignore` containing `*`", FLAT["INSTALL.md"])
         self.assertIn("printf '*\\n' > .pi/.gitignore", LAUNCHER)
 
-    def test_fast_adds_todo_and_the_skill_router(self):
-        self.assertIn("plus `todo` and the skill router", FLAT["INSTALL.md"])
-        self.assertIn("for e in todo skill-router; do", LAUNCHER)
+    def test_fast_adds_todo_the_skill_router_and_remote_research(self):
+        self.assertIn("plus `todo`, the skill router and, with `--remote`, the research instruction", FLAT["INSTALL.md"])
+        self.assertIn("for e in todo skill-router remote-research; do", LAUNCHER)
 
     def test_remote_opens_the_proxy_with_a_star(self):
         self.assertIn("Open mode is a single `*` in the allowlist", FLAT["LOCKDOWN.md"])

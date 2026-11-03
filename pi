@@ -78,7 +78,8 @@ Flags added by this launcher:
                       package sources (PyPI, conda-forge, container
                       registries). The model is not affected - inference still
                       goes to ELM and nowhere else, and no other provider
-                      becomes reachable
+                      becomes reachable. The model is told to research with
+                      the web tools rather than answer from memory
   --help, -h          this text, then pi's own
 
 Optional parts, added or taken back (recorded, so pi update keeps the choice):
@@ -343,7 +344,8 @@ export PI_SUBAGENT_PI_BINARY="${PI_SUBAGENT_PI_BINARY:-$HERE/pi}"
 #
 # --fast keeps the policy extensions (POLICY_EXTENSIONS below: the ELM-only
 # guard agent/extensions/elm-only.ts, the write protections, pinned
-# instructions, the command guard and the permission gate), todo and the skill router, and pi's
+# instructions, the command guard and the permission gate), todo, the skill router and
+# remote-research, and pi's
 # built-in edit tool; it drops anchor editing, subagent/bg_wait and web search.
 # Use a plain `pi` for real multi-step work.
 FAST=0; LLAMA=0; REMOTE=0; WORKFLOWS="${PI_ELM_WORKFLOWS:-0}"; WITH_ALL=0; ARGS=()
@@ -485,6 +487,8 @@ fi
 #   ELM_PI_PROXY_ALLOW=api.exa.ai pi   one extra host, nothing else
 if [ "$REMOTE" = "1" ]; then
   export PI_ELM_WEB=1
+  # remote-research.ts reads this, here and in sub-agents, which inherit it
+  export PI_ELM_REMOTE=1
   ELM_PI_PROXY_ALLOW="${ELM_PI_PROXY_ALLOW:+$ELM_PI_PROXY_ALLOW,}*"
   export ELM_PI_PROXY_ALLOW
   echo "pi: --remote - web tools on, and the egress proxy is recording rather than" >&2
@@ -560,7 +564,7 @@ if [ "$FAST" = "1" ]; then
   add_policy_extensions
   # Conveniences on top of the policy: cheap, local, and what makes --fast
   # still feel like this install.
-  for e in todo skill-router; do
+  for e in todo skill-router remote-research; do
     if [ -f "$HERE/agent/extensions/$e.ts" ]; then PRE+=(-e "$HERE/agent/extensions/$e.ts"); fi
   done
   if [ "$WANTS_SHIM" = "1" ] && [ -f "$HERE/agent/extensions/elm-shim.ts" ]; then

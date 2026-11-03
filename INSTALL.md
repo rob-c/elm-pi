@@ -231,6 +231,7 @@ pi install.
 | `agent/extensions/trust-guard.ts` | never grants project trust to home, the filesystem root or a folder that holds credentials (`untrustedFolders` in `config/elm-pi.json`), and does not let a saved "Trust parent folder" there pass down to the folders beneath (see [LOCKDOWN.md](LOCKDOWN.md)) |
 | `agent/extensions/command-guard.ts` | refuses a `bash` command the permission gate's rules deny when it is spelled so they miss it: quoted or escaped (`'ssh' host`), by full path, after `sudo`, `env`, `xargs`, `command` or `exec`, inside `bash -c`, or with extra whitespace (see [LOCKDOWN.md](LOCKDOWN.md)) |
 | `agent/extensions/todo.ts` | adds a `todo` tool for multi-step work |
+| `agent/extensions/remote-research.ts` | in a `pi --remote` session (and its sub-agents) only, which the launcher marks with `PI_ELM_REMOTE=1`: a system-prompt section telling the model to ALWAYS research with the web tools, cite what it used, and say what it could not confirm, rather than answer from memory |
 | `agent/extensions/pinned-instructions.ts` | `pin_instruction`: standing instructions kept in the system prompt, where compaction cannot summarise them away |
 | `agent/extensions/skill-router.ts` | adds the skills a request needs (see [Skills](#skills-and-the-skill-router)) |
 | `agent/extensions/view-outputs.ts` | shows Qwen its figures: image and PDF files a command writes are attached to its result, `view` renders PDF pages (with their text) and TIFF/BMP, and a PDF given to `read` is rendered. Uses the bundled `mupdf` (WebAssembly; nothing downloaded at run time). SVG, EPS/PS, HEIC and PSD go through a command-line converter first (rsvg-convert, Inkscape, ImageMagick, Ghostscript, epstopdf; sips and qlmanage on macOS) when the machine has one |
@@ -641,7 +642,8 @@ the network.
 
 1. **`pi --fast`** for one-shot work. Loads only local extensions — the policy
    set (the ELM-only guard, protected paths, trust guard, pinned instructions,
-   command guard and the permission gate), plus `todo` and the skill router —
+   command guard and the permission gate), plus `todo`, the skill router and,
+   with `--remote`, the research instruction —
    and keeps pi's built-in `edit` tool. No sub-agents, web search or anchor
    editing. The policy set is the same one loaded when you pass
    `--no-extensions`/`-ne` yourself, and a missing policy file stops the launch

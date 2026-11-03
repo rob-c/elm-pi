@@ -1364,5 +1364,87 @@ generate(ViewOutputsTests, {n: {"expected": e} for n, (_, e) in DETECTED.items()
 generate(ViewOutputsTests, VIEW, _check_view)
 
 
+# --------------------------------------------------------------------------
+# remote-research
+# --------------------------------------------------------------------------
+
+# One run per value of PI_ELM_REMOTE: the sections a prompt ends up with, and
+# whether the extension registered a handler at all.
+REMOTE_RESEARCH_RUNNER = r"""
+import { pathToFileURL } from "node:url";
+const [file] = process.argv.slice(1);
+const mod = await import(pathToFileURL(file).href);
+const out = {};
+for (const value of [null, "", "0", "true", "1"]) {
+  if (value === null) delete process.env.PI_ELM_REMOTE; else process.env.PI_ELM_REMOTE = value;
+  const handlers = [];
+  mod.default({ on: (name, fn) => handlers.push([name, fn]) });
+  const event = { systemPromptOptions: { sections: { other: "kept", remote_research: "stale" } } };
+  for (const [name, fn] of handlers) if (name === "before_agent_start") fn(event, {});
+  out[String(value)] = { handlers: handlers.map(([name]) => name), sections: event.systemPromptOptions.sections };
+}
+out.text = mod.RESEARCH;
+console.log(JSON.stringify(out));
+"""
+
+
+class RemoteResearchTests(unittest.TestCase):
+    """remote-research.ts: the section is there in a --remote session and nowhere else."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp()).resolve()
+        try:
+            shutil.copy(EXTENSIONS / "remote-research.ts", cls.tmp / "remote-research.ts")
+            cls.results = run_node(REMOTE_RESEARCH_RUNNER, [cls.tmp / "remote-research.ts"],
+                                   {"PATH": "/usr/bin:/bin", "HOME": str(cls.tmp)}, cls.tmp)
+        except BaseException:
+            shutil.rmtree(cls.tmp, ignore_errors=True)
+            raise
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_remote_adds_the_section(self):
+        result = self.results["1"]
+        self.assertEqual(["before_agent_start"], result["handlers"])
+        self.assertEqual(self.results["text"], result["sections"]["remote_research"])
+        self.assertEqual("kept", result["sections"]["other"])
+
+    def test_anything_else_registers_nothing(self):
+        for value in ("null", "", "0", "true"):
+            with self.subTest(PI_ELM_REMOTE=value):
+                self.assertEqual([], self.results[value]["handlers"])
+                self.assertEqual({"other": "kept", "remote_research": "stale"}, self.results[value]["sections"])
+
+    def test_the_text_insists_on_research_and_sources(self):
+        text = self.results["text"]
+        self.assertIn("ALWAYS research", text)
+        self.assertIn("`web_search`", text)
+        self.assertIn("`fetch_content`", text)
+        self.assertIn("cite the source", text)
+        self.assertIn("Never invent", text)
+        self.assertIn("say so plainly", text)
+
+
+class RemoteResearchWiringTests(unittest.TestCase):
+    """The launcher turns it on for --remote only, and every mode that loads extensions loads it."""
+
+    launcher = (ROOT / "pi").read_text()
+
+    def test_remote_exports_the_flag(self):
+        block = self.launcher.split('if [ "$REMOTE" = "1" ]; then', 1)[1].split("\nfi\n", 1)[0]
+        self.assertIn("export PI_ELM_REMOTE=1", block)
+        self.assertEqual(1, self.launcher.count("PI_ELM_REMOTE=1"))
+
+    def test_fast_loads_it(self):
+        self.assertRegex(self.launcher, r"for e in todo skill-router remote-research; do")
+
+    def test_required_so_bootstrap_installs_it(self):
+        required = json.loads((ROOT / "config/elm-pi.json").read_text())["requiredExtensions"]
+        self.assertIn("remote-research.ts", required)
+
+
 if __name__ == "__main__":
     unittest.main()

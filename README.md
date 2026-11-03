@@ -167,7 +167,7 @@ wrapper's fault?".
 | `--llama` | Llama 3.3 70B via the local shim. A fallback, **not** a speed-up — Qwen is faster here. |
 | `--with-all` | every optional extra, without `--remote`: sets up the agent's Python and the offline PyPI index if missing (once, ~2 GB, recorded so `pi update` keeps them), and offers every tool otherwise left out for size, the `workflow` tools included. The web, the open proxy and computer use stay off. |
 | `--workflows` | offer the `workflow` tool (pi-dynamic-workflows) for this run (`PI_ELM_WORKFLOWS=1` does the same). Left out otherwise: it is used only on request, and its definition would go with every request. |
-| `--remote` | web tools and computer use (screen and app control) on for this run, and the egress proxy records every destination instead of allowing only ELM and the package sources (PyPI, conda-forge, container registries). Models are unaffected: still ELM only. `PI_ELM_WEB=1` turns the tools on without opening the proxy. |
+| `--remote` | web tools and computer use (screen and app control) on for this run, and the egress proxy records every destination instead of allowing only ELM and the package sources (PyPI, conda-forge, container registries). Models are unaffected: still ELM only, but the model is told to always research with the web tools, and cite them, rather than answer from memory. `PI_ELM_WEB=1` turns the tools on without opening the proxy. |
 | `--help` | the launcher's flags and environment, then pi's own help, run with this install's config, offline and with credentials scrubbed |
 
 | Command | |
