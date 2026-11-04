@@ -522,6 +522,18 @@ class ScriptSyntaxTests(unittest.TestCase):
         self.assertRegex(check, r"\nfor f in .*\$SHELL_SCRIPTS; do bash -n \"\$f\"; done\n")
         self.assertRegex(check, r"ast\.parse.*\n.*\$PYTHON_SCRIPTS\n")
 
+    # install.sh runs `check.sh --source-only` on every install and update: the
+    # syntax checks only, never the unit tests or ShellCheck.
+    def test_source_only_skips_the_tests_and_shellcheck(self):
+        check = (ROOT / "scripts/check.sh").read_text()
+        self.assertIn('[ "$SOURCE_ONLY" = "1" ] || elm_py -m unittest discover -s tests -v\n', check)
+        self.assertIn('if [ "$SOURCE_ONLY" = "0" ] && command -v shellcheck', check)
+        self.assertIn("./scripts/check.sh --source-only", (ROOT / "install.sh").read_text())
+        run = subprocess.run(["bash", "scripts/check.sh", "--source-only"], cwd=ROOT,
+                             capture_output=True, text=True, timeout=120)
+        self.assertEqual(0, run.returncode, run.stderr)
+        self.assertNotIn("Ran ", run.stdout + run.stderr)
+
 
 # The Python ones are imported, and so compiled, by tests/test_scripts.py.
 generate(ScriptSyntaxTests, [(f"shell_script_{slug(p.name)}_parses", p) for p in SCRIPT_FILES if kind(p) == "bash"],

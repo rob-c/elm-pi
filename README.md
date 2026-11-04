@@ -219,7 +219,8 @@ Hard-won settings that are in here deliberately. Full measurements in
 
 Run `./scripts/check.sh` before committing. It performs shell and Python syntax
 checks, policy/runtime tests, ShellCheck when available, and TypeScript checking
-when `typescript` is installed in the checkout. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+when `typescript` is installed in the checkout. The installer runs only its
+syntax checks (`--source-only`) on the source it downloads. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
 dependency-update and generated-configuration workflow.
 
 ## Cost and policy

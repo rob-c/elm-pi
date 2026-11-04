@@ -8,6 +8,10 @@ cd "$HERE"
 ELM_PI_ROOT="$HERE"
 elm_select_python "$HERE" || { echo "check.sh: $ELM_PY_ERROR" >&2; exit 1; }
 
+# --source-only is what install.sh runs on a downloaded release: the syntax
+# checks, which take a second or two. Not the unit tests, which take minutes
+# and already passed in CI for that commit, and not ShellCheck, whose verdict
+# depends on whichever version the user happens to have. Without it (before committing, and in CI) everything runs.
 SOURCE_ONLY=0
 [ "${1:-}" = "--source-only" ] && SOURCE_ONLY=1
 
@@ -34,9 +38,9 @@ for f in install.sh bootstrap.sh configure.sh pi pi.orig shim/run.sh lib/*.sh $S
 # shellcheck disable=SC2086
 elm_py -c 'import ast, pathlib, sys; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in sys.argv[1:]]' \
   patch-pi.py proxy/egress.py shim/shim.py $PYTHON_SCRIPTS
-elm_py -m unittest discover -s tests -v
+[ "$SOURCE_ONLY" = "1" ] || elm_py -m unittest discover -s tests -v
 
-if command -v shellcheck >/dev/null 2>&1; then
+if [ "$SOURCE_ONLY" = "0" ] && command -v shellcheck >/dev/null 2>&1; then
   # shellcheck disable=SC2086
   shellcheck -x install.sh bootstrap.sh configure.sh pi pi.orig shim/run.sh lib/*.sh $SHELL_SCRIPTS
 fi
