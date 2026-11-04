@@ -208,6 +208,8 @@
   h3 { font-size: 17px; margin: 26px 0 6px; }
   p { margin: 0 0 15px; max-width: 68ch; }
   figure.shot { margin: 22px 0 26px; }
+  .install-again .plate { margin: 0 0 22px; padding: 26px 22px 20px; box-shadow: none; }
+  .install-again .plate pre { font-size: clamp(13px, 1.5vw, 16px); }
   figure.shot img {
     display: block; width: 100%; height: auto;
     border: 1px solid var(--line); border-radius: 10px; background: var(--term);
@@ -450,6 +452,25 @@ cat paper.tex | pi -p "find the undefined references"</pre>
     <a href="https://github.com/rob-c/elm-pi/blob/main/INSTALL.md#troubleshooting">INSTALL.md</a>.
     Anything else: <a href="https://github.com/rob-c/elm-pi/issues">open an issue</a>.
   </p>
+</section>
+
+<section class="install-again">
+  <h2>Install</h2>
+  <p>The standard install, in <code>~/.local/share/elm-pi</code> with <code>pi</code> on your <code>PATH</code>:</p>
+  <div class="plate">
+    <button class="copy" type="button" data-copy="cmd-end">Copy</button>
+<pre id="cmd-end">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
+  </div>
+  <p>With every optional extra &mdash; the agent&rsquo;s own Python and offline PyPI search, about 2.4&nbsp;GB rather than 1&nbsp;GB:</p>
+  <div class="plate">
+    <button class="copy" type="button" data-copy="cmd-all-end">Copy</button>
+<pre id="cmd-all-end">ELM_PI_WITH_ALL=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
+  </div>
+  <p>As a separate sandbox in <code>~/sandbox/elm-pi</code> to try it out, leaving any other install, your <code>pi</code> command and your <code>PATH</code> alone &mdash; run it as <code>~/sandbox/elm-pi/pi</code>:</p>
+  <div class="plate">
+    <button class="copy" type="button" data-copy="cmd-sandbox-end">Copy</button>
+<pre id="cmd-sandbox-end">ELM_PI_PREFIX="$HOME/sandbox/elm-pi" ELM_PI_NO_LINK=1 ELM_PI_NO_PATH=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
+  </div>
 </section>
 
 </main>
