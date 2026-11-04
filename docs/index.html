@@ -166,8 +166,15 @@
   }
   .requires b { color: var(--sodium); font-weight: 600; }
   .also { margin: 18px auto 10px; max-width: 46em; text-align: center; font-size: 14px; color: #a9c4b8; }
-  /* the default install stands apart from the alternatives below it */
-  .install .plate:first-child + .also { margin-top: 96px; }
+  /* The default install is the one to use; the alternatives below it are
+     quieter: smaller type, a fainter frame, no shadow. */
+  .install .plate:first-child + .also { margin-top: 44px; }
+  .install .plate.alt {
+    padding: 18px 20px 16px; box-shadow: none;
+    background: rgba(10, 31, 24, .55); border-color: rgba(159, 214, 186, .12);
+  }
+  .install .plate.alt pre { font-size: clamp(12px, 1.25vw, 14px); font-weight: 400; color: #b7cdc2; }
+  .install .plate.alt .copy { top: 8px; right: 8px; padding: 6px 10px; font-size: 12px; }
   .requires code, .also code { color: #cfe3d8; }
 
   /* Facts, set as a sentence rather than a row of stat tiles. */
@@ -289,12 +296,12 @@
 <pre id="cmd">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
     </div>
     <p class="also">Or with every optional extra &mdash; the agent&rsquo;s own Python and offline PyPI search, about 2.4&nbsp;GB rather than 1&nbsp;GB:</p>
-    <div class="plate">
+    <div class="plate alt">
       <button class="copy" type="button" data-copy="cmd-all">Copy</button>
 <pre id="cmd-all">ELM_PI_WITH_ALL=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
     </div>
     <p class="also">Or as a separate sandbox in <code>~/sandbox/elm-pi</code> to try it out, leaving any other install, your <code>pi</code> command and your <code>PATH</code> alone &mdash; run it as <code>~/sandbox/elm-pi/pi</code>:</p>
-    <div class="plate">
+    <div class="plate alt">
       <button class="copy" type="button" data-copy="cmd-sandbox">Copy</button>
 <pre id="cmd-sandbox">ELM_PI_PREFIX="$HOME/sandbox/elm-pi" ELM_PI_NO_LINK=1 ELM_PI_NO_PATH=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
     </div>
