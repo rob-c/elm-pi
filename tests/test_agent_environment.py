@@ -639,7 +639,7 @@ class FixedPromptTests(unittest.TestCase):
         for token in ("@AGENT_DIR@", "@INSTALL_DIR@", "@QWEN_MODEL@", "@LLAMA_MODEL@"):
             self.assertNotIn(token, rendered)
         self.assertIn(f"{ROOT / 'agent'}/reference/elm.md", rendered)
-        self.assertIn(f"`LOCKDOWN.md` in `{ROOT}`", rendered)
+        self.assertIn(f"In `{ROOT}`: `README.md`", rendered)
 
     def test_the_rules_stay_and_only_the_detail_moved(self):
         agents = (ROOT / "templates/AGENTS.md").read_text()
@@ -650,6 +650,22 @@ class FixedPromptTests(unittest.TestCase):
         for moved in ("git rm -r --cached", "pi-hermes-memory", "requirePath", "X-Elm-Pi-Remedy", "__pycache__"):
             self.assertIn(moved, detail)
             self.assertNotIn(moved, agents)
+
+    def test_the_agent_knows_what_it_is_and_gives_elms_addresses(self):
+        who = (ROOT / "templates/APPEND_SYSTEM.md").read_text().split("# Who you are\n")[1].split("\n# ")[0]
+        self.assertIn("You are ELM-Pi, an advanced LLM assistant for scientists", who)
+        self.assertIn("always give ELM's", who)
+        for url in ("https://elm.edina.ac.uk/elm", "https://information-services.ed.ac.uk/computing/comms-and-collab/elm"):
+            self.assertIn(url, who)
+            self.assertIn(url, (ROOT / "templates/reference/elm.md").read_text())
+
+    def test_the_agent_reads_every_shipped_doc_without_asking(self):
+        where = (ROOT / "templates/APPEND_SYSTEM.md").read_text().split("# Where to look things up\n")[1].split("\n# ")[0]
+        self.assertIn("do not\nanswer from memory, ask first, or offer to read it", where)
+        for pattern in ("@AGENT_DIR@/reference/*.md", "@AGENT_DIR@/skills/*/SKILL.md"):
+            self.assertIn(pattern, where)
+        shipped = sorted(p.relative_to(ROOT).as_posix() for p in [*ROOT.glob("*.md"), *ROOT.glob("shim/*.md")])
+        self.assertEqual([], [doc for doc in shipped if f"`{doc}`" not in where])
 
     def test_sizes_do_not_creep_back(self):
         self.assertLess(len((ROOT / "templates/AGENTS.md").read_text()), 10000)
