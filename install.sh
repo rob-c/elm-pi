@@ -65,6 +65,12 @@ export PATH
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 
 PREFIX="${ELM_PI_PREFIX:-$HOME/.local/share/elm-pi}"
+# Made absolute before anything uses it: a quoted ~ ("~/sandbox/elm-pi") is
+# not expanded by the shell, and a relative prefix would give a launcher link
+# and a PATH line that only work from the folder the installer ran in.
+case "$PREFIX" in "~") PREFIX="$HOME" ;; "~/"*) PREFIX="$HOME/${PREFIX#"~/"}" ;; esac
+case "$PREFIX" in /*) ;; *) PREFIX="$PWD/$PREFIX" ;; esac
+while [ "${#PREFIX}" -gt 1 ] && [ "${PREFIX%/}" != "$PREFIX" ]; do PREFIX="${PREFIX%/}"; done
 # The branch and repository an existing install came from, recorded by its
 # bootstrap.sh in agent/install-options, so `pi update` follows the branch it
 # was installed from rather than main. Read as data; an explicit ELM_PI_BRANCH
@@ -159,6 +165,12 @@ else B=""; Y=""; R=""; Z=""; fi
 say()  { printf '\n%s==> %s%s\n' "$B" "$*" "$Z"; }
 warn() { printf '%s    %s%s\n' "$Y" "$*" "$Z"; }
 die()  { printf '%sERROR: %s%s\n' "$R" "$*" "$Z" >&2; exit 1; }
+# The folder the install goes in, ~/sandbox for ~/sandbox/elm-pi, created with
+# any it needs above it - before the disk check, which measures that folder.
+make_parent() {
+  mkdir -p "$(dirname "$PREFIX")" 2>/dev/null \
+    || die "could not create $(dirname "$PREFIX") to install into - check it is writable, or set ELM_PI_PREFIX to somewhere that is"
+}
 
 printf '\n%selm-pi%s — pi coding agent on university-hosted models (ELM)\n' "$B" "$Z"
 
@@ -225,7 +237,7 @@ if [ ! -f "$PREFIX/bootstrap.sh" ] && [ ! -e "$PREFIX/.git" ]; then
   [ "$DISK_TEMP" = "0" ] || echo "    and needs about $(gb "$DISK_TEMP") GB more while it runs."
   export ELM_PI_DISK_NOTED=1
   if command -v df >/dev/null 2>&1; then
-    mkdir -p "$(dirname "$PREFIX")" 2>/dev/null || true
+    make_parent
     FREE_KB="$(df -Pk "$(dirname "$PREFIX")" 2>/dev/null | awk 'NR==2{print $4}' || echo "")"
     if [ -n "$FREE_KB" ] && [ "$FREE_KB" -lt $(( (DISK_KEEP + DISK_TEMP) * 1024 )) ] 2>/dev/null; then
       if [ "${ELM_PI_IGNORE_DISK_SPACE:-0}" = "1" ]; then
@@ -239,7 +251,7 @@ fi
 
 # --- 2. get the source ------------------------------------------------------
 say "fetching elm-pi into $PREFIX"
-mkdir -p "$(dirname "$PREFIX")"
+make_parent
 
 fetch_tarball() {   # $1 = destination directory
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT

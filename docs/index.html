@@ -166,7 +166,7 @@
   }
   .requires b { color: var(--sodium); font-weight: 600; }
   .also { margin: 18px auto 10px; max-width: 46em; text-align: center; font-size: 14px; color: #a9c4b8; }
-  .requires code { color: #cfe3d8; }
+  .requires code, .also code { color: #cfe3d8; }
 
   /* Facts, set as a sentence rather than a row of stat tiles. */
   .facts {
@@ -288,6 +288,11 @@
     <div class="plate">
       <button class="copy" type="button" data-copy="cmd-all">Copy</button>
 <pre id="cmd-all">ELM_PI_WITH_ALL=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
+    </div>
+    <p class="also">Or as a separate sandbox in <code>~/sandbox/elm-pi</code> to try it out, leaving any other install, your <code>pi</code> command and your <code>PATH</code> alone &mdash; run it as <code>~/sandbox/elm-pi/pi</code>:</p>
+    <div class="plate">
+      <button class="copy" type="button" data-copy="cmd-sandbox">Copy</button>
+<pre id="cmd-sandbox">ELM_PI_PREFIX="$HOME/sandbox/elm-pi" ELM_PI_NO_LINK=1 ELM_PI_NO_PATH=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
     </div>
     <p class="requires">macOS or Linux. No <code>sudo</code>, nothing installed system-wide, one directory you can delete. <b>You will need an ELM API key first</b> &mdash; how to get one is below.</p>
   </div>

@@ -26,6 +26,14 @@ With every optional extra - the agent's own Python and offline PyPI search,
 ELM_PI_WITH_ALL=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
 ```
 
+Or as a separate sandbox in `~/sandbox/elm-pi`, to try it out without touching
+another install, your `pi` command or your `PATH` (the installer creates
+`~/sandbox` if it is not there); run it as `~/sandbox/elm-pi/pi`:
+
+```bash
+ELM_PI_PREFIX="$HOME/sandbox/elm-pi" ELM_PI_NO_LINK=1 ELM_PI_NO_PATH=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
+```
+
 macOS or Linux, x86_64 or arm64. No `sudo`, nothing installed system-wide. It
 lands in `~/.local/share/elm-pi`, links `~/.local/bin/pi`, puts that directory on
 your `PATH` in the shell profile you actually use (zsh, bash or fish —

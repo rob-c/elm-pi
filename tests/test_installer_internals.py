@@ -1126,5 +1126,74 @@ class ConfigureTests(Batch):
         return "\n".join([f"cd {q(d)}", f"PY={q(PY)}", run])
 
 
+
+# =====================================================================================
+# where the install goes: the prefix made absolute, and the folders above it created
+# =====================================================================================
+
+PREFIX_NORMALISE = block(INSTALLER, 'PREFIX="${ELM_PI_PREFIX:-$HOME/.local/share/elm-pi}"\n',
+                         "# The branch and repository an existing install came from")
+MAKE_PARENT = block(INSTALLER, "make_parent() {", "\n}\n") + "\n}\n"
+
+
+class PrefixTests(unittest.TestCase):
+    """ELM_PI_PREFIX as typed becomes the absolute folder; its parent is created, or the reason given."""
+
+    def prefix(self, value, cwd, home):
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
+        if value is not None:
+            env["ELM_PI_PREFIX"] = value
+        script = "set -euo pipefail\n" + PREFIX_NORMALISE + 'printf "%s" "$PREFIX"\n'
+        return subprocess.run(["bash", "-c", script], cwd=cwd, env=env, capture_output=True,
+                              text=True, check=True).stdout
+
+    def test_every_spelling_becomes_the_absolute_folder(self):
+        with tempfile.TemporaryDirectory() as directory:
+            d = Path(directory).resolve()
+            home, here = d / "home", d / "here"
+            home.mkdir(); here.mkdir()
+            cases = {
+                None: f"{home}/.local/share/elm-pi",
+                f"{home}/sandbox/elm-pi": f"{home}/sandbox/elm-pi",
+                "~/sandbox/elm-pi": f"{home}/sandbox/elm-pi",           # a quoted ~
+                "~": str(home),
+                "sandbox/elm-pi": f"{here}/sandbox/elm-pi",             # relative to where it ran
+                "./elm-pi": f"{here}/./elm-pi",
+                f"{home}/sandbox/elm-pi/": f"{home}/sandbox/elm-pi",
+                f"{home}/sandbox/elm-pi//": f"{home}/sandbox/elm-pi",
+                "/": "/",
+                "~user/x": f"{here}/~user/x",                           # not ours to expand
+            }
+            for value, expected in cases.items():
+                with self.subTest(ELM_PI_PREFIX=value):
+                    self.assertEqual(expected, self.prefix(value, here, home))
+
+    def make_parent(self, prefix):
+        script = "\n".join(["set -euo pipefail", STUBS, f"PREFIX={q(prefix)}", MAKE_PARENT, "make_parent", "echo made"])
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+
+    def test_missing_folders_above_the_install_are_created(self):
+        with tempfile.TemporaryDirectory() as directory:
+            d = Path(directory).resolve()
+            run = self.make_parent(str(d / "home/sandbox/elm-pi"))
+            self.assertEqual(0, run.returncode, run.stdout + run.stderr)
+            self.assertTrue((d / "home/sandbox").is_dir())
+            self.assertFalse((d / "home/sandbox/elm-pi").exists())   # the install folder is the fetch's to make
+            self.assertEqual(0, self.make_parent(str(d / "home/sandbox/elm-pi")).returncode)   # and again
+
+    def test_a_parent_that_cannot_be_created_stops_it_with_the_reason(self):
+        with tempfile.TemporaryDirectory() as directory:
+            d = Path(directory).resolve()
+            (d / "file").write_text("")
+            run = self.make_parent(str(d / "file/sandbox/elm-pi"))
+            self.assertEqual(1, run.returncode)
+            self.assertIn(f"DIE could not create {d}/file/sandbox to install into", run.stdout)
+            self.assertNotIn("made", run.stdout)
+
+    def test_the_disk_check_and_the_fetch_both_create_it_first(self):
+        self.assertEqual(2, INSTALLER.count("\n    make_parent\n") + INSTALLER.count("\nmake_parent\n"))
+        self.assertNotIn('mkdir -p "$(dirname "$PREFIX")" 2>/dev/null || true', INSTALLER)
+
+
 if __name__ == "__main__":
     unittest.main()
