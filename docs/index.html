@@ -207,6 +207,12 @@
   }
   h3 { font-size: 17px; margin: 26px 0 6px; }
   p { margin: 0 0 15px; max-width: 68ch; }
+  figure.shot { margin: 22px 0 26px; }
+  figure.shot img {
+    display: block; width: 100%; height: auto;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--term);
+  }
+  figure.shot figcaption { margin-top: 8px; font-size: 14px; color: var(--stone); }
   ul { margin: 0 0 15px; padding-left: 20px; }
   li { margin: 7px 0; max-width: 66ch; }
   li::marker { color: var(--elm); }
@@ -325,6 +331,11 @@
     <strong>Qwen&nbsp;3.5&nbsp;397B on university hardware</strong>, billed against your
     departmental allocation rather than a credit card.
   </p>
+  <figure class="shot">
+    <img src="who-are-you.png" width="1402" height="337" loading="lazy"
+         alt="An elm-pi session. Asked &ldquo;Who are you?&rdquo;, it replies: I am ELM-Pi, an advanced LLM assistant for scientists, the pi coding agent running on the University of Edinburgh&rsquo;s ELM service with self-hosted models only, elm/Qwen/Qwen3.5-397B-A17B-FP8 and elm-shim/meta-llama/Llama-3.3-70B-Instruct, and gives ELM&rsquo;s addresses: the service at https://elm.edina.ac.uk/elm and its information pages at https://information-services.ed.ac.uk/computing/comms-and-collab/elm.">
+    <figcaption>Asked who it is, an elm-pi session answers from its own setup and gives ELM&rsquo;s addresses.</figcaption>
+  </figure>
   <p>
     Commercial providers are removed from the install on purpose. A staff allocation of $500 at
     industry token rates is a few weeks of real coding-agent use; the same money on ELM lasts far
