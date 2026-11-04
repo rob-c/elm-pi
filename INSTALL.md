@@ -226,7 +226,7 @@ pi install.
 | `agent/models.json` | the ELM provider: base URL, `$ELM_API_KEY`, the two models |
 | `agent/settings.json` | defaults, packages, extensions, retry, `sessionDir` |
 | `agent/AGENTS.md` | loaded by every top-level session: delegation policy, model choice, the short form of every working rule. Sub-agents do not see it (nor `APPEND_SYSTEM.md`); their rules are in `agent/agents/*.md` |
-| `agent/reference/` | the detail behind AGENTS.md's short rules (finished work, `.pi` and git, project memory, anchor editing, the egress proxy), read by the model when the situation comes up rather than sent with every request |
+| `agent/reference/` | the detail behind the short rules in AGENTS.md and APPEND_SYSTEM.md (finished work, `.pi` and git, project memory, anchor editing, the egress proxy, reporting, asking, fits and figures, the ELM service), read by the model when the situation comes up rather than sent with every request |
 | `agent/extensions/elm-only.ts` | the ELM-only policy — always refreshed |
 | `agent/extensions/elm-shim.ts` | registers the Llama tool-shim provider |
 | `agent/extensions/protected-paths.ts` | blocks writes to `.env`, `.git/`, `node_modules/` |
@@ -867,9 +867,13 @@ still fills the context window and counts against the gateway's limits.
 
 So the fixed part holds rules, and detail lives where it is read on demand:
 
-- `AGENTS.md` carries the short form of each rule and points to
-  `agent/reference/` (finished-work checklist, `.pi` and git, project memory,
-  anchor editing, the egress proxy) for the rest - 20.3k characters to 8.5k.
+- `AGENTS.md` and `APPEND_SYSTEM.md` carry the short form of each rule and
+  point to `agent/reference/` (finished-work checklist, `.pi` and git, project
+  memory, anchor editing, the egress proxy, reporting, asking, fits and
+  figures, the ELM service) for the rest - 20.3k characters to 8.5k, and 12.1k
+  to 7.3k. `APPEND_SYSTEM.md` also tells the model where this install keeps
+  what it might be asked about - the reference files, the skills, the settings
+  and these documents - so it reads them when a question needs them.
 - Skill descriptions are one line each (4.9k characters to 2.3k); the skill
   router adds a skill's full text when a request needs it.
 - Tools used only on request are not offered (`excludedTools` in

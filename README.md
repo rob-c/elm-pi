@@ -5,6 +5,14 @@ Edinburgh's ELM gateway, running **Qwen 3.5 397B on university-hosted GPUs**
 instead of a commercial provider. Commercial models are removed from the install
 on purpose — see [LOCKDOWN.md](LOCKDOWN.md).
 
+[ELM](https://information-services.ed.ac.uk/computing/comms-and-collab/elm) is
+the University's generative AI platform: a gateway to large language models,
+provided by Information Services through EDINA for staff and students. It offers
+commercial models and open-weights models it hosts itself; elm-pi uses only the
+self-hosted ones. Web interface (and API keys):
+<https://elm.edina.ac.uk/elm>. API: `https://elm.edina.ac.uk/api/v1`. Help:
+<https://elm.edina.ac.uk/elm/help/help> or the IS Helpline.
+
 ## Install
 
 ```bash

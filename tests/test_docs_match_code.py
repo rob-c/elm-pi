@@ -448,7 +448,7 @@ ENV_NAME = re.compile(r"\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b")
 DOC_ENV = sorted({n for text in [*DOCS.values(), *PROMPTS.values()] for n in ENV_NAME.findall(text)})
 
 # What a documented name is, when it is not a knob this install reads.
-NOT_ENV = {"KEY_ISSUED", "MODEL_SPAWN_REJECTED", "APPEND_SYSTEM", "AGENT_DIR", "QWEN_MODEL", "LLAMA_MODEL",
+NOT_ENV = {"KEY_ISSUED", "MODEL_SPAWN_REJECTED", "APPEND_SYSTEM", "AGENT_DIR", "INSTALL_DIR", "QWEN_MODEL", "LLAMA_MODEL",
            "N_A", "ID_LIKE"}
 # The launcher sets these for pi, its packages or the agent; the docs say so.
 EXPORTED = {"PI_OFFLINE", "PI_SUBAGENT_PI_BINARY", "PI_ELM_CHILD", "PI_RADIUS_GATEWAY", "ELM_PI_AGENT_PYTHON",
@@ -699,7 +699,7 @@ NUMBER_CLAIMS = [
     ("install_md_python_minimum", "INSTALL.md", "Python {V}+ is used when the system has one", PY_MIN),
     ("delegation_notice_previews", "skills/elm-delegation/SKILL.md", "A completion notice previews only the first {N} children",
      ("pi-subagents", r"CHILD_OUTPUT_PREVIEW_COUNT = (\d+)")),
-    ("append_system_questions_per_call", "APPEND_SYSTEM.md", "up to {N} questions per call",
+    ("asking_questions_per_call", "reference/asking.md", "up to {N} questions per call",
      ("@juicesharp/rpiv-ask-user-question", r"MAX_QUESTIONS = (\d+)")),
     # sets: the modes the code applies
     ("readme_state_dirs_mode", "README.md", "Session and memory directories are mode {N}", STATE_MODES),
@@ -1880,10 +1880,12 @@ generate(GeneratedFileTests, [(f"generated_{slug(r)}_has_its_template", r, s) fo
          _generated_row)
 
 REFERENCE_TOPICS = {"finished-work.md": "finished work", "git-and-dot-pi.md": "`.pi` and git",
-                    "project-memory.md": "project memory", "editing.md": "anchor editing", "egress.md": "the egress proxy"}
+                    "project-memory.md": "project memory", "editing.md": "anchor editing", "egress.md": "the egress proxy",
+                    "reporting.md": "reporting", "asking.md": "asking", "fits-and-figures.md": "fits and figures",
+                    "elm.md": "the ELM service"}
 REFERENCE_LISTS = {
     "generated_table": between(FLAT["INSTALL.md"], "| `agent/reference/` |", "| `agent/extensions/elm-only.ts`"),
-    "what_every_request_carries": between(FLAT["INSTALL.md"], "points to `agent/reference/`", "for the rest"),
+    "what_every_request_carries": between(FLAT["INSTALL.md"], "point to `agent/reference/`", "for the rest"),
 }
 generate(GeneratedFileTests,
          [(f"reference_{slug(f)}_is_listed_in_{where}", f, where) for where in REFERENCE_LISTS

@@ -35,9 +35,11 @@ def rendered(text: str, models: dict) -> str:
 def render_file(root: Path, source: Path, destination: Path) -> None:
     _, models = load(root)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    # @AGENT_DIR@: where a prompt points the model at a file of this install,
-    # such as agent/reference/, which it reads by its real path.
-    text = rendered(source.read_text(), models).replace("@AGENT_DIR@", str(root / "agent"))
+    # @AGENT_DIR@ and @INSTALL_DIR@: where a prompt points the model at a file
+    # of this install, such as agent/reference/ or INSTALL.md, which it reads by
+    # its real path.
+    text = (rendered(source.read_text(), models)
+            .replace("@AGENT_DIR@", str(root / "agent")).replace("@INSTALL_DIR@", str(root)))
     destination.write_text(text)
 
 

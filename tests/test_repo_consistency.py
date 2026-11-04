@@ -134,12 +134,13 @@ generate(PromptReferenceTests,
 
 
 class ReferenceFileTests(unittest.TestCase):
-    """agent/reference/ is read only when AGENTS.md names the file."""
+    """agent/reference/ is read only when AGENTS.md or APPEND_SYSTEM.md names the file."""
 
 
+PROMPTS_NAMING_REFERENCES = (TEMPLATES / "AGENTS.md").read_text() + (TEMPLATES / "APPEND_SYSTEM.md").read_text()
 generate(ReferenceFileTests,
-         [(f"reference_{slug(p.stem)}_is_named_in_agents_md", p.name) for p in sorted(TEMPLATES.glob("reference/*.md"))],
-         lambda self, name: self.assertTrue(f"@AGENT_DIR@/reference/{name}" in (TEMPLATES / "AGENTS.md").read_text(),
+         [(f"reference_{slug(p.stem)}_is_named_in_a_prompt", p.name) for p in sorted(TEMPLATES.glob("reference/*.md"))],
+         lambda self, name: self.assertTrue(f"@AGENT_DIR@/reference/{name}" in PROMPTS_NAMING_REFERENCES,
                                             f"nothing points the model at reference/{name}"))
 
 

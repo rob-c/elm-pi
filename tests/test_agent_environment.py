@@ -619,9 +619,10 @@ class FixedPromptTests(unittest.TestCase):
     """Every request carries AGENTS.md, APPEND_SYSTEM.md, the skill list and the tool
     definitions (~24k tokens before trimming); detail needed now and then is read on demand."""
 
-    def test_every_reference_agents_md_points_to_exists_and_renders_to_a_real_path(self):
+    def test_every_reference_the_prompts_point_to_exists_and_renders_to_a_real_path(self):
         agents = (ROOT / "templates/AGENTS.md").read_text()
-        named = set(re.findall(r"@AGENT_DIR@/reference/([a-z0-9-]+\.md)", agents))
+        append = (ROOT / "templates/APPEND_SYSTEM.md").read_text()
+        named = set(re.findall(r"@AGENT_DIR@/reference/([a-z0-9-]+\.md)", agents + append))
         shipped = {p.name for p in (ROOT / "templates/reference").glob("*.md")}
         self.assertEqual(shipped, named)                 # none missing, none unreferenced
         out = Path(tempfile.mkdtemp()).resolve()
@@ -632,6 +633,13 @@ class FixedPromptTests(unittest.TestCase):
         self.assertNotIn("@AGENT_DIR@", rendered)
         self.assertIn(f"{ROOT / 'agent'}/reference/finished-work.md", rendered)
         self.assertIn("rm -rf agent/reference && mkdir -p agent/reference", BOOTSTRAP)
+        subprocess.run([sys.executable, str(ROOT / "scripts/elm_config.py"), "--root", str(ROOT), "render",
+                        str(ROOT / "templates/APPEND_SYSTEM.md"), str(out / "APPEND_SYSTEM.md")], check=True)
+        rendered = (out / "APPEND_SYSTEM.md").read_text()
+        for token in ("@AGENT_DIR@", "@INSTALL_DIR@", "@QWEN_MODEL@", "@LLAMA_MODEL@"):
+            self.assertNotIn(token, rendered)
+        self.assertIn(f"{ROOT / 'agent'}/reference/elm.md", rendered)
+        self.assertIn(f"`LOCKDOWN.md` in `{ROOT}`", rendered)
 
     def test_the_rules_stay_and_only_the_detail_moved(self):
         agents = (ROOT / "templates/AGENTS.md").read_text()
@@ -645,7 +653,8 @@ class FixedPromptTests(unittest.TestCase):
 
     def test_sizes_do_not_creep_back(self):
         self.assertLess(len((ROOT / "templates/AGENTS.md").read_text()), 10000)
-        self.assertLess(len((ROOT / "templates/APPEND_SYSTEM.md").read_text()), 11500)
+        # Every request carries it: detail goes to reference/, which the model reads when needed.
+        self.assertLess(len((ROOT / "templates/APPEND_SYSTEM.md").read_text()), 8000)
         for skill in (ROOT / "templates/skills").glob("*/SKILL.md"):
             description = re.search(r"^description: (.*)$", skill.read_text(), re.M).group(1)
             self.assertLessEqual(len(description), 230, skill.parent.name)
