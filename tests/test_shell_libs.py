@@ -817,6 +817,8 @@ class InstallerDiskTests(BatchTest):
 
     CASES = DISK_CASES
     BLOCK = block(INSTALLER, "# A new install: say what it will download", "# --- 2. get the source")
+    # the disk check creates the folder it measures first
+    MAKE_PARENT = block(INSTALLER, "make_parent() {", "\n}\n") + "\n}\n"
 
     @classmethod
     def prepare(cls):
@@ -834,7 +836,7 @@ class InstallerDiskTests(BatchTest):
             'say() { echo "== $*"; }; warn() { echo "WARN $*"; }; die() { echo "DIE $*"; exit 1; }',
             f"df() {{ echo 'Filesystem 1024-blocks Used Available Capacity Mounted'; {line or ':'}; }}",
             f'PREFIX="$T/d{i}/elm-pi"', "PASS_ARGS=(" + " ".join(q(a) for a in case.args) + ")",
-            cls.BLOCK, "_v ELM_PI_DISK_NOTED"])
+            cls.MAKE_PARENT, cls.BLOCK, "_v ELM_PI_DISK_NOTED"])
 
     def check(self, case, r):
         super().check(case, r)
