@@ -13,6 +13,12 @@
  * The launcher exports PI_ELM_REMOTE=1 for --remote, and sub-agents inherit it
  * along with the open proxy, so they get the same section. The text is fixed for
  * the whole session, so it costs the gateway's prefix cache nothing.
+ *
+ * When the session also has computer use (PI_ELM_COMPUTER_USE=1: the top-level
+ * --remote session only), a second section says how to drive Safari: typing a
+ * URL does not open it until Return is pressed, and when the agent is done it
+ * minimises the window and brings the user's terminal back, rather than
+ * leaving them looking at a browser while it reports.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -41,9 +47,27 @@ export const RESEARCH = [
 	"you run on them, outrank anything on the web about their setup.",
 ].join("\n");
 
+export const COMPUTER_USE = [
+	"# Driving Safari and other apps",
+	"",
+	"1. To open a URL in Safari, focus the address field, `setText` the whole URL,",
+	"   check the field shows exactly that URL (autocomplete can change it), then",
+	"   send `keypress` with `keys: [\"return\"]` as its own step. Typing alone opens",
+	"   nothing: confirm from the successor state or `wait_for` that the page loaded",
+	"   before reading it.",
+	"2. When you have finished with Safari, or any app you brought forward,",
+	"   minimise its window - with it focused, `keypress` `keys: [\"cmd\", \"m\"]` -",
+	"   then bring the terminal running this session back to the front: `find_roots`",
+	"   for it (`echo $TERM_PROGRAM` in `bash` names it: `Apple_Terminal` is",
+	"   Terminal, `iTerm.app` is iTerm2) and click its window. Do both before your",
+	"   final report, so the user is looking at it.",
+].join("\n");
+
 export default function (pi: ExtensionAPI) {
 	if (process.env.PI_ELM_REMOTE !== "1") return;
+	const computerUse = process.env.PI_ELM_COMPUTER_USE === "1";
 	pi.on("before_agent_start", (event) => {
 		event.systemPromptOptions.sections.remote_research = RESEARCH;
+		if (computerUse) event.systemPromptOptions.sections.computer_use = COMPUTER_USE;
 	});
 }

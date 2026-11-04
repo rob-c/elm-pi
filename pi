@@ -519,7 +519,13 @@ if [ "$REMOTE" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] && [ -f "$CU_EXT" ]; then
   export PI_COMPUTER_USE_LINUX_HELPER_PATH="$HERE/agent/helpers/linux-bridge"
   export PI_COMPUTER_USE_WINDOWS_HELPER_PATH="$HERE/agent/helpers/windows-bridge.exe"
   export PI_COMPUTER_USE_CODESIGN_IDENTITY="-"
+  # remote-research.ts adds how to drive Safari and hand the screen back.
+  export PI_ELM_COMPUTER_USE=1
   echo "    computer use is on for this run: the agent can see the screen and drive apps." >&2
+else
+  # A sub-agent inherits the parent's environment but never gets computer use,
+  # so it must not get the instructions for it either.
+  unset PI_ELM_COMPUTER_USE
 fi
 
 LLAMA_MODEL="elm-shim/$ELM_LLAMA_MODEL_ID"

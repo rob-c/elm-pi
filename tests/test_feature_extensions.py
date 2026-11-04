@@ -1375,15 +1375,21 @@ import { pathToFileURL } from "node:url";
 const [file] = process.argv.slice(1);
 const mod = await import(pathToFileURL(file).href);
 const out = {};
-for (const value of [null, "", "0", "true", "1"]) {
-  if (value === null) delete process.env.PI_ELM_REMOTE; else process.env.PI_ELM_REMOTE = value;
+const run = (remote, computerUse) => {
+  if (remote === null) delete process.env.PI_ELM_REMOTE; else process.env.PI_ELM_REMOTE = remote;
+  if (computerUse === null) delete process.env.PI_ELM_COMPUTER_USE; else process.env.PI_ELM_COMPUTER_USE = computerUse;
   const handlers = [];
   mod.default({ on: (name, fn) => handlers.push([name, fn]) });
   const event = { systemPromptOptions: { sections: { other: "kept", remote_research: "stale" } } };
   for (const [name, fn] of handlers) if (name === "before_agent_start") fn(event, {});
-  out[String(value)] = { handlers: handlers.map(([name]) => name), sections: event.systemPromptOptions.sections };
-}
+  return { handlers: handlers.map(([name]) => name), sections: event.systemPromptOptions.sections };
+};
+for (const value of [null, "", "0", "true", "1"]) out[String(value)] = run(value, null);
+out.computer_use = run("1", "1");
+out.computer_use_without_remote = run(null, "1");
+out.computer_use_other_value = run("1", "true");
 out.text = mod.RESEARCH;
+out.computer_use_text = mod.COMPUTER_USE;
 console.log(JSON.stringify(out));
 """
 
@@ -1418,6 +1424,18 @@ class RemoteResearchTests(unittest.TestCase):
                 self.assertEqual([], self.results[value]["handlers"])
                 self.assertEqual({"other": "kept", "remote_research": "stale"}, self.results[value]["sections"])
 
+    def test_computer_use_adds_the_safari_section_only_with_remote(self):
+        self.assertEqual(self.results["computer_use_text"], self.results["computer_use"]["sections"]["computer_use"])
+        self.assertNotIn("computer_use", self.results["1"]["sections"])
+        self.assertNotIn("computer_use", self.results["computer_use_other_value"]["sections"])
+        self.assertEqual([], self.results["computer_use_without_remote"]["handlers"])
+
+    def test_the_safari_text_presses_return_and_hands_the_screen_back(self):
+        text = self.results["computer_use_text"]
+        for phrase in ('`keys: ["return"]`', "Typing alone opens", 'minimise its window', '`keys: ["cmd", "m"]`',
+                       "`find_roots`", "$TERM_PROGRAM", "before your\n   final report"):
+            self.assertIn(phrase, text)
+
     def test_the_text_insists_on_research_and_sources(self):
         text = self.results["text"]
         self.assertIn("ALWAYS research", text)
@@ -1437,6 +1455,12 @@ class RemoteResearchWiringTests(unittest.TestCase):
         block = self.launcher.split('if [ "$REMOTE" = "1" ]; then', 1)[1].split("\nfi\n", 1)[0]
         self.assertIn("export PI_ELM_REMOTE=1", block)
         self.assertEqual(1, self.launcher.count("PI_ELM_REMOTE=1"))
+
+    def test_computer_use_is_flagged_for_the_top_level_session_only(self):
+        block = self.launcher.split('if [ "$REMOTE" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] && [ -f "$CU_EXT" ]; then', 1)[1]
+        on, off = block.split("\nelse\n", 1)
+        self.assertIn("export PI_ELM_COMPUTER_USE=1", on)
+        self.assertIn("unset PI_ELM_COMPUTER_USE", off.split("\nfi\n", 1)[0])
 
     def test_fast_loads_it(self):
         self.assertRegex(self.launcher, r"for e in todo skill-router remote-research; do")
