@@ -40,7 +40,9 @@ the ELM-only policy. About 1.0 GB on disk and 3 minutes on a warm network;
 (~0.4 GB, after a ~1 GB download it deletes) - ~2.4 GB in all. A new install
 says this before it downloads anything, and stops there if the filesystem has
 too little room (`ELM_PI_IGNORE_DISK_SPACE=1` goes ahead anyway); so does an
-existing install that gains an optional part.
+existing install that gains an optional part. `install.sh` syntax-checks the
+source it downloads; `ELM_PI_RUN_TESTS=1` runs the whole test suite on it
+first as well, a few minutes more.
 
 Unattended:
 

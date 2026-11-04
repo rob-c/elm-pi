@@ -28,6 +28,9 @@
 #                            conda, virtualenv and pyenv are never picked, and
 #                            with no usable one a standalone CPython is installed)
 #   ELM_PI_BUNDLED_PYTHON=1  always use the standalone CPython
+#   ELM_PI_RUN_TESTS=1       run the test suite on the downloaded source before
+#                            installing it (a few minutes; by default only the
+#                            syntax checks run)
 #
 #   --no-path                do not add ~/.local/bin to PATH in a shell profile
 #   --force-link             replace an existing ~/.local/bin/pi symlink
@@ -120,7 +123,8 @@ agent/install-options and repeated by later runs and by pi update.
 Environment: ELM_PI_PREFIX, ELM_PI_BINDIR, ELM_PI_REPO, ELM_PI_BRANCH,
 ELM_PI_DOCS, ELM_PI_UPDATE, ELM_PI_NO_PATH, ELM_PI_NO_LINK,
 ELM_PI_FORCE_LINK, ELM_PI_PYTHON, ELM_PI_BUNDLED_PYTHON, ELM_API_KEY,
-ELM_PI_IGNORE_DISK_SPACE, ELM_PI_WITH_ALL (=1: the same as --with-all).
+ELM_PI_IGNORE_DISK_SPACE, ELM_PI_WITH_ALL (=1: the same as --with-all),
+ELM_PI_RUN_TESTS (=1: run the test suite on the source first, a few minutes).
 
 Your shell's conda/venv/pyenv Python, nvm/volta Node, ~/.npmrc, ~/.npm,
 ~/.gitconfig, ~/.curlrc and PYTHON*/NODE_*/npm_config_*/GIT_* variables are
@@ -287,9 +291,17 @@ for path in [root / "patch-pi.py", root / "proxy/egress.py", root / "shim/shim.p
 for path in list((root / "config").glob("*.json")) + list((root / "templates").rglob("*.json")):
     json.loads(path.read_text())
 PY
+  # The syntax checks only, in a second; ELM_PI_RUN_TESTS=1 runs the whole of
+  # check.sh instead, the unit tests included, which takes minutes.
   if [ -x "$source_dir/scripts/check.sh" ]; then
-    ( cd "$source_dir" && ./scripts/check.sh --source-only </dev/null ) \
-      || die "downloaded source failed its self-checks"
+    if [ "${ELM_PI_RUN_TESTS:-0}" = "1" ]; then
+      echo "    running the test suite on the source (ELM_PI_RUN_TESTS=1; a few minutes)"
+      ( cd "$source_dir" && ./scripts/check.sh </dev/null ) \
+        || die "downloaded source failed its tests (ELM_PI_RUN_TESTS=1)"
+    else
+      ( cd "$source_dir" && ./scripts/check.sh --source-only </dev/null ) \
+        || die "downloaded source failed its self-checks"
+    fi
   fi
 }
 
