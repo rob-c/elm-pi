@@ -214,7 +214,7 @@ default package set, knowingly, and since 2026-11-13 its `workflow` tools are
 offered by default (`pi --no-workflows` leaves them out). Its agents run in pi's
 own process and load the policy - ELM only, the permission gate, protected paths,
 the command guard, cc-safety-net - and the per-agent guards, named in
-`agent/workflows/settings.json`; in manual they can only read, since a question
+`agent/workflows/settings.json`; in manual and read-only-auto they can only read, since a question
 the gate would put to you is refused for them. Its global model-policy hook can be overridden
 by code that calls the package directly (an extension, or its SDK) - not by a workflow
 script, whose `agent()` options in 3.15.1 do not include it. Its guard, `workflow-model-scope.ts`, is a
@@ -391,7 +391,9 @@ removals through apt, dnf, yum, zypper, pacman, apk, snap, flatpak, MacPorts,
 and the agent gives the user the command instead. Installing into the system's
 Python is denied as well - `--break-system-packages` in any command,
 `uv pip --system`, and `PIP_BREAK_SYSTEM_PACKAGES`, `UV_BREAK_SYSTEM_PACKAGES`
-or `UV_SYSTEM_PYTHON` set in it.
+or `UV_SYSTEM_PYTHON` set in it. Terminal editors are denied too - `vi`, `vim`,
+`view`, `nvim`, `nano`, `pico` and `vimdiff` - not as a matter of policy but because
+a command here has no keyboard: one sat waiting for 14 minutes in a driven session.
 
 Each denial tells the model why, so it stops rather than retrying around it.
 The gate matches each command of a chain (`cd x && ssh ...`) and of a
@@ -424,13 +426,30 @@ Mac the answer remains `pf` and an administrator.
 ## Permission modes
 
 Every new session starts in manual, where nothing but reading runs without a
-yes; `/mode auto` can make auto the default instead (**Change default mode**,
+yes; `/mode read-only-auto` or `/mode auto` can make that the default instead (**Change default mode**,
 saved in `agent/permission-mode`), and `/mode yolo` answers every ask yes for
-the rest of that session only. `pi --manual`, `--auto` and `--yolo` pick the
+the rest of that session only. `pi --manual`, `--read-only-auto`, `--auto` and `--yolo` pick the
 mode for one run (INSTALL.md, Permission modes). They are about asking, not
 about this document's policy: in every mode the ELM-only layers, the egress
 proxy, the gate's denies, `command-guard.ts` and `protected-paths.ts` are
 unchanged, and yolo answers yes only where the policy would have asked.
+
+**read-only-auto** is manual with one thing let through. The gate still runs
+manual's floor - every call is an ask - and before an ask reaches you a reviewer
+in `command-guard.ts`, named in the gate's `authorizerChain`, looks at it. It
+allows the ask only when it is for a shell command that can do nothing but read,
+inside the project: each command of the line is a bare name from a short list
+(`ls`, `cat`, `head`, `tail`, `wc`, `file`, `stat`, `pwd`, `du`, `diff`, `cmp`,
+`grep`, `rg`, `find`, `cd`, `echo`, `which`, `sort`, `uniq`, `cut`, `tr`, `nl`,
+`tree` and a few more), with no redirection to a file, no variable or
+substitution, no flag that writes or runs something (`find -exec`, `-delete`,
+`sort -o`, `rg --pre`, `tail -f`), and no path outside the project or through
+`..`. It reads the whole line with the guard's own shell parser, so
+`cd site && rm x` is not allowed for its `cd`. Anything it is not sure of it
+leaves to you; a deny is still a deny, and an ask about a path outside the
+project is never its to answer. The launcher sets `PI_ELM_READ_AUTO=1` beside
+`PI_ELM_PERMISSION_MODE=manual` for this mode and for nothing else: the variable
+found in a shell's environment without the mode is dropped.
 
 The permission gate applies the mode, so that a sub-agent's asks keep coming to
 the session you are watching, as they already did. The gate cannot do it as
@@ -440,8 +459,8 @@ process's `PI_ELM_PERMISSION_MODE` on every decision - in manual, each allow in
 the composed policy becomes an ask, except reading inside the project and the
 tools in `permissionModes.manualNoPrompt`; in yolo, the gate's own yolo is on
 for that process. Like the pi patch it is anchored and fatal: a gate release
-that moves the code stops the install, and the launcher refuses `--manual` and
-`--yolo` on a gate that is not patched rather than running them as auto.
+that moves the code stops the install, and the launcher refuses `--manual`,
+`--read-only-auto` and `--yolo` on a gate that is not patched rather than running them as auto.
 
 Five rules keep the mode from being loosened from inside a session:
 
@@ -455,12 +474,14 @@ Five rules keep the mode from being loosened from inside a session:
   mode yolo included; `/mode` writes it, from pi itself.
 - **The environment only tightens.** A `PI_ELM_PERMISSION_MODE` the launcher
   finds set in a run started from a shell can make the run stricter, never
-  looser, and an unknown value counts as manual. The tools manual leaves alone
+  looser (manual, then read-only-auto, then auto, then yolo), and an unknown
+  value counts as manual. `PI_ELM_READ_AUTO` is set by the launcher from the
+  mode and from nothing else. The tools manual leaves alone
   are always this install's list, never the caller's.
 - **`pi --yolo` asks.** It is the one flag that loosens a run, and the gate's
   `bash` rules ask for it however it is spelled (`command-guard.ts` refuses the
   odd spellings), so the agent cannot start a yolo copy of itself without you.
-- **Sub-agents work in auto only on your yes.** In manual, a sub-agent launch
+- **Sub-agents work in auto only on your yes.** In manual and read-only-auto, a sub-agent launch
   asks, and the ask says that allowing it lets the agents it starts work in auto
   (`permissionModes.approvedAgents`, `"auto"` as shipped). Only the process
   pi-subagents starts for that run switches, by `permission-mode.ts`: it is told
@@ -469,11 +490,12 @@ Five rules keep the mode from being loosened from inside a session:
   caller's, and the launcher clears `PI_SUBAGENT_RUNNER_PID`, so no `pi` started
   from a shell can pass for such a process. What auto asks about still comes to
   you, and your own session stays manual. Workflow agents are not covered: they
-  cannot ask, so in manual what would ask is refused for them.
+  cannot ask, so in manual and read-only-auto what would ask is refused for them.
 
 What it is not: a sandbox. In auto and yolo the `bash` tool runs most commands
 unasked, and a command that edits this install's own files - the gate's config
-included - is one of them. Manual is the mode in which nothing does.
+included - is one of them. Manual is the mode in which nothing does; in
+read-only-auto only commands that cannot change anything do.
 
 ## Verified behaviour
 
@@ -488,10 +510,12 @@ included - is one of them. Manual is the mode in which nothing does.
 | `pi --list-models` | ELM only |
 | `/share`, `/bug` | absent from autocomplete; both refuse, and their upload paths throw |
 | `pi auth login <provider>`, `pi mcp ...`, `pi config`, `pi list`, `pi update --models` | refused by the launcher (exit 2), saying what to use instead; `pi.orig` refuses them too |
+| `pi --read-only-auto`: `ls -la`, then `echo hello > made.txt`, then `cat made.txt` (live, RPC mode, 2026-11-14) | one dialog, for the write; `pi --manual` on the same three drew three. The gate's log names `elm-read-only-auto` in its resolved chain |
+| `PI_ELM_READ_AUTO=1 pi`, or that variable beside `PI_ELM_PERMISSION_MODE=auto` | dropped: the run is in the install's mode (`tests/test_permission_mode_spec.py`) |
 | `pi --manual`: `ls`, an edit, `python`, a new sub-agent | each asks first, as decided by the patched gate's own code (`tests/test_permission_modes.py`); reading in the project does not |
 | `pi --manual`, a sub-agent launch allowed once, its agent writing a file (live, RPC mode, 2026-11-13) | the launch's ask carries the note; the write is not asked. With `approvedAgents` set to `"manual"`: no note, and the write comes to you as its own ask |
 | `PI_ELM_PERMISSION_MODE=yolo pi` | runs in the install's mode, with a note that the environment cannot loosen it |
-| a new session, or `pi --continue` after a yolo one | starts in the default, manual unless auto was made the default; never yolo |
+| a new session, or `pi --continue` after a yolo one | starts in the default, manual unless read-only-auto or auto was made the default; never yolo |
 | agent writing `agent/permission-mode` with a file tool or a shell redirect | denied by the gate, in every mode |
 | agent running `pi --yolo -p ...` in `bash` | asks first, in auto as in manual |
 | asking the model to list its tools | none of them web |

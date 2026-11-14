@@ -204,6 +204,43 @@ class ClaimGuardTests(unittest.TestCase):
     def test_a_run_whose_calls_were_all_refused_counts_as_making_none(self):
         self.assertEqual(self.note(), self.out["runs"]["every_call_refused_and_a_claim_is_sent_back"][0])
 
+    def test_a_retried_child_is_not_sent_round_in_circles(self):
+        """batch 1, highland-cows-6 (2026-11-14): a child wrote its page, its last reply met a 429, and the
+        retry - a new run with no tool call in it - was noted; "The work was completed in the previous
+        turn" was noted again, 189 times over until the session was killed."""
+        script = r"""
+import { pathToFileURL } from "node:url";
+const mod = await import(pathToFileURL(process.argv[1]).href);
+const settle = (text) => ({ type: "agent_before_settle", entries: [], continue: false, outcome: {},
+  context: { canContinue: false, contextMessages: [{ role: "user", content: [{ type: "text", text: "Create characteristics.html" }] },
+    { role: "assistant", content: [{ type: "text", text }] }], contextEntries: [], llmMessages: [], pendingMessages: [] } });
+const session = () => { const h = {}; mod.default({ on: (e, f) => { h[e] = f; }, getActiveTools: () => ["read", "bash"] }); return h; };
+const ctx = { model: { id: process.argv[2] } };
+// the child that did its work, then was retried
+let h = session();
+await h.agent_start({}, {});
+await h.tool_result({ toolName: "write", input: {}, content: [], isError: false }, {});
+await h.agent_start({}, {});   // the retry after the 429
+const afterWork = (await h.agent_before_settle(settle("CHANGED - characteristics.html: Created"), ctx)) ?? null;
+// a child that did nothing and keeps saying it did, one run after another
+h = session();
+let notes = 0;
+for (let i = 0; i < 12; i++) {
+  await h.agent_start({}, {});
+  if (await h.agent_before_settle(settle("The work was completed in the previous turn."), ctx)) notes++;
+}
+console.log(JSON.stringify({ afterWork, notes, max: mod.MAX_NOTES }));
+"""
+        run = subprocess.run([node(), "--no-warnings", "--input-type=module", "-e", script, str(EXTENSION), QWEN],
+                             capture_output=True, text=True, timeout=60,
+                             env={"PATH": "/usr/bin:/bin", "ELM_MISTRAL_MODEL_ID": MISTRAL, "ELM_LLAMA_MODEL_ID": LLAMA,
+                                  "ELM_QWEN_MODEL_ID": QWEN})
+        self.assertEqual(0, run.returncode, run.stderr[-2000:])
+        out = json.loads(run.stdout)
+        self.assertIsNone(out["afterWork"])
+        self.assertEqual(2, out["max"])
+        self.assertEqual(2, out["notes"])
+
     def test_the_noted_run_continues(self):
         first = self.out["runs"]["mistral_claim_without_tools_gets_one_note_and_continues"][0]
         self.assertEqual(self.note(), first)

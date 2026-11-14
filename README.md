@@ -76,7 +76,7 @@ every step: **[INSTALL.md](INSTALL.md)**. Web version of this page:
 | **Memory** | Per-project `AGENTS.md`. No memory tool: `pi-hermes-memory` is not installed |
 | **Software** | Fetched when a task needs it, the isolated way and without asking: PyPI packages into the agent's or the project's environment, conda-forge packages with pixi (`agent/pixi`), large toolchains in a `--network=none` container. Homebrew asks every time; apt/dnf are refused and the agent gives you the command. Each install is reported (what, where, how to remove) and logged in `agent/installs.log` |
 | **Web** | `pi-web-access` (DuckDuckGo, then Exa). **Off by default**; `pi --remote` turns it on for a run. Without it, only ELM, PyPI, conda-forge and the container registries are reachable |
-| **Skills** | 16 — physics methods, scientific code, installing software, containers, sub-agent orchestration, developing elm-pi itself. A router adds the ones a request needs, shown as a dim `skills:` line |
+| **Skills** | 17 — physics methods, scientific code, changing code, installing software, containers, sub-agent orchestration, developing elm-pi itself. A router adds the ones a request needs, shown as a dim `skills:` line |
 | **Prompt suggestions** | `pi-next-prompt`: the likely next prompt in grey after each reply; Tab takes it |
 | **Sessions** | `.pi/sessions/` inside each project, not one central 1.9 GB pile |
 | **Models offered** | ELM only. 43 non-ELM provider catalogues stripped |
@@ -151,7 +151,7 @@ is a `rm -rf` away from a clean one.
 
 ```bash
 pi                             # interactive, starts on Qwen 397B
-pi -p "..."                    # one-shot; in manual it reads, but runs and edits nothing
+pi -p "..."                    # one-shot; in manual or read-only-auto it reads, but changes nothing
 pi --auto -p "..."             # one-shot that may run commands and edit
 pi --fast -p "..."             # one-shot, much quicker to start
 pi --llama -p "..."            # run on Llama 3.3 70B through the tool-call shim
@@ -193,28 +193,29 @@ way, each saying what to use instead: `pi auth` (the key is in `.env`),
 
 ### Permission modes
 
-How much the agent may do before it asks you, in three steps:
+How much the agent may do before it asks you, in four steps:
 
 | Mode | |
 |---|---|
 | **manual** | where every new session starts. Nothing runs without your yes: every command, edit, Python cell, notebook change, sub-agent and web call asks first. Reading files in the project does not, nor do the tools that only talk to you or keep the session's notes (`todo`, `ask_user_question`, ...; `permissionModes.manualNoPrompt` in `config/elm-pi.json`). Answering "allow for this session" stops the same command asking again. Sub-agents ask once, at launch, and the ask says what allowing it means: the agents it starts then work in auto, while what auto asks about still comes to you (`permissionModes.approvedAgents`; `"manual"` has each of their calls ask as well) |
+| **read-only-auto** | manual, except that a shell command which can only read, and only inside the project, runs without asking: `ls`, `cat`, `head`, `grep`, `find`, `wc`, `cd` into the project and the like, alone or chained. A redirection to a file, a variable, a path outside the project or anything else on the line and it asks, as in manual. About one ask in five in a manual session is the agent looking around; this mode takes those away and leaves the rest |
 | **auto** | the permission gate's rules as written: most commands and every edit in the project run, the risky ones ask first (`git push`, `sudo`, `gh`, `brew install`, `pi update`, ...) and some are refused (`ssh`, system package managers) |
 | **yolo** | every ask is answered yes, until the session ends. A refusal is still a refusal, and the egress proxy and the ELM-only policy are unchanged |
 
-Change it inside a session with `/mode`, which opens a menu of the three modes
-(the footer shows the current one). Picking manual or auto asks **Change for
+Change it inside a session with `/mode`, which opens a menu of the four modes
+(the footer shows the current one). Picking manual, read-only-auto or auto asks **Change for
 this session** or **Change default mode**, the second making new sessions start
 that way too; picking yolo offers only **Change for this session only**: yolo is never saved and never a
 default, so the next session, a resumed one included, starts in the default
-again. `pi --manual`, `pi --auto` or `pi --yolo` picks the mode for one run and
+again. `pi --manual`, `pi --read-only-auto`, `pi --auto` or `pi --yolo` picks the mode for one run and
 leaves the default alone. Sub-agents run in their session's mode and their asks
 come to you there. A `PI_ELM_PERMISSION_MODE` in the environment can only make
 a run stricter, and `pi --yolo` started by the agent itself asks you first. The
 gate applies the mode, through the small patch `patch-pi.py --gate` makes to
 it; see [LOCKDOWN.md](LOCKDOWN.md#permission-modes).
 
-With `-p` there is nobody to ask, so in manual mode a one-shot run can read but
-not run commands or edit; `pi --auto -p "..."` lets it.
+With `-p` there is nobody to ask, so in manual or read-only-auto mode a one-shot
+run can read but not change anything; `pi --auto -p "..."` lets it.
 
 `pi` is a symlink to `~/.local/share/elm-pi/pi`; the launcher resolves symlinks,
 so you can move or re-link it freely. `pi.orig` in the install directory is the
@@ -232,7 +233,8 @@ wrapper's fault?".
 | `--workflows` | offer the `workflow` tool where `PI_ELM_WORKFLOWS=0` would leave it out |
 | `--remote` | web tools and computer use (screen and app control) on for this run, and the egress proxy records every destination instead of allowing only ELM and the package sources (PyPI, conda-forge, container registries). Models are unaffected: still ELM only, but the model is told to always research with the web tools, and cite them, rather than answer from memory. `PI_ELM_WEB=1` turns the tools on without opening the proxy. |
 | `--no-computer-use` | with `--remote`, the web without the screen: computer use stays off (`PI_ELM_COMPUTER_USE=0` does the same). A new install asks macOS for Screen Recording at its first `--remote`, since its helper app is signed afresh. |
-| `--manual` | permission mode for this run: nothing runs without your yes (above); where new sessions start unless auto is the default |
+| `--manual` | permission mode for this run: nothing runs without your yes (above); where new sessions start unless read-only-auto or auto is the default |
+| `--read-only-auto` | permission mode for this run: manual, with shell commands that only read inside the project running unasked (above) |
 | `--auto` | permission mode for this run: the gate's rules as written. The default stays as it is |
 | `--yolo` | permission mode for this run only: every ask answered yes; refusals still apply. Never the default |
 | `--help` | the launcher's flags and environment, then pi's own help, run with this install's config, offline and with credentials scrubbed |
@@ -245,7 +247,7 @@ service's address, <https://elm.edina.ac.uk/elm>; `PI_ELM_BANNER=0` leaves it ou
 | `/model` | switch between the ELM models |
 | `/thinking` | reasoning is **off** by default here — see below |
 | `/elm-policy` | why only ELM models are available |
-| `/mode` | a menu of the permission modes: manual or auto for this session or as the default, yolo for this session only. `/mode auto` (and the others) goes straight to its second menu |
+| `/mode` | a menu of the permission modes: manual, read-only-auto or auto for this session or as the default, yolo for this session only. `/mode auto` (and the others) goes straight to its second menu |
 | `/export`, `/import` | session to HTML/JSONL and back |
 
 ## Things this install already knows

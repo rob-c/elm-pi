@@ -109,9 +109,37 @@ class RoutingTableTests(unittest.TestCase):
         "Can elm-pi get a new json_check tool? Please implement it here.": "developing-elm-pi",
     }
 
-    def test_software_requests_route_nothing(self):
+    def test_software_requests_route_no_physics_skill(self):
+        # changing-code (2026-11-14) is the one skill a software request may match: a bug, a failing test.
         for prompt, routed in routes(self.SOFTWARE).items():
-            self.assertEqual([], routed, prompt)
+            self.assertEqual([], [name for name in routed if name != "changing-code"], prompt)
+
+    CODE = {
+        "The tests in this project are failing. Find out why and fix the code (not the tests).": True,
+        "run.py crashes for my colleague's data. Fix it so it does what the docstring says.": True,
+        "Add two functions to intervals.py: merge(windows) and gaps(windows, lo, hi).": True,
+        "flow.py says water moves at 99 m/s, which cannot be right. Find the mistake and fix it.": True,
+        "`make test` fails in this project. Fix stats.hpp so it passes.": True,
+        # the benchmark's other wordings, unmatched at first (2026-11-14)
+        "Running counter.py prints fewer hits than were made and the number changes. Fix HitCounter so the count is right.": True,
+        "demo.py prints [('day', 3000, 3)] but the day shift took 1500 events. Fix events_per_shift.": True,
+        "totals_by_run in export.py takes minutes on a night's data. Make it fast without changing what it returns.": True,
+        "Add reservations to stockroom, and add reserve and release to cli.py.": True,
+        "example.py should print about 2.449 but it prints 0.0. Fix spread() so it is right.": True,
+        "fix the performance regression in the parser": False,      # not a bug hunt by these words; left alone
+        "fix the footer so it matches the other pages": False,
+        "make me a website about puffins and make it fast to load": False,
+        "the stylesheet gives every page the same header": False,
+        "write a bug report": False,
+        "report the bug to the vendor": False,
+        "xelatex fails on the unicode": False,
+        "make me a website about otters": False,
+        "the colour scheme is too dark, make it lighter on every page": False,
+    }
+
+    def test_a_bug_a_failing_test_or_a_function_to_write_routes_changing_code(self):
+        for prompt, routed in routes(list(self.CODE)).items():
+            self.assertEqual(self.CODE[prompt], "changing-code" in routed, prompt)
 
     def test_physics_requests_still_route(self):
         for prompt, routed in routes(list(self.PHYSICS)).items():

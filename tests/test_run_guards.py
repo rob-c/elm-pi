@@ -318,8 +318,40 @@ class WaitGuardTests(unittest.TestCase):
         self.assertIn("End your turn now", result["reason"])
         self.assertIn("Background task completed", result["reason"])
 
-    def test_a_third_refused_wait_in_a_turn_ends_the_turn(self):
-        """auto11: eight waits refused in 45 s, each one a turn. The third ends the turn; the runs go on."""
+    def test_the_same_command_over_and_over_is_a_wait(self):
+        """batch 4, gannets-manual: `ls -lh .../*.html` 91 times while the children wrote the pages."""
+        binary = node()
+        if not binary:
+            self.skipTest("needs node")
+        ls = ["bash", {"command": "ls -lh /p/site/*.html"}]
+        calls = [ls, ls, ls, "agent_start", ls,                      # the third is refused; a new run does not reset it
+                 ["read", {"path": "a.html"}], ls, ls,               # anything else between starts the count again
+                 ["bash", {"command": "pytest -q"}], ["bash", {"command": "pytest -q"}]]
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "wait-guard.ts"
+            source.write_text((ROOT / "templates/extensions/wait-guard.ts").read_text())
+            script = (
+                "import { pathToFileURL } from 'node:url';"
+                "const m = await import(pathToFileURL(process.argv[1]).href); const h = {};"
+                "m.setHoldMs(5);"
+                "m.default({ on: (e, f) => { h[e] = f; } });"
+                "const out = []; for (const c of JSON.parse(process.argv[2])) {"
+                " if (c === 'agent_start') { await h.agent_start({ type: 'agent_start' }); continue; }"
+                " const r = await h.tool_call({ type: 'tool_call', toolName: c[0], input: c[1] }, { hasUI: true });"
+                " out.push(r ? 'refused' : null); }"
+                "console.log(JSON.stringify(out));")
+            run = subprocess.run([binary, "--no-warnings", "--input-type=module", "-e", script, str(source), json.dumps(calls)],
+                                 capture_output=True, text=True, timeout=60, cwd=tmp)
+            if run.returncode != 0 and "ERR_UNKNOWN_FILE_EXTENSION" in run.stderr:
+                self.skipTest("this node cannot load TypeScript")
+            self.assertEqual(0, run.returncode, run.stderr)
+        self.assertEqual([None, None, "refused", "refused", None, None, None, None, None], json.loads(run.stdout))
+
+    def test_a_third_refused_wait_in_a_turn_is_held_and_never_aborts(self):
+        """auto11: eight waits refused in 45 s, each one a turn - so the third was made to end the turn with
+        ctx.abort(). pi-subagents takes an abort for the user's Esc and stops waking the session: in three
+        driven sessions of three (2026-11-14) the children finished and no turn ever started. Now the third
+        wait is held in the handler until a notice is queued, or the hold runs out."""
         binary = node()
         if not binary:
             self.skipTest("needs node")
@@ -329,26 +361,38 @@ class WaitGuardTests(unittest.TestCase):
             script = (
                 "import { pathToFileURL } from 'node:url';"
                 "const m = await import(pathToFileURL(process.argv[1]).href); const h = {};"
-                "m.default({ on: (e, f) => { h[e] = f; } });"
-                "let aborted = 0; const notes = [];"
-                "const ctx = { hasUI: true, abort: () => { aborted++; }, ui: { notify: (t) => notes.push(t) } };"
+                "m.setHoldMs(1200);"
+                "m.default({ on: (e, f) => { h[e] = f; }, getActiveTools: () => [], setActiveTools: () => {} });"
+                "let aborted = 0; let pending = false;"
+                "const ctx = { hasUI: true, abort: () => { aborted++; }, hasPendingMessages: () => pending, ui: { notify: () => {} } };"
                 "const out = [];"
-                "for (const c of [['subagent', { action: 'status', id: 'x' }], ['subagent', { action: 'status', id: 'x' }],"
-                " ['bash', { command: 'sleep 30' }], ['bash', { command: 'sleep 60 && ls' }]]) {"
-                " await h.tool_call({ toolName: c[0], input: c[1] }, ctx); out.push(aborted); }"
-                "await h.agent_start({}); await h.tool_call({ toolName: 'bash', input: { command: 'sleep 60 && ls' } }, ctx);"
-                "out.push(aborted); console.log(JSON.stringify([out, notes]));")
+                "const call = async (c) => { const t0 = Date.now(); const r = await h.tool_call({ toolName: c[0], input: c[1] }, ctx);"
+                " out.push([r ? r.reason : null, Date.now() - t0]); };"
+                "await call(['subagent', { action: 'status', id: 'x' }]);"       # the one check
+                "await call(['subagent', { action: 'status', id: 'x' }]);"       # refused (1)
+                "await call(['bash', { command: 'sleep 30' }]);"                 # refused (2)
+                "await call(['bash', { command: 'sleep 60 && ls' }]);"           # refused (3): held, quiet
+                "setTimeout(() => { pending = true; }, 150);"
+                "await call(['bash', { command: 'sleep 60 && ls' }]);"           # held until the notice is queued
+                "console.log(JSON.stringify({ out, aborted, quiet: m.HELD_QUIET, notice: m.HELD_NOTICE, again: m.AGAIN, hold: m.HOLD_MS }));")
             run = subprocess.run([binary, "--no-warnings", "--input-type=module", "-e", script, str(source)],
-                                 capture_output=True, text=True, timeout=60, cwd=tmp)
+                                 capture_output=True, text=True, timeout=60, cwd=tmp,
+                                 env={"PATH": "/usr/bin:/bin"})
             if run.returncode != 0 and "ERR_UNKNOWN_FILE_EXTENSION" in run.stderr:
                 self.skipTest("this node cannot load TypeScript")
             self.assertEqual(0, run.returncode, run.stderr)
-            counts, notes = json.loads(run.stdout)
-        # status: the one check, allowed; status again: refused (1); sleep: refused (2); sleep-then-ls: refused (3),
-        # and the turn is ended; the next turn starts clean
-        self.assertEqual([0, 0, 0, 1, 1], counts)
-        self.assertEqual(["elm-pi ended this turn: it kept waiting for sub-agents that report by themselves. "
-                          "Their notices start the next one."], notes)
+            got = json.loads(run.stdout)
+        reasons = [r for r, _ in got["out"]]
+        took = [ms for _, ms in got["out"]]
+        self.assertEqual(0, got["aborted"])                       # never: an abort stops pi-subagents waking the session
+        self.assertEqual(120_000, got["hold"])
+        self.assertIsNone(reasons[0])
+        self.assertEqual(got["again"], reasons[2])
+        self.assertEqual(got["quiet"], reasons[3])
+        self.assertGreaterEqual(took[3], 1100)                    # held for the whole (shortened) hold
+        self.assertLess(max(took[:3]), 300)                       # the first refusals answer at once
+        self.assertEqual(got["notice"], reasons[4])
+        self.assertLess(took[4], 1000)                            # and a queued notice ends the hold early
 
     def test_once_refused_the_other_ways_of_waiting_are_refused_too(self):
         """test9: after bg_wait was refused, two status checks, sleep 5, sleep 10 and the run's log."""
@@ -377,6 +421,7 @@ class WaitGuardTests(unittest.TestCase):
             script = (
                 "import { pathToFileURL } from 'node:url';"
                 "const m = await import(pathToFileURL(process.argv[1]).href); const h = {};"
+                "m.setHoldMs(5);"                                           # the third wait on is held: briefly here
                 "m.default({ on: (e, f) => { h[e] = f; } });"
                 "const out = []; for (const c of JSON.parse(process.argv[2])) {"
                 " if (c === 'agent_start') { await h.agent_start({ type: 'agent_start' }); continue; }"
@@ -390,7 +435,8 @@ class WaitGuardTests(unittest.TestCase):
             self.assertEqual(0, run.returncode, run.stderr)
             out = json.loads(run.stdout)
         first, again = "bg_wait is not used in an interactive se", "Still waiting is still not needed: nothi"
-        self.assertEqual([None, None, first, again, again, again, again, again, None, None, None, None], out)
+        held = "Two minutes on and no notice yet: the ru"
+        self.assertEqual([None, None, first, again, held, held, held, held, None, None, None, None], out)
 
     def test_without_bg_wait_a_second_status_check_is_the_refused_wait(self):
         """auto01: the launcher no longer offers bg_wait to an interactive session, so the launch result's one

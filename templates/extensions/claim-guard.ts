@@ -51,6 +51,9 @@ export const NOTE =
 	"Your reply reports something changed, run or returned, but this run made no tool call, so nothing was changed or run and no tool returned anything. " +
 	"Do the work now with tool calls, check the result, then reply. If you were only describing earlier work, say that in one line.";
 
+/** The most notes one session is sent, whatever its runs do. */
+export const MAX_NOTES = 2;
+
 /** Qwen, guarded only where it is a sub-agent. */
 const CHILD_GUARDED = new Set(
 	[process.env.ELM_QWEN_MODEL_ID ?? "@QWEN_MODEL@"].map((id) => id.trim().toLowerCase()).filter((id) => id !== "" && !id.startsWith("@")),
@@ -95,23 +98,35 @@ export default function (pi: ExtensionAPI) {
 	// created". So a run counts as having made no call when none of its calls succeeded.
 	let calls = 0;
 	let noted = false;
+	// Over the whole session, never reset. A sub-agent's session is one task, so a call it made in an
+	// earlier run backs what a later run reports; and no session is sent the note more than MAX_NOTES
+	// times. Without both, a child looped: it wrote its page, its last reply met a 429, the retry was a
+	// new run with no call in it, the note went in, "The work was completed in the previous turn" was
+	// read as another claim, and so on - 189 notes in 16 minutes, one model request each, until it was
+	// killed (batch 1, highland-cows-6, 2026-11-14).
+	let sessionCalls = 0;
+	let notes = 0;
 
 	pi.on("agent_start", async () => {
 		calls = 0;
 		noted = false;
 	});
 	pi.on("tool_result", async (event) => {
-		if (!event.isError) calls += 1;
+		if (!event.isError) {
+			calls += 1;
+			sessionCalls += 1;
+		}
 		return undefined;
 	});
 	pi.on("agent_before_settle", async (event, ctx) => {
-		if (noted) return undefined;
+		if (noted || notes >= MAX_NOTES) return undefined;
 		const messages = [...event.context.contextMessages].reverse();
 		const last = messages.find((m) => m.role === "assistant");
 		const task = messages.find((m) => m.role === "user") as { role: string; content?: unknown } | undefined;
 		const child = !(pi.getActiveTools?.() ?? []).includes("subagent");
-		if (!needsNote(ctx.model?.id, calls, replyText(last), child, userText(task))) return undefined;
+		if (!needsNote(ctx.model?.id, child ? sessionCalls : calls, replyText(last), child, userText(task))) return undefined;
 		noted = true;
+		notes += 1;
 		return { entries: [{ type: "custom_message", customType: "claim-guard", content: NOTE, display: true }], continue: true };
 	});
 }

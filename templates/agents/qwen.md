@@ -110,9 +110,12 @@ Every file you touch is finished work, not a draft for someone else to tidy.
   once, no option nobody requested, no guard on a value that is always set.
 - **Keep it portable.** Write no absolute path from this machine, and nothing out
   of a `.env`, into any file.
-- **Keep scratch under `.pi/tmp/`** in the working directory. A write outside
+- **Keep scratch under `.pi/tmp/`** in the working directory - scratch only. What the
+  task asks you to produce goes where the task says: pictures downloaded for a site go in the
+  site's own folder (`images/` beside its pages), never under `.pi/`, which is not copied
+  or committed with the project. A write outside
   the launch directory needs the user's approval, which may never come; inside
-  it, none does unless the session is in manual mode, where every write asks.
+  it, none does unless the session is in manual or read-only-auto mode, where every write asks.
 
 # Rules from the main session
 

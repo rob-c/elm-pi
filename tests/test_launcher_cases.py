@@ -355,6 +355,7 @@ FLAG_CASES = (
     C("manual_is_the_launchers", ["--manual", "-p", "x"], vars={"MODE_FLAG": "manual"}, rest=["-p", "x"]),
     C("auto_is_the_launchers", ["-p", "x", "--auto"], vars={"MODE_FLAG": "auto"}, rest=["-p", "x"]),
     C("yolo_is_the_launchers", ["--yolo"], vars={"MODE_FLAG": "yolo"}, rest=[]),
+    C("read_only_auto_is_the_launchers", ["--read-only-auto", "-p", "x"], vars={"MODE_FLAG": "read-only-auto"}, rest=["-p", "x"]),
     C("the_last_mode_flag_wins", ["--yolo", "--manual"], vars={"MODE_FLAG": "manual"}, rest=[]),
     C("no_mode_flag_leaves_it_empty", [], vars={"MODE_FLAG": ""}),
     C("yolo_after_double_dash_is_prompt_text", ["-p", "--", "--yolo"], vars={"MODE_FLAG": ""},

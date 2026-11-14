@@ -1613,6 +1613,7 @@ for (const c of cases) {
   writeFileSync(join(src, "policy/permission-manager.ts"), c.patched ? '// PI_ELM_PERMISSION_MODE === "manual"' : "plain");
   if (c.saved !== null) writeFileSync(join(agentDir, "permission-mode"), c.saved);
   setEnv("PI_CODING_AGENT_DIR", agentDir);
+  delete process.env.PI_ELM_READ_AUTO;   // one case's read-only-auto must not become the next one's
   setEnv("PI_ELM_PERMISSION_MODE", c.mode);
   setEnv("PI_ELM_PERMISSION_DEFAULT", c.def);
   const commands = {}, handlers = {};
@@ -1629,6 +1630,7 @@ for (const c of cases) {
   const saved = join(agentDir, "permission-mode");
   out[c.name] = {
     mode: process.env.PI_ELM_PERMISSION_MODE ?? null,
+    readAuto: process.env.PI_ELM_READ_AUTO ?? null,
     def: process.env.PI_ELM_PERMISSION_DEFAULT ?? null,
     saved: existsSync(saved) ? readFileSync(saved, "utf8") : null,
     savedPerms: existsSync(saved) ? statSync(saved).mode & 0o777 : null,
@@ -1642,7 +1644,7 @@ const complete = (prefix) => {
   return items === null ? null : items.map((i) => i.value);
 };
 out.completions = { "": complete(""), "a": complete("a"), " Y": complete(" Y"), "z": complete("z") };
-out.choices = Object.fromEntries(["manual", "auto", "yolo"].map((m) => [m, mod.choicesFor(m)]));
+out.choices = Object.fromEntries(["manual", "read-only-auto", "auto", "yolo"].map((m) => [m, mod.choicesFor(m)]));
 console.log(JSON.stringify(out));
 """
 
@@ -1662,13 +1664,15 @@ MODE_CASES = [
     mode_case("menu_escaped", select=None),
     mode_case("menu_marks_now_and_default", mode="auto", default="manual", select=None),
     mode_case("menu_marks_both_on_one_line", select=None),
-    mode_case("menu_auto_for_this_session", select=[1, 0]),
-    mode_case("menu_auto_as_the_default", select=[1, 1]),
-    mode_case("menu_auto_then_escape", select=[1, None]),
-    mode_case("menu_yolo_for_this_session", select=[2, 0]),
-    mode_case("menu_yolo_then_escape", select=[2, None]),
+    # menu positions: manual 0, read-only-auto 1 (added 2026-11-14), auto 2, yolo 3
+    mode_case("menu_auto_for_this_session", select=[2, 0]),
+    mode_case("menu_auto_as_the_default", select=[2, 1]),
+    mode_case("menu_auto_then_escape", select=[2, None]),
+    mode_case("menu_yolo_for_this_session", select=[3, 0]),
+    mode_case("menu_yolo_then_escape", select=[3, None]),
+    mode_case("menu_read_only_auto_for_this_session", select=[1, 0]),
     mode_case("menu_current_mode_that_is_the_default", select=[0]),
-    mode_case("menu_on_an_unpatched_gate", patched=False, select=[1, 1]),
+    mode_case("menu_on_an_unpatched_gate", patched=False, select=[2, 1]),
     mode_case("unknown", args="turbo"),
     mode_case("unpatched_gate_refuses", args="auto", patched=False, select=1),
     # yolo: one answer, this session only, never saved
@@ -1847,16 +1851,17 @@ class ModeCommandTests(unittest.TestCase):
     def offered(self, name):
         return [options for _, options in self.r[name]["select"]]
 
-    def test_bare_mode_opens_a_menu_of_the_three(self):
+    def test_bare_mode_opens_a_menu_of_the_four(self):
         [(title, labels)] = self.r["menu_escaped"]["select"]
         self.assertEqual("Permission mode: manual now, new sessions start in manual", title)
-        self.assertEqual(["manual", "auto", "yolo"], [label.split(" - ")[0] for label in labels])
+        self.assertEqual(["manual", "read-only-auto", "auto", "yolo"], [label.split(" - ")[0] for label in labels])
         self.assertEqual(("manual", None, "manual"), self.outcome("menu_escaped"))
         self.assertEqual([], self.r["menu_escaped"]["status"])
 
     def test_the_menu_marks_this_sessions_mode_and_the_default(self):
         labels = self.offered("menu_marks_now_and_default")[0]
         self.assertEqual(["manual - asks before every command and edit (default)",
+                          "read-only-auto - reading runs; every change asks",
                           "auto - the risky commands ask, the rest run (now)",
                           "yolo - answers every ask yes, this session only"], labels)
         self.assertTrue(self.offered("menu_marks_both_on_one_line")[0][0].endswith("(now, default)"))
@@ -1867,6 +1872,15 @@ class ModeCommandTests(unittest.TestCase):
 
     def test_menu_then_auto_as_the_default(self):
         self.assertEqual(("auto", "auto\n", "auto"), self.outcome("menu_auto_as_the_default"))
+
+    def test_menu_then_read_only_auto_is_manual_to_the_gate_with_the_reviewer_on(self):
+        """Asked for on 2026-11-14. The gate reads manual; PI_ELM_READ_AUTO=1 switches command-guard's reviewer on."""
+        self.assertEqual([SESSION, DEFAULT], self.offered("menu_read_only_auto_for_this_session")[1])
+        self.assertEqual(("manual", None, "manual"), self.outcome("menu_read_only_auto_for_this_session"))
+        self.assertEqual("1", self.r["menu_read_only_auto_for_this_session"]["readAuto"])
+        self.assertIn("Permission mode: read-only-auto", self.said("menu_read_only_auto_for_this_session"))
+        for other in ("menu_auto_for_this_session", "menu_yolo_for_this_session", "menu_escaped"):
+            self.assertIsNone(self.r[other]["readAuto"], other)
 
     def test_menu_then_yolo_offers_this_session_only(self):
         self.assertEqual([YOLO_SESSION], self.offered("menu_yolo_for_this_session")[1])
@@ -1960,11 +1974,12 @@ class ModeCommandTests(unittest.TestCase):
         self.assertEqual([["permission-mode", "mode: manual"]], self.r["status_at_start_manual"]["status"])
 
     def test_completions(self):
-        self.assertEqual({"": ["manual", "auto", "yolo"], "a": ["auto"], " Y": ["yolo"], "z": None},
+        self.assertEqual({"": ["manual", "read-only-auto", "auto", "yolo"], "a": ["auto"], " Y": ["yolo"], "z": None},
                          self.r["completions"])
 
     def test_the_answers(self):
-        self.assertEqual({"manual": [SESSION, DEFAULT], "auto": [SESSION, DEFAULT], "yolo": [YOLO_SESSION]},
+        self.assertEqual({"manual": [SESSION, DEFAULT], "read-only-auto": [SESSION, DEFAULT], "auto": [SESSION, DEFAULT],
+                          "yolo": [YOLO_SESSION]},
                          self.r["choices"])
 
 if __name__ == "__main__":

@@ -370,13 +370,15 @@ export interface PageResources {
 	fromSheets: Map<string, string[]>;
 	/** Local image files it draws that are not images (a saved error page), with what they hold. */
 	broken: { file: string; holds: string }[];
+	/** Files it draws that exist, but in a scratch folder (`.pi/...`): there on this machine, not part of the site. */
+	scratch?: string[];
 }
 
 /** What an HTML file pulls in or links to, checked against the disk. */
 export function pageResources(file: string): PageResources {
 	const html = readFileSync(file, "utf8");
 	const dir = dirname(file);
-	const out: PageResources = { missing: [], links: [], remote: new Map(), pictures: new Map(), fromSheets: new Map(), broken: [] };
+	const out: PageResources = { missing: [], links: [], remote: new Map(), pictures: new Map(), fromSheets: new Map(), broken: [], scratch: [] };
 	const seen = new Set<string>();
 	const check = (raw: string, base: string, kind: "resource" | "link", sheet?: string, picture = false) => {
 		const ref = raw.trim().replace(/&amp;/g, "&");
@@ -404,6 +406,11 @@ export function pageResources(file: string): PageResources {
 		seen.add(`${kind} ${target}`);
 		const shown = relative(dir, target) || path;
 		if (existsSync(target)) {
+			// batch 6, wrens-3 (2026-11-14): a sub-agent told to keep scratch under .pi/tmp/ downloaded the
+			// site's eight pictures there, every page pointed at `.pi/tmp/wren-images/...`, it all rendered
+			// here, and the reply said "validated all image paths point to existing files". Copied anywhere,
+			// or committed (.pi/ is ignored), the site has no pictures.
+			if (kind === "resource" && shown.split(/[\\/]/).includes(".pi")) out.scratch?.push(shown);
 			// test10: images/earthworm.jpg was a saved "Wikimedia Error" page - there, and broken.
 			if (kind === "resource" && kindOf(target) in PASSTHROUGH) {
 				try {
@@ -462,6 +469,12 @@ export function resourceNote(res: PageResources, proxied: boolean, rejected: Set
 		);
 	}
 	for (const { file, holds } of res.broken ?? []) lines.push(`Not an image: ${file} - it ${holds}: broken in any browser.`);
+	if (res.scratch?.length)
+		lines.push(
+			`Kept in scratch: ${list(res.scratch)} - under .pi/, this session's own working folder, which is not part of the ` +
+				"site: it shows here and nowhere the site is copied to. Move the files into the site (an images/ folder beside " +
+				"the pages) and point the pages at them there.",
+		);
 	if (res.links.length) lines.push(`Links to pages that do not exist: ${list(res.links)}.`);
 	const unreached = [...res.remote].filter(([host]) => (proxied ? rejected?.has(host) : true));
 	if (unreached.length) {
@@ -706,7 +719,16 @@ export function claimNote(reply: string, found: ViewFindings): string | undefine
 export function brokenLines(note: string): string[] {
 	return note
 		.split("\n")
-		.filter((l) => /^(?:Missing: |Not an image: |Links to pages that do not exist: |Not drawn here: )/.test(l) || / asks for .* not there: /.test(l));
+		.filter(
+			(l) =>
+				/^(?:Missing: |Not an image: |Links to pages that do not exist: |Not drawn here: )/.test(l) ||
+				/ asks for .* not there: /.test(l) ||
+				/^Kept in scratch: /.test(l) ||
+				// A placeholder service's pictures are not the subject's: batch 4, salmon-8 (2026-11-14) filled its
+				// gallery with 18 from picsum.photos, was asked for real photos downloaded for local use, and
+				// said "rendering correctly ... complete".
+				/ arbitrary placeholder pictures/.test(l),
+		);
 }
 
 /**
@@ -1005,6 +1027,15 @@ export default function (pi: ExtensionAPI) {
 	let pageDirs = new Set<string>();
 	let runStarted = Date.now();
 	let launchedThisRun = false;
+	// When the user last asked for something. Pages are looked for since then, not since this run began:
+	// the run that ends a delegated job is started by the children's last notice, after every page was
+	// written, so "changed since this run started" found none. batch 3, hares-auto (2026-11-14): four
+	// pages whose stylesheet asked for a hero picture that was not there, only pictures viewed, and
+	// "100% self-consistent ... Verified" went unanswered; deer-10 and beavers the same way.
+	let asked = Date.now();
+	pi.on("input", () => {
+		asked = Date.now();
+	});
 	pi.on("agent_start", () => {
 		found = {};
 		claimNoted = false;
@@ -1018,6 +1049,19 @@ export default function (pi: ExtensionAPI) {
 		// was sent back about "pages that do not exist" - a turn spent polling. The run their notices start
 		// is the one that ends the work, and is checked.
 		if (claimNoted || launchedThisRun) return undefined;
+		// A sub-agent answers for its own page, not for the site. Its siblings are still writing theirs, so a
+		// comparison of the folder lists differences it cannot settle and may not touch: over six batches
+		// (2026-11-14) 45 of 210 children were sent back this way, 19 of them for more than 20 turns, and two
+		// spent half an hour reading other children's pages until they were aborted (batch 6, dormice-revise).
+		// The session that launched them compares the pages, once they are all there.
+		const child = process.env.PI_SUBAGENT_CHILD === "1";
+		if (child) {
+			found.differences = undefined;
+			// Nor for a link to a page a sibling has yet to write. What is its own stays: a picture or
+			// stylesheet its page asks for that is not there.
+			const own = found.broken?.lines.filter((line) => !/^Links to pages that do not exist: /.test(line)) ?? [];
+			found.broken = found.broken && own.length ? { page: found.broken.page, lines: own } : undefined;
+		}
 		const last = [...event.context.contextMessages].reverse().find((m) => m.role === "assistant") as
 			| { content?: unknown }
 			| undefined;
@@ -1028,9 +1072,9 @@ export default function (pi: ExtensionAPI) {
 		// checked here. auto06 (2026-11-13) wrote five pages with three footers, viewed none, and called them
 		// consistent; auto08b's workflow agents wrote six pages with fourteen missing pictures and a text file
 		// named .jpg, and the reply said "100% Self-Consistency Verified".
-		if (!found.differences && !found.broken && (claims(reply, CONSISTENT) || claims(reply, RENDERS_FINE))) {
+		if (!child && !found.differences && !found.broken && (claims(reply, CONSISTENT) || claims(reply, RENDERS_FINE))) {
 			const cwd = ctx?.cwd ?? process.cwd();
-			const pages = recentPages(cwd, runStarted);
+			const pages = recentPages(cwd, Math.min(asked, runStarted));
 			for (const page of pages) pageDirs.add(dirname(page));
 			for (const dir of pageDirs) {
 				const place = dir === cwd ? "here" : `in ${dir.startsWith(`${cwd}/`) ? relative(cwd, dir) : dir}/`;

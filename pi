@@ -92,14 +92,19 @@ Permission modes - how much the agent may do without asking:
                       sub-agents and every other tool ask first; reading
                       files in the project does not. Where every new
                       session starts, unless auto has been made the default
+  --read-only-auto    manual, except that a shell command which can only read,
+                      and only inside the project (ls, cat, grep, find, cd
+                      into it), runs without asking; everything that
+                      changes something still asks
   --auto              the permission gate's rules: most commands and edits in
                       the project run, the risky ones (git push, sudo,
                       brew install, ...) ask first
   --yolo              every ask is answered yes, for this session only; a
                       deny is still a deny. Never saved, never the default
   A flag sets the mode for one run and leaves the default alone. In a session,
-  /mode opens a menu of the modes: manual or auto then offers "Change for this
-  session" or "Change default mode" (saved in agent/permission-mode); yolo
+  /mode opens a menu of the modes: manual, read-only-auto or auto then offers
+  "Change for this session" or "Change default mode" (saved in
+  agent/permission-mode); yolo
   offers only "Change for this session only". Sub-agents run in their session's mode and
   ask through it. PI_ELM_PERMISSION_MODE set in the environment can only make a
   run stricter.
@@ -399,6 +404,7 @@ for a in "$@"; do
     --no-workflows) WORKFLOWS=0 ;;
     --with-all) WITH_ALL=1; WORKFLOWS=1 ;;
     --manual) MODE_FLAG=manual ;;
+    --read-only-auto) MODE_FLAG=read-only-auto ;;
     --auto) MODE_FLAG=auto ;;
     --yolo) MODE_FLAG=yolo ;;
     *) ARGS+=("$a"); if elm_policy_takes_value "$a"; then flag_prev="value"; fi ;;
@@ -960,6 +966,8 @@ fi
 # How much the agent may do without asking (config/elm-pi.json permissionModes):
 #   manual  nothing runs without your yes, beyond reading files in the project
 #           and the tools in manualNoPrompt
+#   read-only-auto
+#           manual, and shell commands that only read inside the project run
 #   auto    the permission gate's rules as written
 #   yolo    every ask answered yes, for this session only; a deny is a deny
 # The gate, patched by patch-pi.py --gate, reads PI_ELM_PERMISSION_MODE on every
@@ -978,18 +986,25 @@ fi
 # Started from a shell, a PI_ELM_PERMISSION_MODE already in the environment can
 # make the run stricter, never looser, so the agent cannot loosen a session by
 # setting it; and `pi --yolo` itself asks first (the gate's bash rules).
-elm_mode_rank() { case "$1" in manual) echo 2 ;; auto) echo 1 ;; yolo) echo 0 ;; *) echo -1 ;; esac; }
+# read-only-auto (2026-11-14) sits between manual and auto. To the gate it is
+# manual: PI_ELM_PERMISSION_MODE=manual, with PI_ELM_READ_AUTO=1 switching on
+# command-guard.ts's reviewer, which allows an ask for a shell command that can
+# only read inside the project. PI_ELM_READ_AUTO is set here from the mode and
+# from nothing else: found in a shell's environment without manual beside it,
+# or beside a flag that says otherwise, it is dropped.
+elm_mode_rank() { case "$1" in manual) echo 3 ;; read-only-auto) echo 2 ;; auto) echo 1 ;; yolo) echo 0 ;; *) echo -1 ;; esac; }
 DEFAULT_MODE="${ELM_PERMISSION_MODE_DEFAULT:-manual}"
 SAVED_MODE="$(head -n 1 "$HERE/agent/permission-mode" 2>/dev/null | tr -d '[:space:]' || true)"
-case "$SAVED_MODE" in manual|auto) DEFAULT_MODE="$SAVED_MODE" ;; esac
-case "$DEFAULT_MODE" in manual|auto) ;; *) DEFAULT_MODE=manual ;; esac
+case "$SAVED_MODE" in manual|read-only-auto|auto) DEFAULT_MODE="$SAVED_MODE" ;; esac
+case "$DEFAULT_MODE" in manual|read-only-auto|auto) ;; *) DEFAULT_MODE=manual ;; esac
 INHERITED_MODE="${PI_ELM_PERMISSION_MODE:-}"
+[ "$INHERITED_MODE" = "manual" ] && [ "${PI_ELM_READ_AUTO:-}" = "1" ] && INHERITED_MODE=read-only-auto
 if [ -n "$MODE_FLAG" ]; then
   MODE="$MODE_FLAG"
 elif [ -n "${PI_ELM_CHILD:-}" ] && [ -n "$INHERITED_MODE" ]; then
   # Anything but a known mode is read as the strictest: whoever set it meant
   # to restrict something.
-  case "$INHERITED_MODE" in manual|auto) MODE="$INHERITED_MODE" ;; yolo) MODE=auto ;; *) MODE=manual ;; esac
+  case "$INHERITED_MODE" in manual|read-only-auto|auto) MODE="$INHERITED_MODE" ;; yolo) MODE=auto ;; *) MODE=manual ;; esac
 else
   MODE="$DEFAULT_MODE"
 fi
@@ -1023,7 +1038,13 @@ if [ "$MODE" != "auto" ]; then
     MODE=auto DEFAULT_MODE=auto
   fi
 fi
-export PI_ELM_PERMISSION_MODE="$MODE" PI_ELM_PERMISSION_DEFAULT="$DEFAULT_MODE"
+if [ "$MODE" = "read-only-auto" ]; then
+  export PI_ELM_PERMISSION_MODE=manual PI_ELM_READ_AUTO=1
+else
+  export PI_ELM_PERMISSION_MODE="$MODE"
+  unset PI_ELM_READ_AUTO
+fi
+export PI_ELM_PERMISSION_DEFAULT="$DEFAULT_MODE"
 # Always this install's list, never the caller's: a longer one would loosen manual.
 export PI_ELM_MANUAL_ALLOW="${ELM_MANUAL_NO_PROMPT:-}"
 # What the sub-agents of a launch you allowed run in, in a manual session: auto or
@@ -1051,9 +1072,9 @@ if [ -z "${PI_ELM_CHILD:-}" ]; then
   elif [ "$MODE" != "$DEFAULT_MODE" ]; then
     echo "    permission mode: $MODE for this session; new sessions start in $DEFAULT_MODE (/mode $MODE can change that)." >&2
   fi
-  if [ "$MODE" = "manual" ]; then
+  if [ "$MODE" = "manual" ] || [ "$MODE" = "read-only-auto" ]; then
     case " $* " in *" -p "*|*" --print "*)
-      echo "    note: manual mode with -p: there is no one to ask, so commands and edits are refused (pi --auto -p lets them run)." >&2 ;;
+      echo "    note: $MODE mode with -p: there is no one to ask, so commands and edits are refused (pi --auto -p lets them run)." >&2 ;;
     esac
   fi
 fi

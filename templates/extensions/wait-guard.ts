@@ -44,10 +44,46 @@ export const AGAIN =
 	"Still waiting is still not needed: nothing to call, check or sleep on - the notices arrive by themselves and " +
 	"start your next turn. End your turn now with one line saying what is running.";
 
-/** Waits refused in one turn before the turn is ended for it. */
+/**
+ * Waits refused in one turn before a refused wait is made to take time. From here each one is held,
+ * in the handler, until a sub-agent's notice is waiting or HOLD_MS has passed: the wait the model was
+ * asking for, without a model request to pay for it.
+ *
+ * This replaces ending the turn with ctx.abort(), which did stop the polling (auto11, 2026-11-13: eight
+ * refused waits in 45 s, each a turn of ~50k tokens) and also stopped the session for good: pi-subagents
+ * takes any abort for the user pressing Esc, holds its wake-ups from then on, and words the completion
+ * notice "The user stopped the parent turn ... do not resume". In three driven sessions of three where
+ * the abort fired (highland-cows-6 in batch 1; deer-10 and salmon-8 in batch 3, 2026-11-14) the children
+ * finished, the notices were appended, and no turn ever started: ten pages with ten footers, never
+ * looked at.
+ */
 export const ENOUGH = 3;
-export const ENDED =
-	"elm-pi ended this turn: it kept waiting for sub-agents that report by themselves. Their notices start the next one.";
+/** The same bash command this many times running is a wait. */
+export const SAME_AGAIN = 3;
+export const HOLD_MS = 120_000;
+const HOLD_STEP_MS = 500;
+export const HELD_NOTICE =
+	"A sub-agent's notice has arrived: it is in this turn's next messages. Read it; do not check status or wait again.";
+export const HELD_QUIET =
+	"Two minutes on and no notice yet: the run is still working, and nothing was lost by waiting here. End your " +
+	"turn now with one line saying what is running - its notices start your next turn.";
+
+let holdMs = HOLD_MS;
+/** For tests: a shorter hold. */
+export function setHoldMs(ms: number): void {
+	holdMs = ms;
+}
+
+/** Resolves true as soon as `arrived()` is, false after `ms`. */
+export async function hold(arrived: () => boolean, ms = HOLD_MS, step = HOLD_STEP_MS, signal?: AbortSignal): Promise<boolean> {
+	const end = Date.now() + ms;
+	while (Date.now() < end) {
+		if (arrived()) return true;
+		if (signal?.aborted) return false;
+		await new Promise<void>((resolve) => setTimeout(resolve, Math.min(step, Math.max(0, end - Date.now()))));
+	}
+	return arrived();
+}
 
 /** A bash command that does nothing but wait: `sleep 10`, `sleep 5 && echo "Checking..."`. */
 export const ONLY_SLEEP = /^\s*(?:(?:sleep\s+[\d.]+[smh]?|echo(?:\s+(?:"[^"]*"|'[^']*'|[^;&|]*))?|true|:)\s*(?:&&|;|$)\s*)+$/;
@@ -69,7 +105,25 @@ export function waiting(toolName: string, input: Record<string, unknown>): boole
 	return false;
 }
 
+/** Tools that only mean something inside a sub-agent. */
+export const CHILD_ONLY = ["contact_supervisor"];
+
 export default function (pi: ExtensionAPI) {
+	// contact_supervisor is a sub-agent's line to the session that launched it. pi-subagents offers it to
+	// the top session too, which has no supervisor: in two of four driven sessions (batch 1, 2026-11-14)
+	// the model called it to "report progress" and got an error back. Taken out before the first
+	// request, so the tool list the gateway caches does not change mid-session.
+	let trimmed = false;
+	pi.on("before_agent_start", async () => {
+		if (trimmed || process.env.PI_SUBAGENT_CHILD === "1") return undefined;
+		trimmed = true;
+		const active = pi.getActiveTools?.() ?? [];
+		if (active.some((name) => CHILD_ONLY.includes(name))) pi.setActiveTools(active.filter((name) => !CHILD_ONLY.includes(name)));
+		return undefined;
+	});
+
+	let lastCall = ""; // the previous tool call of this session, whatever it was
+	let same = 0; // how many times in a row it has been made
 	let told = false; // this turn, a wait has been refused once already
 	let checked = false; // this turn, the one status check has been made
 	let refused = 0; // waits refused this turn
@@ -81,18 +135,24 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (!ctx.hasUI) return undefined;
 		const input = (event.input ?? {}) as Record<string, unknown>;
-		const refuse = () => {
+		const refuse = async () => {
 			const again = told;
 			told = true;
-			// Told twice, a third wait ends the turn: auto11 (2026-11-13) was refused eight times in 45 s - sleeps,
-			// status checks, sleep-then-ls - each a turn of ~50k tokens. The runs are detached processes and keep
-			// going; their notices start the next turn, as they would have.
+			// Told twice, a third wait is held (see ENOUGH): never ctx.abort().
 			if (++refused >= ENOUGH) {
-				ctx.ui?.notify?.(ENDED, "info");
-				(ctx as { abort?: () => void }).abort?.();
+				const arrived = await hold(() => ctx.hasPendingMessages?.() === true, holdMs, HOLD_STEP_MS, (ctx as { signal?: AbortSignal }).signal);
+				return { block: true, reason: arrived ? HELD_NOTICE : HELD_QUIET };
 			}
 			return { block: true, reason: again ? AGAIN : REASON };
 		};
+		// The same shell command, call after call with nothing else between: polling by another name. batch 4,
+		// gannets-manual (2026-11-14) ran `ls -lh .../*.html` 91 times while its children wrote the pages, up to
+		// 28 in a row - 195 turns and 8M tokens in the parent, and in manual mode an ask for each. Counted over
+		// the session, not the turn: a child's notice or a retry starts a new run and the listing goes on.
+		const signature = `${event.toolName} ${JSON.stringify(input)}`.replace(/\s+/g, " ");
+		same = signature === lastCall ? same + 1 : 1;
+		lastCall = signature;
+		if (event.toolName === "bash" && same >= SAME_AGAIN) return refuse();
 		if (event.toolName === "bg_wait") return refuse();
 		if (event.toolName === "subagent" && input.action === "status") {
 			if (told || checked) return refuse();

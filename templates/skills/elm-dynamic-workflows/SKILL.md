@@ -41,7 +41,7 @@ Of the ownership guard they get one rule: an agent may not replace, unread, a
 file another changed after it started. Nothing else keeps parallel agents apart,
 so give each its own files to write. They cannot ask the user
 anything: what the permission gate would ask about is refused, so in `manual`
-mode they can only read, and a script that asks them to write or run something
+and `read-only-auto` mode they can only read, and a script that asks them to write or run something
 is refused before it starts - use `subagent` there. Tell each one in its prompt exactly what to return and
 to keep scratch under `.pi/tmp/`.
 

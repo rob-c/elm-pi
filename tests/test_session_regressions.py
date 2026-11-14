@@ -34,11 +34,32 @@ to read it; nothing can enforce it), the sentence is pinned instead.
     auto22  the same notebook on an install with its own Python: one command, no environment built, 0.36M tokens
     auto23  fix a seeded project's failing tests: right fixes in 43 s, after installing pytest first
     auto24  a half-life from counts: scipy's minimiser said "converged" 15 units of -2 ln L above the minimum
+    batch 1 (2026-11-14, eight website sessions against one install, three at a time):
+            the top session called contact_supervisor, a sub-agent's tool; and a child retried after a 429
+            was sent the claim-guard note 189 times (tests/test_claim_guard.py holds that one)
+    batch 2 (2026-11-14): two children of an eight-agent session took 140 and 98 turns of small edits -
+            21M of the session's 26M tokens
+    batch 3 (2026-11-14): the wait guard's ctx.abort() made pi-subagents hold its wake-ups: three sessions
+            of three never ran again after it, their sites unchecked (ten pages, ten footers); and
+            `view a.jpg` typed into bash under `pi --fast` opened vi, which waited 14 minutes for a keyboard
+            (tests/test_permission_rules.py holds the refusal); and the end-of-run page check looked only
+            at pages changed since the last run began, after the children had written them all
+            (tests/test_view_outputs.py)
+    batch 4 (2026-11-14): a parent polled with the same `ls` 91 times while its children worked
+            (tests/test_run_guards.py, test_the_same_command_over_and_over_is_a_wait)
+    batch 6 (2026-11-14): the end-of-run page check sent sub-agents back over their siblings' unfinished pages -
+            45 of 210 children across six batches, two for half an hour (tests/test_view_outputs.py); and the
+            "no agents here" note sat in an extension `pi --fast` does not load; and a site whose pictures were all
+            in .pi/tmp/, the session's scratch folder, passed every check
+    2026-11-14: about one ask in five in a manual session is for reading through bash (38 of 172 dialogs);
+            the owner asked for a "read-only auto" mode - tests/test_read_only_auto.py, and the mode's place
+            in the launcher and the /mode menu in tests/test_permission_mode_spec.py and test_mode_command_spec.py
 """
 
 import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -723,10 +744,14 @@ class Auto11(unittest.TestCase):
         self.assertIn("Fetch every picture in one place first", several)
         self.assertIsNone(single)               # one agent fetching for the rest is the way
 
-    def test_a_third_refused_wait_ends_the_turn(self):
+    def test_a_third_refused_wait_is_held_not_aborted(self):
         guard = (EXT / "wait-guard.ts").read_text()
         self.assertIn("export const ENOUGH = 3;", guard)
-        # the behaviour: tests/test_run_guards.py, test_a_third_refused_wait_in_a_turn_ends_the_turn
+        # Ending the turn with ctx.abort() stopped pi-subagents waking the session (batches 1 and 3,
+        # 2026-11-14): no call to abort may come back.
+        self.assertNotIn("abort?.(", guard)
+        self.assertNotIn("{ abort", guard)
+        # the behaviour: tests/test_run_guards.py, test_a_third_refused_wait_in_a_turn_is_held_and_never_aborts
 
 
 class Auto12(unittest.TestCase):
@@ -879,6 +904,133 @@ class Auto24(unittest.TestCase):
         self.assertIn("m = Minuit(cash, N0=n[0]", skill)
         self.assertIn("assert m.valid, m.fmin", skill)
         self.assertIn("iminuit", json.loads((ROOT / "config/elm-pi.json").read_text())["python"]["packages"])
+
+
+class Batch1(unittest.TestCase):
+    """Batch 1: badgers-auto and puffins-manual called contact_supervisor from the top session."""
+
+    SNIPPET = """
+        let active = ["read", "bash", "subagent", "contact_supervisor"];
+        const sets = [];
+        const h = {};
+        const mod = await import(pathToFileURL(process.argv[1]).href);
+        mod.default({ on: (e, f) => { (h[e] ??= []).push(f); }, getActiveTools: () => active,
+                      setActiveTools: (names) => { active = names; sets.push(names); } });
+        for (const f of h.before_agent_start) await f({ prompt: "make a website" }, {});
+        for (const f of h.before_agent_start) await f({ prompt: "and another" }, {});
+        console.log(JSON.stringify([active, sets.length]));
+    """
+
+    def tools(self, **env):
+        script = "import { pathToFileURL } from 'node:url';" + self.SNIPPET
+        return run_node(self, script, EXT / "wait-guard.ts", env=env)
+
+    def test_the_top_session_is_not_offered_a_sub_agents_tool(self):
+        self.assertEqual([["read", "bash", "subagent"], 1], self.tools())
+
+    def test_agents_asked_for_where_there_are_none_gets_one_note(self):
+        """batch 4, newts-fast: `pi --fast`, "use 4 agents", two "Tool not found" errors and no word to the user.
+        The note is skill-router's: --fast loads that extension and not wait-guard, where it was first put - and
+        where, in batch 6, it never fired."""
+        script = """import { pathToFileURL } from 'node:url';
+            const mod = await import(pathToFileURL(process.argv[1]).href);
+            const run = async (active, prompts) => { const h = {};
+              mod.default({ on: (e, f) => { (h[e] ??= []).push(f); }, getActiveTools: () => active, registerMessageRenderer: () => {} });
+              const out = [];
+              const ctx = { sessionManager: { buildContextEntries: () => [], getBranch: () => [] } };
+              for (const prompt of prompts) { let r; for (const f of h.before_agent_start) r = (await f({ messageType: "user", prompt }, ctx)) ?? r;
+                out.push(r ? [r.message.customType, r.message.content.includes("has no sub-agents")] : null); }
+              return out; };
+            const ask = "use 4 agents make me a website about great crested newts";
+            console.log(JSON.stringify([await run(["read", "bash"], [ask, ask, "now add a page"]),
+                                        await run(["read", "bash", "subagent"], [ask]),
+                                        await run(["read", "bash"], ["make me a website about newts"]),
+                                        await run(["read", "bash"], ["use 3 agents to fit the half-life from counts.csv data"]),
+                                        mod.NO_AGENTS_NOTE]));"""
+        fast, full, plain, with_skill, note = run_node(self, script, EXT / "skill-router.ts")
+        self.assertEqual([["no-agents-note", True], None, None], fast)       # once a session
+        self.assertFalse(full[0] and full[0][1])                              # the tool is there: nothing to say about it
+        self.assertEqual([None], plain)                                        # no agents asked for
+        self.assertTrue(with_skill[0][1])                                      # said alongside a routed skill, too
+        self.assertIn("`pi --fast`", note)
+        self.assertIn("say in your first line", note)
+        fast_list = (ROOT / "pi").read_text().split("# Conveniences on top of the policy")[1].split("done")[0]
+        self.assertIn("skill-router", fast_list)                               # what --fast loads: the note must live there
+
+    def test_a_sub_agent_keeps_it(self):
+        self.assertEqual([["read", "bash", "subagent", "contact_supervisor"], 0], self.tools(PI_SUBAGENT_CHILD="1"))
+
+
+class Batch2(unittest.TestCase):
+    """Batch 2, salmon-8: nothing failed in the two runaway children, so no guard counted anything."""
+
+    SCRIPT = """
+        import { pathToFileURL } from 'node:url';
+        const mod = await import(pathToFileURL(process.argv[1]).href);
+        const h = {};
+        mod.default({ on: (e, f) => { h[e] = f; } });
+        let aborted = 0; const notes = [];
+        const ctx = { abort: () => { aborted++; }, hasUI: true };
+        const ok = { message: { role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall", name: "replace", arguments: { path: "a.html" } }] },
+                     toolResults: [{ role: "toolResult", toolName: "replace", isError: false, content: [{ type: "text", text: "ok" }] }] };
+        await h.agent_start({}, ctx);
+        for (let turn = 1; turn <= 70 && !aborted; turn++) {
+          if (turn === 40) await h.agent_start({}, ctx);     // a 429 retry: a new run, the same session
+          const r = await h.turn_end(ok, ctx);
+          if (r) notes.push([turn, r.entries[0].content.slice(0, 40)]);
+        }
+        console.log(JSON.stringify({ notes, aborted, warn: mod.TURNS_WARN, stop: mod.TURNS_STOP }));
+    """
+
+    def test_a_sub_agent_is_told_at_thirty_turns_and_stopped_at_sixty(self):
+        out = run_node(self, self.SCRIPT, EXT / "repeat-guard.ts", env={"PI_SUBAGENT_CHILD": "1"})
+        self.assertEqual((30, 60), (out["warn"], out["stop"]))
+        self.assertEqual([30, 60], [turn for turn, _ in out["notes"]])
+        self.assertIn("This sub-agent has taken 30 turns", out["notes"][0][1])
+        self.assertIn("elm-pi stopped this sub-agent after 60", out["notes"][1][1])
+        self.assertEqual(1, out["aborted"])
+
+    def test_the_users_own_session_has_no_such_limit(self):
+        out = run_node(self, self.SCRIPT, EXT / "repeat-guard.ts")
+        self.assertEqual(([], 0), (out["notes"], out["aborted"]))
+
+
+class CodingBenchmark(unittest.TestCase):
+    """docs/tuning/2026-11-14: the measurement behind the changing-code skill, and what the docs say of it."""
+
+    def test_the_recorded_arms_are_the_ones_the_notes_quote(self):
+        record = json.loads((ROOT / "docs/tuning/2026-11-14/coding-benchmark.json").read_text())
+        arms = {name: (arm["passed"], arm["runs"]) for name, arm in record["arms"].items()}
+        self.assertEqual({"no-skill": (11, 16), "skill-narrow-route": (14, 16), "skill-wide-route": (16, 16),
+                          "skill-wide-route-fast": (14, 16)}, arms)
+        for arm in record["arms"].values():
+            self.assertEqual(arm["passed"], sum(run["pass"] for run in arm["runs_detail"]))
+            self.assertEqual(arm["tokens"], sum(run["tokens"] for run in arm["runs_detail"]))
+        notes = " ".join((ROOT / "docs/tuning/README.md").read_text().split())
+        for quoted in ("| no skill | 11 of 16 | 2.79M |", "routed for 3 of the 8 task wordings | 14 of 16 | 2.97M |",
+                       "routed for all 8 | 16 of 16 | 3.68M |", "| the same, under `pi --fast` | 14 of 16 | 1.74M |"):
+            self.assertIn(quoted, notes)
+        skill = " ".join((ROOT / "templates/skills/changing-code/SKILL.md").read_text().split())
+        self.assertIn("try to break your fix", skill.lower())
+
+    def test_every_task_has_a_seed_or_none_a_check_and_a_reference_solution(self):
+        source = (ROOT / "docs/tuning/harness/coding/make_tasks.py").read_text()
+        tasks = re.findall(r'^task\("([\w-]+)"', source, re.M)
+        self.assertEqual(8, len(tasks))
+        for name in tasks:
+            self.assertIn(f'check("{name}"', source, name)
+            if name != "drag-range":                    # a number to compute: no project to start from
+                self.assertIn(f'put("solutions", "{name}"', source, name)
+
+
+class Batch6(unittest.TestCase):
+    """batch 6, wrens-3: a sub-agent downloaded the site's pictures into .pi/tmp/, as its prompt's rule about
+    scratch files told it to."""
+
+    def test_the_sub_agent_prompt_says_deliverables_are_not_scratch(self):
+        prompt = " ".join((ROOT / "templates/agents/qwen.md").read_text().split())
+        self.assertIn("Keep scratch under `.pi/tmp/`** in the working directory - scratch only.", prompt)
+        self.assertIn("pictures downloaded for a site go in the site's own folder", prompt)
 
 
 if __name__ == "__main__":

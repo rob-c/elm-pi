@@ -393,3 +393,44 @@ None waited past 60s, through 429 storms included. Two requests did stall, both
 Qwen, and ran 477.6s and 1126.6s before pi's 300s timer ended them. The result:
 `httpIdleTimeoutMs` 120000 in `templates/settings.json`, twice the longest
 healthy wait (`decisions.json`).
+
+## 2026-11-14: a coding benchmark, and the `changing-code` skill
+
+The tasks above measure tool use and short edits. Whether a *fix is right* was
+not measured anywhere, so eight harder tasks were written for it
+(`harness/coding/make_tasks.py`): a feature across three modules, state leaking
+through a shared default, a slow function to speed up without changing what it
+returns, a numerics trap, a thread race, a parser from a written spec, a SQL
+join that double-counts, and a projectile with drag to 0.1%. Each is scored by a
+check the session never sees, and each check was first shown to fail on the
+starting project and pass on a reference solution - which caught one wrong
+reference of the author's own. Each task was run twice per arm
+(`2026-11-14/coding-benchmark.json`).
+
+| Arm | Passed | Tokens |
+|---|---|---|
+| no skill | 11 of 16 | 2.79M |
+| `changing-code`, routed for 3 of the 8 task wordings | 14 of 16 | 2.97M |
+| `changing-code`, routed for all 8 | 16 of 16 | 3.68M |
+| the same, under `pi --fast` | 14 of 16 | 1.74M |
+
+Without the skill every failure was a change that made the reported example work
+and went no further: a copy that still shared the list nested in it, a count
+right for the group in the report and wrong for the next, a parser that took a
+time no clock shows. The skill says to try to break the fix with cases the
+report did not give. The gain followed its reach: in the middle arm it came
+where the skill was loaded and nowhere else.
+
+The last row is the install's narrow configuration: `--fast` loads the policy and nine local
+extensions and none of the tool packages, so each request starts at about 10k tokens where the full
+install's starts at 19k. It cost half the tokens and two passes, on the two tasks that fail in
+other arms too. Two identical rounds of this set differ by up to one pass with one or two tasks
+flipping, so two passes is not a finding; half the tokens is.
+
+What this is not: a large sample. Two runs a task is enough to see 11 against
+16 and not enough to rank two prompts a point apart, and at 16 of 16 this set
+can show no further gain - the next change needs harder tasks. Two checks were
+corrected after reading failures (an assertion the prompt did not justify, and a
+time the spec could fairly reject); all three arms were rescored with the
+corrected checks. The skill costs about a third more tokens on these tasks,
+which is the extra cases being run.

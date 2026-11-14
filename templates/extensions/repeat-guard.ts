@@ -31,6 +31,33 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 export const WARN_AT = 3;
 export const STOP_AT = 8;
 
+/**
+ * A sub-agent's turns, over its whole session. A child is one bounded piece of work: in two batches of
+ * driven sessions (2026-11-14) the children that wrote a page took 3 to 32 turns. Two did not stop -
+ * one asked for a stylesheet went on to edit all eight pages, one was given "fix ALL pages" - and took
+ * 140 and 98 turns of small edits, each resending a context of about 90k tokens: 12.8M and 8.5M input
+ * tokens, 21M of the session's 26M (batch 2, salmon-8). Nothing failed, so nothing above caught it.
+ * Told once at TURNS_WARN to finish and report what is left; stopped at TURNS_STOP, so the parent gets
+ * a report it can split into smaller tasks. The top session is the user's and has no such limit.
+ */
+export const TURNS_WARN = 30;
+export const TURNS_STOP = 60;
+
+export function turnsWarning(turns: number): string {
+	return (
+		`This sub-agent has taken ${turns} turns, more than a task of its size needs, and each one resends the whole ` +
+		`conversation. Finish the step in hand now and give your final report: what is done, and under LEFT what is ` +
+		`not - the session that launched you can hand the rest out as smaller tasks. At ${TURNS_STOP} turns the run is stopped.`
+	);
+}
+
+export function turnsStop(turns: number): string {
+	return (
+		`elm-pi stopped this sub-agent after ${turns} turns. What it changed is on disk and nothing was undone; ` +
+		"what its task still needed is not done. Check the files, and hand what is left out as smaller tasks."
+	);
+}
+
 type Part = { type?: string; text?: string; name?: string; arguments?: unknown };
 type Message = { role?: string; content?: unknown; toolName?: string; isError?: boolean; stopReason?: string };
 
@@ -125,10 +152,26 @@ export default function (pi: ExtensionAPI) {
 		missing = new Map();
 	});
 
+	// Never reset: a retry or a note starts a new run, and the budget is the session's.
+	let turns = 0;
+	const child = process.env.PI_SUBAGENT_CHILD === "1";
+
 	pi.on("turn_end", async (event, ctx) => {
 		const assistant = event.message as Message;
 		if (assistant?.stopReason === "error") return undefined;
 		const results = event.toolResults as unknown as Message[];
+		if (child && results.length > 0) {
+			turns += 1;
+			if (turns >= TURNS_STOP) {
+				const note = turnsStop(turns);
+				if (!ctx.hasUI) process.stderr.write(`${note}\n`);
+				ctx.abort();
+				return { entries: [{ type: "custom_message" as const, customType: "repeat-guard", content: note, display: true }] };
+			}
+			if (turns === TURNS_WARN) {
+				return { entries: [{ type: "custom_message" as const, customType: "repeat-guard", content: turnsWarning(turns), display: true }] };
+			}
+		}
 		const absent = absentTool(results);
 		if (absent) {
 			const calls = (missing.get(absent) ?? 0) + 1;

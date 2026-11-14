@@ -5,6 +5,14 @@
  *           sub-agents and every other tool ask first. Reading files in the
  *           project, and the tools that only talk to you or keep the session's
  *           own notes (config/elm-pi.json permissionModes.manualNoPrompt), do not
+ *   read-only-auto
+ *           manual, except that a shell command which can only read, and only
+ *           inside the project (`ls`, `cat`, `grep`, `find`, `cd` into it ...),
+ *           runs without asking. Everything that changes something asks, as in
+ *           manual. Asked for on 2026-11-14: about one ask in five in a manual
+ *           session is for reading (command-guard.ts has the count). To the gate it is manual
+ *           (PI_ELM_PERMISSION_MODE=manual) with PI_ELM_READ_AUTO=1; the reading
+ *           commands are allowed by command-guard.ts's reviewer of each ask
  *   auto    the permission gate's rules as written: most commands and edits in
  *           the project run, the ones its rules mark ask (git push, brew
  *           install, pi update, ...) ask first
@@ -51,7 +59,7 @@ import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-export const MODES = ["manual", "auto", "yolo"] as const;
+export const MODES = ["manual", "read-only-auto", "auto", "yolo"] as const;
 export type Mode = (typeof MODES)[number];
 /** What a default may be: yolo is never one. */
 export type DefaultMode = Exclude<Mode, "yolo">;
@@ -61,6 +69,8 @@ export const DEFAULT_FILE = "permission-mode";
 
 export const ABOUT: Record<Mode, string> = {
 	manual: "nothing runs without your yes - commands, edits, Python, sub-agents; reading files in the project does not ask",
+	"read-only-auto":
+		"reading runs, the rest asks - shell commands that only read inside the project (ls, cat, grep, find) run; anything that changes something asks first",
 	auto: "the permission gate's rules - most commands and edits in the project run, the risky ones ask first",
 	yolo: "every ask is answered yes until this session ends; a deny is still a deny",
 };
@@ -68,6 +78,7 @@ export const ABOUT: Record<Mode, string> = {
 /** One line per mode in the /mode menu. */
 export const SHORT: Record<Mode, string> = {
 	manual: "asks before every command and edit",
+	"read-only-auto": "reading runs; every change asks",
 	auto: "the risky commands ask, the rest run",
 	yolo: "answers every ask yes, this session only",
 };
@@ -83,7 +94,7 @@ export function isMode(value: unknown): value is Mode {
 }
 
 export function isDefaultMode(value: unknown): value is DefaultMode {
-	return value === "manual" || value === "auto";
+	return value === "manual" || value === "read-only-auto" || value === "auto";
 }
 
 /**
@@ -136,14 +147,14 @@ export function workflowRefusal(
 	cwd: string = process.cwd(),
 ): string | undefined {
 	const script = scriptText(input, cwd);
-	if (mode !== "manual" || !script) return undefined;
+	if ((mode !== "manual" && mode !== "read-only-auto") || !script) return undefined;
 	if (!WRITE_INTENT.test(script.replace(NEGATED, " "))) return undefined;
 	const children =
 		env.PI_ELM_APPROVED_AGENTS === "auto"
 			? "allowing its launch lets its agents work in auto"
 			: "its agents' writes and commands come to the user to allow";
 	return (
-		"Not started: this session is in manual mode, and there a workflow agent can only read - a write or a command it " +
+		`Not started: this session is in ${mode} mode, and there a workflow agent can only read - a write or a command it ` +
 		"makes needs the user's yes, and with nobody to ask it is refused (a run of nine agents here wrote nothing in " +
 		`thirteen minutes). For work that writes files or runs commands, fan out with \`subagent\` instead: ${children}. ` +
 		"A workflow whose agents only read and report runs here. Or ask the user to switch with `/mode auto`."
@@ -153,7 +164,16 @@ export function workflowRefusal(
 /** The mode this process runs in: what the launcher set, manual when unset. */
 export function currentMode(env: NodeJS.ProcessEnv = process.env): Mode {
 	const mode = env.PI_ELM_PERMISSION_MODE;
-	return isMode(mode) ? mode : "manual";
+	// read-only-auto is manual to the gate, with the reviewer switched on beside it.
+	if (mode === "manual" && env.PI_ELM_READ_AUTO === "1") return "read-only-auto";
+	return isMode(mode) && mode !== "read-only-auto" ? mode : "manual";
+}
+
+/** Put this process in `mode`: what the gate reads, and the reviewer's switch. */
+export function applyMode(mode: Mode, env: NodeJS.ProcessEnv = process.env): void {
+	env.PI_ELM_PERMISSION_MODE = mode === "read-only-auto" ? "manual" : mode;
+	if (mode === "read-only-auto") env.PI_ELM_READ_AUTO = "1";
+	else delete env.PI_ELM_READ_AUTO;
 }
 
 /** The mode a new session starts in, as the launcher worked it out. */
@@ -203,6 +223,12 @@ export const MANUAL_NOTE =
 	"`grep`, `find`, `ls` and `view` never ask - look with them, not with bash `ls`, `grep`, `cat` or `head`, so " +
 	"the user is asked only about what changes something.";
 
+export const READ_AUTO_NOTE =
+	"This session is in read-only-auto mode: a shell command that only reads inside the project (`ls`, `cat`, `head`, " +
+	"`grep`, `find`, `wc`, `cd` into it) runs without asking, as `read`, `grep`, `find`, `ls` and `view` do. Anything that " +
+	"writes, runs a program, redirects output to a file or reaches outside the project waits for the user to allow it - " +
+	"so keep looking and changing in separate commands: `cd site && ls` runs, `cd site && rm x` asks.";
+
 export function statusText(mode: Mode): string {
 	return mode === "yolo" ? "mode: yolo (this session)" : `mode: ${mode}`;
 }
@@ -219,7 +245,7 @@ export function choicesFor(mode: Mode): string[] {
 export default function (pi: ExtensionAPI) {
 	// Before any agent of an allowed launch makes a call: the gate reads this on every decision.
 	const approved = approvedRunMode();
-	if (approved) process.env.PI_ELM_PERMISSION_MODE = approved;
+	if (approved) applyMode(approved);
 	const showStatus = (ctx: any) => ctx.ui?.setStatus?.("permission-mode", statusText(currentMode()));
 
 	pi.on("tool_call", async (event, ctx) => {
@@ -234,12 +260,14 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", (event) => {
 		const sections = event.systemPromptOptions.sections;
-		if (currentMode() === "manual") sections.permission_mode = MANUAL_NOTE;
+		const mode = currentMode();
+		if (mode === "manual") sections.permission_mode = MANUAL_NOTE;
+		else if (mode === "read-only-auto") sections.permission_mode = READ_AUTO_NOTE;
 		else delete sections.permission_mode;
 	});
 
 	pi.registerCommand("mode", {
-		description: "Choose the permission mode: manual, auto or yolo (a menu; or /mode <mode>)",
+		description: "Choose the permission mode: manual, read-only-auto, auto or yolo (a menu; or /mode <mode>)",
 		getArgumentCompletions: (prefix: string) => {
 			const items = MODES.filter((mode) => mode.startsWith(prefix.trim().toLowerCase())).map((mode) => ({
 				value: mode,
@@ -253,7 +281,7 @@ export default function (pi: ExtensionAPI) {
 			const mode = currentMode();
 			const fallback = defaultMode();
 			if (typed && !isMode(typed)) {
-				ctx.ui.notify(`Unknown mode "${typed}". Choose manual, auto or yolo.`, "error");
+				ctx.ui.notify(`Unknown mode "${typed}". Choose manual, read-only-auto, auto or yolo.`, "error");
 				return;
 			}
 			if (!gateApplies()) {
@@ -287,7 +315,7 @@ export default function (pi: ExtensionAPI) {
 					choicesFor("yolo"),
 				);
 				if (choice !== YOLO_SESSION) return;
-				process.env.PI_ELM_PERMISSION_MODE = "yolo";
+				applyMode("yolo");
 				showStatus(ctx);
 				ctx.ui.notify(`Permission mode: yolo until this session ends - ${ABOUT.yolo}.`, "warning");
 				return;
@@ -304,7 +332,7 @@ export default function (pi: ExtensionAPI) {
 			);
 			if (choice !== SESSION && choice !== DEFAULT) return;
 			const remember = choice === DEFAULT;
-			process.env.PI_ELM_PERMISSION_MODE = wanted;
+			applyMode(wanted);
 			showStatus(ctx);
 			if (remember) {
 				try {

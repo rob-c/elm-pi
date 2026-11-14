@@ -67,6 +67,13 @@ for (const step of JSON.parse(stepsJson)) {
   let result;
   if (step.kind === "turn") { for (const h of handlers.turn_start ?? []) await h({ type: "turn_start" }, ctx); continue; }
   if (step.kind === "start") { for (const h of handlers.agent_start ?? []) await h({ type: "agent_start" }, ctx); continue; }
+  if (step.kind === "input") { for (const h of handlers.input ?? []) await h({ type: "input", text: "make a site", source: "interactive" }, ctx); continue; }
+  if (step.kind === "pause") { await new Promise((r) => setTimeout(r, 40)); continue; }
+  if (step.kind === "files") {   // what sub-agents write, by tools this session never sees
+    const { writeFileSync, mkdirSync } = await import("node:fs"); const { dirname } = await import("node:path");
+    for (const [name, text] of Object.entries(step.write)) { mkdirSync(dirname(`${cwd}/${name}`), { recursive: true }); writeFileSync(`${cwd}/${name}`, text); }
+    continue;
+  }
   if (step.kind === "settle") {
     const event = { type: "agent_before_settle", context: { contextMessages: [{ role: "assistant", content: [{ type: "text", text: step.reply }] }] } };
     let r; for (const h of handlers.agent_before_settle ?? []) r = (await h(event, ctx)) ?? r;
@@ -412,6 +419,89 @@ class ViewOutputsTests(unittest.TestCase):
         self.assertIn('Not an image: images/earthworm.jpg - it holds a web page titled "Wikimedia Error" (71 bytes): '
                       "broken in any browser.", viewed["text"])
         self.assertNotIn("ok.png", viewed["text"])
+
+    def test_pages_the_children_wrote_before_the_last_run_began_are_still_checked(self):
+        """batch 3, hares-auto (2026-11-14): sub-agents wrote four pages whose stylesheet asked for a hero
+        picture that was not there; the run their last notice started viewed only pictures and said "100%
+        self-consistent ... Verified". The check looked for pages changed since that run began, and they
+        had all been written before it."""
+        css = "body { background: url(images/hero-hare.jpg); }"
+        page = '<html><head><link rel="stylesheet" href="styles.css"></head><body><nav><a href="index.html">Home</a></nav>%s<footer>x</footer></body></html>'
+        steps = [{"kind": "input"}, {"kind": "start"},                       # the user asks; the run launches children
+                 {"kind": "pause"},
+                 {"kind": "files", "write": {"website/styles.css": css, "website/index.html": page % "a",
+                                             "website/biology.html": page % "b"}},
+                 {"kind": "pause"},
+                 {"kind": "start"},                                          # the run the children's notice starts
+                 {"kind": "settle", "reply": "I've created a 100% self-consistent website. Complete and Verified."}]
+        sent, = self.run_steps(steps)
+        self.assertTrue(sent["continue"])
+        self.assertIn("images/hero-hare.jpg", sent["text"])
+        self.assertIn("Do not call the pages consistent or fine until a view says so.", sent["text"])
+
+    def test_a_sub_agent_is_held_to_its_own_page_not_to_its_siblings(self):
+        """batch 6, dormice-revise: two children said their page matched, were shown the differences between
+        their siblings' unfinished pages, and read those pages for half an hour. 45 of 210 children were sent
+        back this way over six batches."""
+        self.fake_browser()
+        (self.cwd / "site").mkdir()
+        self.page("index.html", "", "<footer><p>&copy; 2026 Dormice</p></footer>")
+        self.page("habitat.html", "", "<footer><p>&copy; 2024 Hazel dormouse project</p></footer>")
+        (self.cwd / "site/css").mkdir()
+        (self.cwd / "site/css/style.css").write_text("body { margin: 0; }")     # nothing on the page itself is broken;
+        # its link to species.html, which a sibling has yet to write, is not the child's to answer for either
+        reply = "habitat.html is complete, with navigation and footer consistent with the other pages."
+        steps = [{"kind": "start"}, {"kind": "view", "params": {"path": "site/habitat.html"}}, {"kind": "settle", "reply": reply}]
+        _, as_parent = self.run_steps(steps)
+        self.assertTrue(as_parent["continue"])                                  # the top session is still sent back
+        _, as_child = self.run_steps(steps, env={"PI_SUBAGENT_CHILD": "1"})
+        self.assertFalse(as_child["modified"])                                  # a child is not
+        # ... but its own page asking for a picture that is not there is still its to fix
+        (self.cwd / "site/habitat.html").write_text('<html><body><nav><a href="index.html">Home</a></nav><img src="images/nest.jpg"><footer>x</footer></body></html>')
+        _, broken = self.run_steps([{"kind": "start"}, {"kind": "view", "params": {"path": "site/habitat.html"}},
+                                    {"kind": "settle", "reply": "habitat.html renders correctly."}], env={"PI_SUBAGENT_CHILD": "1"})
+        self.assertTrue(broken["continue"])
+        self.assertIn("images/nest.jpg", broken["text"])
+        # and pages it never viewed are not gone looking for
+        unviewed = [{"kind": "input"}, {"kind": "start"}, {"kind": "pause"},
+                    {"kind": "files", "write": {"site/biology.html": "<html><body><footer>other</footer></body></html>"}},
+                    {"kind": "pause"}, {"kind": "start"}, {"kind": "settle", "reply": "All pages are consistent."}]
+        sent, = self.run_steps(unviewed, env={"PI_SUBAGENT_CHILD": "1"})
+        self.assertFalse(sent["modified"])
+
+    def test_pictures_left_in_the_scratch_folder_are_not_part_of_the_site(self):
+        """batch 6, wrens-3: eight pictures in .pi/tmp/wren-images/, every page pointing there, "validated all
+        image paths point to existing files" - true on this machine, and nowhere the site is copied to."""
+        self.fake_browser()
+        (self.cwd / ".pi/tmp/wren-images").mkdir(parents=True)
+        (self.cwd / ".pi/tmp/wren-images/house-wren.jpg").write_bytes(png(4, 4))
+        (self.cwd / "images").mkdir()
+        (self.cwd / "images/ok.png").write_bytes(png(4, 4))
+        (self.cwd / "index.html").write_text('<html><body><img src=".pi/tmp/wren-images/house-wren.jpg"><img src="images/ok.png"></body></html>')
+        viewed, = self.run_steps([{"kind": "view", "params": {"path": "index.html"}}])
+        self.assertIn("Kept in scratch: .pi/tmp/wren-images/house-wren.jpg", viewed["text"])
+        self.assertIn("Move the files into the site", viewed["text"])
+        self.assertNotIn("ok.png", viewed["text"])
+        # and nobody viewing the page does not excuse it: the end-of-run check finds it
+        steps = [{"kind": "input"}, {"kind": "start"}, {"kind": "pause"},
+                 {"kind": "files", "write": {"species.html": '<html><body><img src=".pi/tmp/wren-images/house-wren.jpg"></body></html>'}},
+                 {"kind": "pause"}, {"kind": "start"},
+                 {"kind": "settle", "reply": "Validated: all image paths point to existing files and every page renders correctly."}]
+        sent, = self.run_steps(steps)
+        self.assertTrue(sent["continue"])
+        self.assertIn("Kept in scratch", sent["text"])
+
+    def test_a_gallery_of_placeholder_pictures_is_not_a_finished_site(self):
+        """batch 4, salmon-8: 18 pictures from picsum.photos in the gallery, and "rendering correctly"."""
+        imgs = "".join(f'<img src="https://picsum.photos/seed/salmon{i}/400/300" alt="Atlantic salmon leaping">' for i in range(3))
+        page = "<html><body><nav><a href='index.html'>Home</a></nav>%s<footer>x</footer></body></html>"
+        steps = [{"kind": "input"}, {"kind": "start"}, {"kind": "pause"},
+                 {"kind": "files", "write": {"index.html": page % "home", "gallery.html": page % imgs}},
+                 {"kind": "pause"}, {"kind": "start"},
+                 {"kind": "settle", "reply": "Perfect! The website is rendering correctly with consistent navigation and styling."}]
+        sent, = self.run_steps(steps)
+        self.assertTrue(sent["continue"])
+        self.assertIn("picsum.photos serves arbitrary placeholder pictures", sent["text"])
 
     def test_calling_the_pages_consistent_over_the_comparison_is_sent_back_once(self):
         """test8, test10, test11, test13: "Perfect! ... consistent" right after a comparison listing differences."""

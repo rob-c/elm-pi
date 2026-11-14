@@ -59,8 +59,8 @@ are added to a request that needs them, and in reference files under
 - A child starts with only its prompt, so it is cheap: do not ration them.
 - `workflow` is for staged work that reads and judges: find, then verify each
   finding; several attempts, then a judge. A fan-out that writes files goes to
-  `subagent`, whose children are kept off each other's files. In manual,
-  workflow agents can only read. No `workflow` tool (`pi --no-workflows`)?
+  `subagent`, whose children are kept off each other's files. In manual or
+  read-only-auto, workflow agents can only read. No `workflow` tool (`pi --no-workflows`)?
   `/ultracode` then means fan out with `subagent` as in rule 1.
 - Children started together cannot see each other: settle what their pieces
   share before you fan out. A child owns its files until its notice arrives.
@@ -143,7 +143,8 @@ section names the ones a request matches, with their paths. The physics skills:
 `physical-constants`, `scientific-python`, `scientific-cpp`,
 `physics-documents`. Each is a checked procedure; following it is how a result
 here gets to be trustworthy. Software the machine lacks: `installing-software`
-and `containers`. A plugin for elm-pi: `developing-elm-pi`.
+and `containers`. A bug or failing test: `changing-code`. A plugin for elm-pi:
+`developing-elm-pi`.
 
 ## A 403: this install, or the site?
 

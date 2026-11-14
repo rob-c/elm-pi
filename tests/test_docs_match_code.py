@@ -119,7 +119,7 @@ AGENTS_MD = PROMPTS["AGENTS.md"]
 APPEND = PROMPT_FLAT["APPEND_SYSTEM.md"]
 
 NUMBER_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "nine": 9, "ten": 10, "eleven": 11,
-                "twelve": 12, "thirteen": 13, "fifteen": 15, "sixteen": 16}
+                "twelve": 12, "thirteen": 13, "fifteen": 15, "sixteen": 16, "seventeen": 17}
 
 
 def heredoc(source, after):

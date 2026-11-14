@@ -3,14 +3,16 @@
 The launcher's rules (pi, "# --- permission mode") are restated here as a small
 Python model, from the documentation rather than from the shell:
 
-  1. a flag (--manual/--auto/--yolo) sets the mode for that run;
+  1. a flag (--manual/--read-only-auto/--auto/--yolo) sets the mode for that run;
   2. else a sub-agent (PI_ELM_CHILD) runs in the mode of the session that
      started it (PI_ELM_PERMISSION_MODE): yolo is handed on as auto, and
      anything that is not a mode as manual;
-  3. else this install's default: agent/permission-mode when it says manual
-     or auto, else the shipped default when that is manual or auto, else manual;
+  3. else this install's default: agent/permission-mode when it says manual,
+     read-only-auto or auto, else the shipped default when that is one of
+     those, else manual;
   4. started from a shell (not a sub-agent), a PI_ELM_PERMISSION_MODE already in
-     the environment can only tighten the run (manual > auto > yolo; anything
+     the environment can only tighten the run (manual > read-only-auto > auto >
+     yolo; anything
      else counts as manual), with a note when it keeps a flag from loosening the
      run, or cannot loosen it itself;
   5. a mode other than auto needs a patched gate: asked for by flag it is
@@ -18,7 +20,12 @@ Python model, from the documentation rather than from the shell:
      note for a session started from a shell;
   6. notes, for a session started from a shell only: yolo says it is for this
      session only; a mode that is not the default says new sessions start in
-     the default; manual with -p says nothing can be asked.
+     the default; manual or read-only-auto with -p says nothing can be asked.
+
+read-only-auto (2026-11-14) is manual to the gate: the launcher exports
+PI_ELM_PERMISSION_MODE=manual with PI_ELM_READ_AUTO=1, and a session hands it
+on to a sub-agent that way. PI_ELM_READ_AUTO beside any other mode, or none, is
+not a mode and is dropped: it cannot loosen a run by being in the environment.
 
 Every combination of flag, saved default, shipped default, inherited mode,
 sub-agent and gate is run through the launcher's own block and compared with
@@ -41,20 +48,23 @@ from test_launcher_cases import (BatchTest, C, Case, GATE_REL, LAUNCHER, block, 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = json.loads((ROOT / "config/elm-pi.json").read_text())
 NO_PROMPT = ",".join(CONFIG["permissionModes"]["manualNoPrompt"])
-RANK = {"manual": 2, "auto": 1, "yolo": 0}
-MODES = ("manual", "auto", "yolo")
+RANK = {"manual": 3, "read-only-auto": 2, "auto": 1, "yolo": 0}
+MODES = ("manual", "read-only-auto", "auto", "yolo")
+DEFAULTS = ("manual", "read-only-auto", "auto")
 
 
 def expected(flag, saved, shipped, inherited, child, gate, printing):
     """The documented rules: (rc, mode, default, notes)."""
-    default = shipped if shipped in ("manual", "auto") else "manual"
-    if saved in ("manual", "auto"):
+    default = shipped if shipped in DEFAULTS else "manual"
+    if saved in DEFAULTS:
         default = saved
+    if inherited == "stray":        # PI_ELM_READ_AUTO=1 beside auto: only auto was inherited
+        inherited = "auto"
     notes = set()
     if flag:
         mode = flag
     elif child and inherited:
-        mode = inherited if inherited in ("manual", "auto") else ("auto" if inherited == "yolo" else "manual")
+        mode = inherited if inherited in DEFAULTS else ("auto" if inherited == "yolo" else "manual")
     else:
         mode = default
     if not child and inherited:
@@ -76,7 +86,7 @@ def expected(flag, saved, shipped, inherited, child, gate, printing):
             notes.add("yolo")
         elif mode != default:
             notes.add("session")
-        if mode == "manual" and printing:
+        if mode in ("manual", "read-only-auto") and printing:
             notes.add("print")
     return 0, mode, default, notes
 
@@ -87,7 +97,7 @@ NOTE_TEXT = {
     "gate": "so it runs in auto mode",
     "yolo": "yolo for this session only",
     "session": "for this session; new sessions start in",
-    "print": "manual mode with -p: there is no one to ask",
+    "print": "mode with -p: there is no one to ask",
 }
 
 
@@ -106,9 +116,10 @@ def spec_case(flag, saved, shipped, inherited, child, gate, printing=False):
                 want=expected(flag, saved, shipped, inherited, child, gate, printing))
 
 
-FLAGS = (None, "manual", "auto", "yolo")
-SAVED = (None, "manual", "auto", "yolo", "Auto")
-INHERITED = (None, "manual", "auto", "yolo", "junk")
+FLAGS = (None, "manual", "read-only-auto", "auto", "yolo")
+SAVED = (None, "manual", "read-only-auto", "auto", "yolo", "Auto")
+# "read-only-auto": manual with PI_ELM_READ_AUTO=1, as a session hands it on; "stray": that variable beside auto
+INHERITED = (None, "manual", "read-only-auto", "auto", "yolo", "junk", "stray")
 
 CASES = [
     # the heart of it: flag x saved default x inherited mode x sub-agent, patched gate
@@ -153,8 +164,10 @@ class PermissionModeSpecTests(BatchTest):
     def body(cls, case):
         kw = case.kw
         here = cls.tmp / "installs" / re.sub(r"\W+", "_", case.name)
+        inherited = {"read-only-auto": "manual", "stray": "auto"}.get(kw["inherited"], kw["inherited"])
         env = {"ELM_PERMISSION_MODE_DEFAULT": kw["shipped"], "ELM_MANUAL_NO_PROMPT": NO_PROMPT,
-               "PI_ELM_PERMISSION_MODE": kw["inherited"], "PI_ELM_CHILD": "1" if kw["child"] else None,
+               "PI_ELM_PERMISSION_MODE": inherited, "PI_ELM_CHILD": "1" if kw["child"] else None,
+               "PI_ELM_READ_AUTO": "1" if kw["inherited"] in ("read-only-auto", "stray") else None,
                "PI_ELM_MANUAL_ALLOW": "bash"}
         lines = ["set -euo pipefail", f"mkdir -p {q(here / 'agent')}"]
         if kw["saved"] is not None:
@@ -163,6 +176,7 @@ class PermissionModeSpecTests(BatchTest):
             f"HERE={q(here)}", f"GATE_PKG={q(cls.tmp / 'gates' / kw['gate'] / GATE_REL)}",
             f"MODE_FLAG={q(kw['flag'] or '')}", exports(env), setargs(case.args), 'mode_block "$@"',
             "printf '@@MODE=%s\\n' \"$(printenv PI_ELM_PERMISSION_MODE || true)\"",
+            "printf '@@READAUTO=%s\\n' \"$(printenv PI_ELM_READ_AUTO || true)\"",
             "printf '@@DEFAULT=%s\\n' \"$(printenv PI_ELM_PERMISSION_DEFAULT || true)\"",
             "printf '@@ALLOW=%s\\n' \"$(printenv PI_ELM_MANUAL_ALLOW || true)\""])
 
@@ -172,7 +186,12 @@ class PermissionModeSpecTests(BatchTest):
         if rc:
             self.assertIn("cannot run in", r.err)
             return
-        self.assertEqual((mode, default), (r.vars.get("MODE"), r.vars.get("DEFAULT")), r.err)
+        # What the gate reads, and the reviewer's switch: together they are the mode.
+        exported, switch = r.vars.get("MODE"), r.vars.get("READAUTO")
+        self.assertIn(switch, ("", "1"), r.err)
+        got = "read-only-auto" if (exported, switch) == ("manual", "1") else exported
+        self.assertEqual("1" if mode == "read-only-auto" else "", switch, r.err)   # never left on beside another mode
+        self.assertEqual((mode, default), (got, r.vars.get("DEFAULT")), r.err)
         self.assertEqual(NO_PROMPT, r.vars.get("ALLOW"))
         printed = {note for note, text in NOTE_TEXT.items() if text in r.err}
         self.assertEqual(notes, printed, r.err)

@@ -521,6 +521,16 @@ BASH = [
     ("parallel -S h1,h2 echo ::: a b", deny("parallel *-S*"), "parallel itself runs commands on other machines"),
     ("parallel --sshlogin h1 echo ::: a", deny("parallel *--sshlogin*"), ""),
     ("parallel -j 4 gzip ::: a.log b.log", ask("<indirection-bash-wrapper>"), "the gate asks for what parallel runs, as for xargs"),
+    # batch 3, newts-fast (2026-11-14): `pi --fast` has no view tool, the model ran `view a.jpg b.jpg` in bash,
+    # and vi sat waiting for a keyboard for 14 minutes until it was killed.
+    ("view images/newt-1.jpg images/pond.jpg", deny("view *"), "batch 3"),
+    ("cd website && view images/newt-1.jpg", deny("view *"), "after a cd"),
+    ("vim notes.txt", deny("vim *"), ""),
+    ("vi +3 a.py", deny("vi *"), ""),
+    ("nano ~/.zshrc", deny("nano *"), ""),
+    ("/usr/bin/vim x", deny("vim *"), "command-guard: by its last path segment"),
+    ("git commit -m 'review notes'", allow(), "nothing to do with vi"),
+    ("vimgrep-like-tool x", allow(), "another program"),
     # auto21 (2026-11-14): Homebrew's Python refused `pip3 install`, and the model added
     # --break-system-packages: 92 packages went into the Python everything else on the machine uses.
     ("pip3 install --break-system-packages --quiet nbconvert jupyter", deny("*break-system-packages*"), "auto21"),

@@ -101,6 +101,12 @@ export const ROUTES: Array<[string, RegExp]> = ([
 	["numerical-methods", /\b(ODEs?|PDEs?|differential equations?|numerical(ly)? (integrat\w*|solution|methods?|stability|precision|error)|numerically (stable|unstable|solve|integrat\w*|evaluat\w*|comput\w*|approximat\w*)|integrat(e|ing|ion) (this |the |an? )?(ODEs?|PDEs?|equations?|system|trajector(y|ies)|orbits?|over|from)|integrators?|integrals? (of|over|from)|quadrature (rule|method|integration)|monte[- ]?carlo|convergence (stud(y|ies)|tests?|checks?|order|rate|criteri\w*)|(order|rate) of convergence|stiff(ness)?( ODEs?| systems?| equations?| problems?| solvers?)?|eigen(value|vector|state|function|mode|system|problem|decomposition)s?|root[- ]find(ing|er)|newton[- ]raphson|runge[- ]kutta|RK4|solve_ivp|odeint|finite[- ](difference|element|volume)s?|floating[- ]point (error|precision|rounding)|round[- ]?off error|catastrophic cancellation|condition number|ill[- ]conditioned)\b|^(?=[\s\S]*\bsimulat\w*)(?=[\s\S]*\b(physics|particles?|ODEs?|PDEs?|equations? of motion|trajector(y|ies)|orbits?|time ?steps?|dynamics|lattice|n-body|monte[- ]?carlo|diffusion|ising|spins?|fluid|heat|waves?|pendulum|oscillators?|planet\w*|molecul\w*)\b)/i],
 	["physical-constants", /\b((physical|fundamental|physics) constants?|(planck|boltzmann|avogadro|gravitational|fine[- ]structure|rydberg|coulomb|stefan[- ]boltzmann|hubble|fermi|coupling) constants?|speed of light|elementary charge|(electron|proton|neutron|muon|pion|kaon|higgs|top quark|[WZ] boson) (mass|charge|lifetime|width)|(masses|mass|lifetimes?|widths?) of (the )?(electron|proton|neutron|muon|tau|pion|kaon|higgs|top|bottom|charm|quarks|[a-z]+ quarks?|[WZ]|[WZ] boson|B meson|D meson|neutrinos?|nucle(us|i)|particles?|mesons?|baryons?|hadrons?|leptons?)|branching (ratio|fraction)s?|(strong|weak|electromagnetic|yukawa|gauge) couplings?|PDG|CODATA|particle data group)\b/i],
 	["physics-documents", /\b(slides|slide ?deck|beamer|lectures?|lecture notes|problem sheets?|lab reports?|(physics|research|scientific|journal|conference) (paper|report|article)s?|(write|draft)( up)? (a |the |my )?(paper|thesis)|thesis|dissertation|latex|\.tex|bibtex|siunitx|overleaf)\b/i],
+	// A bug, a failing test or code from a spec. On eight harder coding tasks run twice (2026-11-14) the
+	// five failures were all fixes that stopped at the reported example; nothing routed, since every other
+	// skill here is a physics or analysis method.
+	// Widened the same day: the first pattern reached three of eight task wordings ("Fix HitCounter so",
+	// "prints 3000 but", "takes minutes" went unmatched), and the gain - 11 to 14 of 16 - was all in those three.
+	["changing-code", /\b((fix|find|track down|hunt)\w* (a |the |this |that |my )?bugs?|debug(ging)?|tracebacks?|stack traces?|crash(es|ed|ing)?|(tests?|builds?)[`'"]? (is |are |keeps? )?(fail(s|ing|ed)?|broken)|failing tests?|wrong (answer|output|result|number|value|total)s?|cannot be right|refactor(ing|ed)?|fix (it|the (code|bug|cause|function|mistake|error))|find (the|out) (mistake|why|cause)|(add|write|implement) (a |an |two |the |some )?(function|method|parser|class|module)s?|fix [A-Za-z_][\w.]*(\(\))?( in \S+)? so\b|fix [a-z_]+_[a-z_]+\b|fix \w+\.(py|cpp|hpp|c|h|js|ts|rs|go)\b|(prints?|returns?|gives?|says|shows?) [^.\n]{0,90}\b(but|instead of|should (print|return|be|give))\b|takes (minutes|hours|too long|forever)|too slow|speed (it|this|\w+\(\)) up|add [^.\n]{0,60}\bto \w+\.(py|cpp|hpp|c|h|js|ts|rs|go)\b)\b/i],
 	["scientific-cpp", /(\bC\+\+|\bcpp\b|\bcmake\b|\bEigen\b|\bGSL\b|\bg\+\+|\bclang\b)/i],
 	// CERN's ROOT by its capitals, as for histogram-analysis: "root macro" is not it.
 	["scientific-cpp", /\bROOT macros?\b/],
@@ -298,9 +304,32 @@ function renderRouting(details: RoutingDetails | undefined, expanded: boolean, o
 	};
 }
 
+/**
+ * Asked for agents in a session that has none. `pi --fast` loads no sub-agent package: batch 4,
+ * newts-fast (2026-11-14) called `subagent` and `workflow`, got "Tool not found" for each, and built
+ * the site alone over 18 minutes without a word that the agents asked for did not exist; a later one
+ * ran `pi -p` twice from bash and reported "both agents agree". Here because --fast loads this
+ * extension: the note was first put in wait-guard.ts, which --fast does not load, and never fired.
+ */
+export const ASKS_FOR_AGENTS =
+	/\b(\d+|two|three|four|five|six|seven|eight|nine|ten|several|multiple|many) (parallel )?(sub-?agents|agents|workers)\b|\b(use|using|with|spawn|launch|run) (parallel |some |a few )?(sub-?agents|agents|workers)\b/i;
+export const NO_AGENTS_TYPE = "no-agents-note";
+export const NO_AGENTS_NOTE =
+	"This session has no sub-agents: it was started in a mode that leaves them out (`pi --fast`), so `subagent` and " +
+	"`workflow` are not among its tools, and starting `pi` from bash is not a substitute. Do the work yourself, and say " +
+	"in your first line that you are - the user asked for agents and should know they can restart without `--fast` to " +
+	"have them. Do not call tools you do not have.";
+
+/** The note for a request that asks for agents where none can be launched, or undefined. */
+export function noAgentsNote(prompt: string, activeTools: readonly string[], env: NodeJS.ProcessEnv = process.env): string | undefined {
+	if (env.PI_SUBAGENT_CHILD === "1" || canDelegate(activeTools)) return undefined;
+	return ASKS_FOR_AGENTS.test(prompt) ? NO_AGENTS_NOTE : undefined;
+}
+
 export default function (pi: ExtensionAPI) {
 	/** Skills read with `read` in this runtime; the session's entries cover earlier runtimes. */
 	const read = new Set<string>();
+	let saidNoAgents = false;
 
 	pi.registerMessageRenderer<RoutingDetails>(MESSAGE_TYPE, (message, { expanded, outputPad }, theme) =>
 		renderRouting(message.details, expanded, outputPad, theme));
@@ -312,13 +341,18 @@ export default function (pi: ExtensionAPI) {
 		const matched = sessionRoutes(event.prompt, pi.getActiveTools?.() ?? [], process.env.PATH)
 			.filter((name) => !present.has(name) && existsSync(skillPath(name)))
 			.slice(0, MAX_ROUTED);
-		if (matched.length === 0) return undefined;
+		const noAgents = saidNoAgents ? undefined : noAgentsNote(event.prompt, pi.getActiveTools?.() ?? []);
+		if (noAgents) saidNoAgents = true;
+		if (matched.length === 0) {
+			return noAgents ? { message: { customType: NO_AGENTS_TYPE, content: noAgents, display: true } } : undefined;
+		}
 		const inlined = matched.slice(0, MAX_INLINED);
 		const named = matched.slice(MAX_INLINED);
 		for (const name of inlined) read.add(name);
 		const details: RoutingDetails = { inlined, named };
+		const content = routingMessage(inlined, named) + (noAgents ? `\n\n${noAgents}` : "");
 		return {
-			message: { customType: MESSAGE_TYPE, content: routingMessage(inlined, named), display: true, details },
+			message: { customType: MESSAGE_TYPE, content, display: true, details },
 		};
 	});
 

@@ -9,7 +9,7 @@ The documented behaviour, restated as a Python model:
     "default" - and Escape there changes nothing;
   - yolo: already yolo says so; otherwise one answer, "Change for this session
     only", which switches this session and never saves a default;
-  - manual or auto: when it is already both this session's mode and the default,
+  - manual, read-only-auto (2026-11-14) or auto: when it is already both this session's mode and the default,
     it says so; otherwise "Change for this session" (switch) or "Change default
     mode" (switch, and save agent/permission-mode); Escape changes nothing;
   - a default that cannot be saved still switches the session, and says so.
@@ -30,9 +30,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "templates/extensions/permission-mode.ts"
-MODES = ("manual", "auto", "yolo")
+MODES = ("manual", "read-only-auto", "auto", "yolo")
+DEFAULTS = ("manual", "read-only-auto", "auto")     # what a new session may start in: never yolo
 SESSION, DEFAULT, YOLO_SESSION = "Change for this session", "Change default mode", "Change for this session only"
-SHORT = {"manual": "asks before every command and edit", "auto": "the risky commands ask, the rest run",
+SHORT = {"manual": "asks before every command and edit", "read-only-auto": "reading runs; every change asks",
+         "auto": "the risky commands ask, the rest run",
          "yolo": "answers every ask yes, this session only"}
 
 
@@ -86,7 +88,8 @@ def expected(current, fallback, typed, answers, patched, writable):
 
 
 # what is typed after /mode -> how it appears in a test name
-TYPED = {"": "nothing", "manual": "manual", "auto": "auto", "yolo": "yolo", "  Auto ": "padded_capital_auto",
+TYPED = {"": "nothing", "manual": "manual", "read-only-auto": "read_only_auto", "auto": "auto", "yolo": "yolo",
+         "  Auto ": "padded_capital_auto", " Read-Only-Auto": "padded_capital_read_only_auto",
          "YOLO": "upper_case_yolo", "turbo": "not_a_mode"}
 
 
@@ -95,22 +98,23 @@ def answer_sets(typed):
     if typed.strip().lower() not in ("", *MODES):
         return [()]
     if not typed.strip():
-        return [(None,)] + [(first, second) for first in (0, 1, 2) for second in (0, 1, None)]
+        return [(None,)] + [(first, second) for first in range(len(MODES)) for second in (0, 1, None)]
     return [(0,), (1,), (None,)]
 
 
 CASES = []
-for current, fallback, typed in itertools.product(MODES, ("manual", "auto"), TYPED):
+for current, fallback, typed in itertools.product(MODES, DEFAULTS, TYPED):
     for answers in answer_sets(typed):
         CASES.append({"name": f"{current}_now_{fallback}_default_typed_{TYPED[typed]}_answers_"
                               + "_".join("esc" if a is None else str(a) for a in answers),
                       "current": current, "def": fallback, "typed": typed, "answers": list(answers),
                       "patched": True, "writable": True})
-for current, fallback, typed in itertools.product(MODES, ("manual", "auto"), ("", "auto", "yolo")):
+for current, fallback, typed in itertools.product(MODES, DEFAULTS, ("", "auto", "read-only-auto", "yolo")):
     CASES.append({"name": f"unpatched_{current}_now_{fallback}_default_typed_{TYPED[typed]}",
                   "current": current, "def": fallback, "typed": typed, "answers": [1, 1],
                   "patched": False, "writable": True})
-for current, wanted in (("manual", "auto"), ("auto", "manual"), ("yolo", "auto"), ("yolo", "manual")):
+for current, wanted in (("manual", "auto"), ("auto", "manual"), ("yolo", "auto"), ("yolo", "manual"),
+                        ("manual", "read-only-auto"), ("read-only-auto", "manual")):
     CASES.append({"name": f"unwritable_{current}_now_making_{wanted}_the_default",
                   "current": current, "def": "manual" if wanted == "auto" else "auto", "typed": wanted,
                   "answers": [1], "patched": True, "writable": False})
@@ -131,7 +135,7 @@ for (const c of JSON.parse(readFileSync(casesPath, "utf8"))) {
   writeFileSync(join(src, "policy/permission-manager.ts"), c.patched ? '// PI_ELM_PERMISSION_MODE === "manual"' : "plain");
   if (!c.writable) chmodSync(agentDir, 0o500);
   process.env.PI_CODING_AGENT_DIR = agentDir;
-  process.env.PI_ELM_PERMISSION_MODE = c.current;
+  mod.applyMode(c.current);   // read-only-auto is manual to the gate, with PI_ELM_READ_AUTO=1 beside it
   process.env.PI_ELM_PERMISSION_DEFAULT = c.def;
   const commands = {};
   mod.default({ on: () => {}, registerCommand: (n, d) => { commands[n] = d; } });
@@ -148,7 +152,8 @@ for (const c of JSON.parse(readFileSync(casesPath, "utf8"))) {
   if (!c.writable) chmodSync(agentDir, 0o700);
   const saved = join(agentDir, "permission-mode");
   out[c.name] = {
-    mode: process.env.PI_ELM_PERMISSION_MODE, def: process.env.PI_ELM_PERMISSION_DEFAULT,
+    mode: mod.currentMode(), def: process.env.PI_ELM_PERMISSION_DEFAULT,
+    gate: process.env.PI_ELM_PERMISSION_MODE, readAuto: process.env.PI_ELM_READ_AUTO ?? null,
     saved: existsSync(saved) ? readFileSync(saved, "utf8") : null,
     menus, level: notes.length ? notes[notes.length - 1][1] : null, thrown,
   };
@@ -192,6 +197,9 @@ class ModeCommandSpecTests(unittest.TestCase):
                                                        case["patched"], case["writable"])
         self.assertEqual({"mode": mode, "def": fallback, "saved": saved, "menus": menus, "level": level},
                          {k: got[k] for k in ("mode", "def", "saved", "menus", "level")})
+        # What the gate and the reviewer read: read-only-auto is manual with the switch on, and no other
+        # mode leaves the switch behind.
+        self.assertEqual(("manual", "1") if mode == "read-only-auto" else (mode, None), (got["gate"], got["readAuto"]))
 
 
 for _case in CASES:

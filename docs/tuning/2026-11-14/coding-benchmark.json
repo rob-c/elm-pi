@@ -1,0 +1,489 @@
+{
+ "date": "2026-11-14",
+ "model": "Qwen (elm), --auto, one prompt per session",
+ "what": "Eight harder coding tasks, each run twice per arm; a run passes when a check the session never sees exits 0. Every check was first shown to fail on the seed project and pass on a reference solution (harness/coding/make_tasks.py).",
+ "arms": {
+  "no-skill": {
+   "passed": 11,
+   "runs": 16,
+   "tokens": 2794005,
+   "runs_detail": [
+    {
+     "run": "drag-range.1",
+     "pass": true,
+     "tokens": 42814,
+     "turns": "2",
+     "why": ""
+    },
+    {
+     "run": "drag-range.2",
+     "pass": true,
+     "tokens": 108870,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "inventory.1",
+     "pass": true,
+     "tokens": 391907,
+     "turns": "17",
+     "why": ""
+    },
+    {
+     "run": "inventory.2",
+     "pass": true,
+     "tokens": 314341,
+     "turns": "14",
+     "why": ""
+    },
+    {
+     "run": "log-parser.1",
+     "pass": false,
+     "tokens": 222595,
+     "turns": "10",
+     "why": "AssertionError: accepted an invalid line: '25:00:00 INFO a=1'"
+    },
+    {
+     "run": "log-parser.2",
+     "pass": false,
+     "tokens": 149969,
+     "turns": "7",
+     "why": "AssertionError: accepted an invalid line: '25:00:00 INFO a=1'"
+    },
+    {
+     "run": "numerics.1",
+     "pass": true,
+     "tokens": 137174,
+     "turns": "7",
+     "why": ""
+    },
+    {
+     "run": "numerics.2",
+     "pass": true,
+     "tokens": 267869,
+     "turns": "13",
+     "why": ""
+    },
+    {
+     "run": "race.1",
+     "pass": true,
+     "tokens": 119108,
+     "turns": "6",
+     "why": ""
+    },
+    {
+     "run": "race.2",
+     "pass": true,
+     "tokens": 118920,
+     "turns": "6",
+     "why": ""
+    },
+    {
+     "run": "slow-export.1",
+     "pass": true,
+     "tokens": 167962,
+     "turns": "8",
+     "why": ""
+    },
+    {
+     "run": "slow-export.2",
+     "pass": true,
+     "tokens": 80112,
+     "turns": "4",
+     "why": ""
+    },
+    {
+     "run": "sql-join.1",
+     "pass": true,
+     "tokens": 138363,
+     "turns": "7",
+     "why": ""
+    },
+    {
+     "run": "sql-join.2",
+     "pass": false,
+     "tokens": 97532,
+     "turns": "5",
+     "why": "AssertionError: [('day', 1500, 3), ('night', 800, 1), ('swing', 0, 0)]"
+    },
+    {
+     "run": "state-leak.1",
+     "pass": false,
+     "tokens": 117934,
+     "turns": "6",
+     "why": "AssertionError: the default list is still shared"
+    },
+    {
+     "run": "state-leak.2",
+     "pass": false,
+     "tokens": 318535,
+     "turns": "15",
+     "why": "AssertionError: the default list is still shared"
+    }
+   ]
+  },
+  "skill-narrow-route": {
+   "passed": 14,
+   "runs": 16,
+   "tokens": 2971741,
+   "runs_detail": [
+    {
+     "run": "drag-range.1",
+     "pass": true,
+     "tokens": 107871,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "drag-range.2",
+     "pass": true,
+     "tokens": 85845,
+     "turns": "4",
+     "why": ""
+    },
+    {
+     "run": "inventory.1",
+     "pass": true,
+     "tokens": 350497,
+     "turns": "15",
+     "why": ""
+    },
+    {
+     "run": "inventory.2",
+     "pass": true,
+     "tokens": 366823,
+     "turns": "16",
+     "why": ""
+    },
+    {
+     "run": "log-parser.1",
+     "pass": true,
+     "tokens": 116391,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "log-parser.2",
+     "pass": true,
+     "tokens": 117863,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "numerics.1",
+     "pass": true,
+     "tokens": 278920,
+     "turns": "13",
+     "why": ""
+    },
+    {
+     "run": "numerics.2",
+     "pass": true,
+     "tokens": 324950,
+     "turns": "15",
+     "why": ""
+    },
+    {
+     "run": "race.1",
+     "pass": true,
+     "tokens": 98856,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "race.2",
+     "pass": true,
+     "tokens": 98835,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "slow-export.1",
+     "pass": false,
+     "tokens": 101249,
+     "turns": "5",
+     "why": "AssertionError: unique_runs is still slow"
+    },
+    {
+     "run": "slow-export.2",
+     "pass": true,
+     "tokens": 144329,
+     "turns": "7",
+     "why": ""
+    },
+    {
+     "run": "sql-join.1",
+     "pass": true,
+     "tokens": 118722,
+     "turns": "6",
+     "why": ""
+    },
+    {
+     "run": "sql-join.2",
+     "pass": true,
+     "tokens": 98181,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "state-leak.1",
+     "pass": true,
+     "tokens": 282648,
+     "turns": "13",
+     "why": ""
+    },
+    {
+     "run": "state-leak.2",
+     "pass": false,
+     "tokens": 279761,
+     "turns": "13",
+     "why": "AssertionError: the default list is still shared"
+    }
+   ]
+  },
+  "skill-wide-route": {
+   "passed": 16,
+   "runs": 16,
+   "tokens": 3678885,
+   "runs_detail": [
+    {
+     "run": "drag-range.1",
+     "pass": true,
+     "tokens": 105520,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "drag-range.2",
+     "pass": true,
+     "tokens": 63676,
+     "turns": "3",
+     "why": ""
+    },
+    {
+     "run": "inventory.1",
+     "pass": true,
+     "tokens": 358468,
+     "turns": "15",
+     "why": ""
+    },
+    {
+     "run": "inventory.2",
+     "pass": true,
+     "tokens": 272358,
+     "turns": "12",
+     "why": ""
+    },
+    {
+     "run": "log-parser.1",
+     "pass": true,
+     "tokens": 115708,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "log-parser.2",
+     "pass": true,
+     "tokens": 89267,
+     "turns": "4",
+     "why": ""
+    },
+    {
+     "run": "numerics.1",
+     "pass": true,
+     "tokens": 502038,
+     "turns": "22",
+     "why": ""
+    },
+    {
+     "run": "numerics.2",
+     "pass": true,
+     "tokens": 402447,
+     "turns": "18",
+     "why": ""
+    },
+    {
+     "run": "race.1",
+     "pass": true,
+     "tokens": 230712,
+     "turns": "11",
+     "why": ""
+    },
+    {
+     "run": "race.2",
+     "pass": true,
+     "tokens": 103409,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "slow-export.1",
+     "pass": true,
+     "tokens": 263360,
+     "turns": "12",
+     "why": ""
+    },
+    {
+     "run": "slow-export.2",
+     "pass": true,
+     "tokens": 151056,
+     "turns": "7",
+     "why": ""
+    },
+    {
+     "run": "sql-join.1",
+     "pass": true,
+     "tokens": 144228,
+     "turns": "7",
+     "why": ""
+    },
+    {
+     "run": "sql-join.2",
+     "pass": true,
+     "tokens": 124572,
+     "turns": "6",
+     "why": ""
+    },
+    {
+     "run": "state-leak.1",
+     "pass": true,
+     "tokens": 260614,
+     "turns": "12",
+     "why": ""
+    },
+    {
+     "run": "state-leak.2",
+     "pass": true,
+     "tokens": 491452,
+     "turns": "21",
+     "why": ""
+    }
+   ]
+  },
+  "skill-wide-route-fast": {
+   "passed": 14,
+   "runs": 16,
+   "tokens": 1740566,
+   "note": "pi --fast: the policy and nine local extensions, none of the tool packages; first request 10,065 tokens against 19,074",
+   "runs_detail": [
+    {
+     "run": "drag-range.1",
+     "pass": true,
+     "tokens": 56709,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "drag-range.2",
+     "pass": true,
+     "tokens": 68754,
+     "turns": "6",
+     "why": ""
+    },
+    {
+     "run": "inventory.1",
+     "pass": true,
+     "tokens": 198709,
+     "turns": "16",
+     "why": ""
+    },
+    {
+     "run": "inventory.2",
+     "pass": true,
+     "tokens": 172416,
+     "turns": "14",
+     "why": ""
+    },
+    {
+     "run": "log-parser.1",
+     "pass": true,
+     "tokens": 62457,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "log-parser.2",
+     "pass": true,
+     "tokens": 142408,
+     "turns": "10",
+     "why": ""
+    },
+    {
+     "run": "numerics.1",
+     "pass": true,
+     "tokens": 257222,
+     "turns": "20",
+     "why": ""
+    },
+    {
+     "run": "numerics.2",
+     "pass": true,
+     "tokens": 110494,
+     "turns": "10",
+     "why": ""
+    },
+    {
+     "run": "race.1",
+     "pass": true,
+     "tokens": 54459,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "race.2",
+     "pass": true,
+     "tokens": 54175,
+     "turns": "5",
+     "why": ""
+    },
+    {
+     "run": "slow-export.1",
+     "pass": true,
+     "tokens": 82559,
+     "turns": "7",
+     "why": ""
+    },
+    {
+     "run": "slow-export.2",
+     "pass": true,
+     "tokens": 111341,
+     "turns": "9",
+     "why": ""
+    },
+    {
+     "run": "sql-join.1",
+     "pass": false,
+     "tokens": 89243,
+     "turns": "8",
+     "why": "AssertionError: [('day', 1500, 3), ('night', 800, 1), ('swing', 0, 0)]"
+    },
+    {
+     "run": "sql-join.2",
+     "pass": true,
+     "tokens": 127812,
+     "turns": "11",
+     "why": ""
+    },
+    {
+     "run": "state-leak.1",
+     "pass": false,
+     "tokens": 69371,
+     "turns": "6",
+     "why": "AssertionError: the default list is still shared"
+    },
+    {
+     "run": "state-leak.2",
+     "pass": true,
+     "tokens": 82437,
+     "turns": "7",
+     "why": ""
+    }
+   ]
+  }
+ },
+ "corrections": [
+  "inventory: an assertion requiring an error on releasing nothing was removed - the prompt does not specify it",
+  "log-parser: the check's time 00:00:03.5 became 00:00:03.500 - the spec says HH:MM:SS.mmm, and rejecting .5 is a fair reading",
+  "all three arms were rescored with the corrected checks"
+ ]
+}

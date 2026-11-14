@@ -1002,12 +1002,160 @@ export function installWrite(command: string, cwd: string, install: string | und
 	return undefined;
 }
 
+/**
+ * Read-only auto: the mode between manual and auto (asked for on 2026-11-14). The gate runs manual's
+ * floor - every call asks - and this reviews each ask before it reaches the user: a shell command that
+ * can only read, and only inside the project, is allowed; everything else is the user's, as in manual.
+ *
+ * Why it exists: manual asks about every shell command, and some of what it asks about is the agent
+ * looking around - `ls`, `grep`, `cat` through bash, where the `ls`, `grep` and `find` tools, which never
+ * ask, were called 0 times against 202 bash calls with the session already told to prefer them. How
+ * much, measured with this reviewer over eight manual sessions: 38 of 172 dialogs in seven of them
+ * (22%), and 100 of 112 in the eighth, which was polling with `ls`. (A first count of "50 of 104" took
+ * the first word of each command and so counted `cd images && curl -o ...` as reading: it was wrong.)
+ * In three sessions in this mode, 24 reading commands ran unasked and none was asked about.
+ *
+ * It is read with the guard's own parser, not matched as text, and anything not provably reading is
+ * left to the user: a name with a path in it, an assignment, a variable, a substitution, a redirection
+ * (2>/dev/null, >/dev/null and 2>&1 aside), a flag that writes or runs something, a path outside the
+ * project or with `..` in it. A wrong "this only reads" would be a hole in the mode; a wrong "ask" costs
+ * one dialog.
+ */
+export const READ_AUTO_LINK = "elm-read-only-auto";
+const READ_ONLY = new Set([
+	"ls", "cat", "head", "tail", "wc", "file", "stat", "pwd", "du", "diff", "cmp", "grep", "egrep", "fgrep", "rg", "find", "cd",
+	"echo", "which", "basename", "dirname", "realpath", "sort", "uniq", "cut", "tr", "nl", "tree", "true", "test", "[",
+]);
+/** Flags that make one of those write a file, run a program or never return. */
+const NOT_READING: Record<string, RegExp> = {
+	find: /^-(?:exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/,
+	rg: /^--pre(?:=|$)/,
+	tail: /^(?:-[a-zA-Z0-9]*[fF][a-zA-Z0-9]*|--follow(?:=.*)?|--retry)$/,
+	file: /^(?:-[a-zA-Z]*C[a-zA-Z]*|--compile)$/,
+	sort: /^(?:-[a-zA-Z]*o.*|--output.*)$/,
+	tree: /^(?:-o.*|--output.*)$/,
+};
+
+/** Whether `path`, as given to a command run in `cwd`, stays inside `cwd`. */
+function insideProject(path: string, cwd: string): boolean {
+	if (path.startsWith("~") || path.split("/").includes("..")) return false;
+	if (!isAbsolute(path)) return true;
+	const rel = relative(cwd, resolve(path));
+	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/**
+ * Whether a command has no redirection, variable or substitution: none outside quotes, and no `$` or
+ * backtick inside double quotes, where the shell still expands them. Read one character at a time, as
+ * the shell does - a pattern over the text is fooled by `"'" > x "'"`, whose quotes are not the ones
+ * it sees. `grep '<nav' a.html` is plain; that case is the commonest look at a website there is.
+ *
+ * A backslash is followed only where the shell's rule is simple: inside single quotes it is a
+ * character; inside double quotes it and the character after it are text (`grep "nav\|footer"`, the
+ * second commonest); at the end of a line it joins the next. Anywhere else outside quotes it is refused
+ * rather than reasoned about.
+ */
+function plainOutsideQuotes(command: string): boolean {
+	let quote = "";
+	for (let i = 0; i < command.length; i++) {
+		const ch = command[i];
+		if (quote === "'") {
+			if (ch === "'") quote = "";
+		} else if (quote === '"') {
+			if (ch === "\\") i++;
+			else if (ch === '"') quote = "";
+			else if (ch === "$" || ch === "`") return false;
+		} else if (ch === "\\") {
+			if (command[i + 1] !== "\n") return false;
+			i++;
+		} else if (ch === "'" || ch === '"') {
+			quote = ch;
+		} else if (ch === ">" || ch === "<" || ch === "$" || ch === "`") {
+			return false;
+		}
+	}
+	return quote === ""; // an unclosed quote is not something to vouch for
+}
+
+/** Whether a bash command can only read, and only inside `cwd`. Anything unclear is false. */
+export function readOnlyCommand(command: string, cwd: string): boolean {
+	const bare = command.replace(/(^|\s)[12]?>\s*\/dev\/null(?=$|[\s;&|)])/g, "$1").replace(/(^|\s)2>&1(?=$|[\s;&|)])/g, "$1");
+	if (!plainOutsideQuotes(bare)) return false;
+	let commands: string[][];
+	try {
+		commands = commandsOf(command);
+	} catch {
+		return false;
+	}
+	if (commands.length === 0) return false;
+	for (const words of commands) {
+		const name = words[0] ?? "";
+		if (!READ_ONLY.has(name)) return false; // a bare name on the list: `/x/ls`, `FOO=1 ls` and `sudo ls` are not
+		const args = words.slice(1);
+		const operands = args.filter((arg) => !arg.startsWith("-"));
+		if (NOT_READING[name] && args.some((arg) => NOT_READING[name].test(arg))) return false;
+		if (name === "cd" && operands.length !== 1) return false; // `cd` alone goes home; `cd -` goes anywhere
+		if (name === "cd" && args.length !== 1) return false;
+		if (name === "uniq" && operands.length > 1) return false; // its second operand is a file to write
+		if (!operands.every((arg) => insideProject(arg, cwd))) return false;
+	}
+	return true;
+}
+
+/** What the reviewer says of one ask: allow a reading command in read-only auto, else leave it to the user. */
+export function readAutoVerdict(
+	details: { payload?: { kind?: string; evidence?: readonly { label?: string; text?: string }[] }; command?: string; toolCallId?: string; forwarding?: unknown },
+	commands: ReadonlyMap<string, string>,
+	cwd: string,
+	env: NodeJS.ProcessEnv = process.env,
+): { kind: "allow" } | { kind: "defer" } {
+	const defer = { kind: "defer" as const };
+	if (env.PI_ELM_READ_AUTO !== "1" || env.PI_ELM_PERMISSION_MODE !== "manual") return defer;
+	if (details.payload?.kind !== "bash" || details.forwarding) return defer; // not a sub-agent's ask, not a path ask
+	// The whole command, never the one piece of a chain the ask happens to name.
+	const whole =
+		(details.toolCallId ? commands.get(details.toolCallId) : undefined) ??
+		details.payload.evidence?.find((fact) => fact.label === "full command")?.text ??
+		details.command;
+	return typeof whole === "string" && readOnlyCommand(whole, cwd) ? { kind: "allow" } : defer;
+}
+
 export default function (pi: ExtensionAPI) {
 	const install = runningInstall();
+	// The commands of this session's bash calls, by call id, for the reviewer; and where the session works.
+	const asked = new Map<string, string>();
+	let projectDir = process.cwd();
+	let disposeLink: (() => void) | undefined;
+	(pi as any).events?.on?.("permissions:ready", (data: { sessionId?: string | null }) => {
+		if (disposeLink || !data?.sessionId) return;
+		// The gate publishes its service process-wide under this key (its docs/cross-extension-api.md); a
+		// link decides nothing until config.json names it in authorizerChain, which this install's does.
+		const services = (globalThis as Record<symbol, unknown>)[Symbol.for("@gotgenes/pi-permission-system:session-services")] as
+			| Map<string, { registerAuthorizer?: (name: string, authorize: (details: any) => Promise<unknown>) => () => void }>
+			| undefined;
+		try {
+			disposeLink = services?.get(data.sessionId)?.registerAuthorizer?.(READ_AUTO_LINK, async (details) => readAutoVerdict(details, asked, projectDir));
+		} catch {
+			// Registered already (a reload): the first registration stays live.
+		}
+	});
+	pi.on("session_start", async (_event: unknown, ctx: any) => {
+		if (typeof ctx?.cwd === "string") projectDir = ctx.cwd;
+	});
+	pi.on("session_shutdown", async () => {
+		disposeLink?.();
+		disposeLink = undefined;
+	});
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName !== "bash") return undefined;
 		const input = (event.input ?? {}) as Record<string, unknown>;
 		if (typeof input.command !== "string") return undefined;
+		if (typeof ctx?.cwd === "string") projectDir = ctx.cwd;
+		const callId = (event as { toolCallId?: string }).toolCallId;
+		if (callId) {
+			asked.set(callId, input.command);
+			if (asked.size > 200) asked.delete(asked.keys().next().value as string);
+		}
 		let denial: Denial | undefined;
 		try {
 			denial =
