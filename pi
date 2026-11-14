@@ -173,6 +173,14 @@ unset PI_SHARE_VIEWER_URL PI_EXPERIMENTAL 2>/dev/null || true
 # reads the clipboard this way. PI_CLIPBOARD_OSC52=0 turns it off.
 export PI_CLIPBOARD_OSC52="${PI_CLIPBOARD_OSC52:-1}"
 
+# Python leaves __pycache__ beside every module it imports, so an agent that
+# runs a script in the user's project leaves directories nobody asked for: the
+# treadmill batch of 2026-11-14 (two sessions of ten stock coding problems) put
+# one into each project folder, and score.py already sets this for the same
+# reason when it imports a session's answer. Set here, everything the agent runs
+# inherits it; a run that wants the bytecode sets PYTHONDONTWRITEBYTECODE=0.
+export PYTHONDONTWRITEBYTECODE="${PYTHONDONTWRITEBYTECODE:-1}"
+
 # keep config, sessions and credentials inside this directory, not ~/.pi
 export PI_CODING_AGENT_DIR="$HERE/agent"
 

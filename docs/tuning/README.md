@@ -434,3 +434,104 @@ corrected after reading failures (an assertion the prompt did not justify, and a
 time the spec could fairly reject); all three arms were rescored with the
 corrected checks. The skill costs about a third more tokens on these tasks,
 which is the extra cases being run.
+
+## ELM's prompt cache (2026-11-14)
+
+ELM reuses the start of a prompt it has just read, and says nothing about it: no cached-token
+field in `usage`, and `cacheRead` 0 in every session file. So it is timed from outside, by five
+tests (`harness/cache/`; `tests/test_cache_probe.py` holds each to telling a gateway that reuses
+a prefix from one that does not). "Cold" and "warm" are seconds to the first token for a prompt
+of about 23k tokens, new or just sent.
+
+| Model | Cold | Warm | 1 repeat | 2 grow | 3 lifetime | 4 shared | 5 requests extending the last | 5 of those, warm |
+|---|---|---|---|---|---|---|---|---|
+| Qwen 3.5 | 2.3 s | 0.3 s | 7 of 8 | 6 of 7 | 15 min | 3 of 4 | 54 of 54 | 39 of 54 |
+| Mistral Small 4 | 1.9 s | 0.8 s | 7 of 8 | 6 of 7 | 15 min | 4 of 4 | 150 of 150 | 125 of 150 |
+| Llama 3.3 | 6.7 s | 0.4 s | 7 of 8 | 6 of 7 | 7 min | 4 of 4 | 50 of 50 | 43 of 50 |
+
+What that says:
+
+- **All three models reuse a prefix**, and keep it at least 15 minutes (Qwen, Mistral; the longest
+  gap tried) or 7 (Llama, whose 15-minute ask was cold, as was its 1-minute one).
+- **pi's requests can all be served from it.** In three twelve-prompt sessions - 55, 151 and 51
+  requests, up to 350 kB - every request began with the whole of the one before, and the tool
+  list never changed. Nothing elm-pi adds (routed skills, guard notes, attached pictures)
+  rewrites what was already sent.
+- **About one request in six is cold anyway.** One repeat in eight was cold on every model in
+  test 1, and in the sessions 15 of 54 (Qwen), 25 of 150 (Mistral) and 7 of 50 (Llama) requests
+  that extended the last one took a cold request's time: 43 s, 10 s and 38 s of waiting over a
+  session. A cold repeat followed by warm ones is what several servers, each with its own cache,
+  look like from outside; that is an inference, and one for the ELM team to confirm. The session
+  figures use the 23k-token cold time as the bar while the requests grew to three times that, so
+  Mistral's, whose warm and cold are closest, is the least certain.
+- **Sub-agents share their parent's prefix**: a new conversation that starts with the same text
+  starts warm (11 of 12 across the models).
+- **The control never passes**: with its first line changed each turn, 0 of 21 turns were warm.
+
+The raw times are in `2026-11-14/elm-cache.json`. To run it again:
+`python3 -I harness/cache/cache_probe.py ENVFILE out.json`, and for test 5 a batch with
+`TREADMILL_EXTENSION=harness/cache/cache_log.ts`, then `cache_probe.py sprint`.
+
+## 2026-11-14: a ten-problem batch, and what a request costs before any work
+
+Two driven sessions of the same ten stock coding problems (HumanEval-flavoured:
+`has_close_elements`, `separate_paren_groups`, `truncate_number`, `below_zero`,
+`mean_absolute_deviation`, `intersperse`, `parse_nested_parens`,
+`filter_by_substring`, `rolling_max`, `is_simple_power`), sent as ten prompts in
+order in one session, so that the tenth problem is answered by a session that
+has already done nine. Each problem asked for one file under `solutions/`, with
+its examples and edge cases in the prompt; the check imports all ten and runs
+the cases the prompt justifies, and was proved on the seed (0/10) and on a
+reference solution (10/10) before any session ran.
+
+<!-- table:c10 -->
+| Run | Problems | Wall | Input | Output | Requests | Tool errors | Dialogs | Sub-agents |
+|---|---|---|---|---|---|---|---|---|
+| c10.1 | 10/10 | 5 min 54 s | 678,217 | 4,125 | 30 | 0 | 0 | 0 |
+| c10.2 | 10/10 | 5 min 27 s | 668,983 | 3,514 | 30 | 0 | 0 | 0 |
+<!-- /table:c10 -->
+
+Both sessions wrote exactly ten files, ran exactly one `python3 -c` check per
+file, and left nothing else: no scaffolding, no test file kept, no sub-agent,
+no dialog, no refusal. The only thing wrong with either is the cost.
+
+Every request in those 30 begins at 19,152 tokens before a word of the work is
+in it: the system prompt (`AGENTS.md`, `APPEND_SYSTEM.md`, pi's own), the skill
+list, and the definitions of every tool. The session facts line in `report.md`
+prints it. What it is made of, measured one flag at a time on the same empty
+project (`2026-11-14/prompt-floor.json`; one prompt, "Say OK.", first request's
+input tokens):
+
+<!-- table:prompt-floor -->
+| Flags | First request | Difference | What the difference is |
+|---|---|---|---|
+| as shipped | 18,169 | - | - |
+| `--fast` | 9,359 | -8,810 | no npm-package tools at all: sub-agents, workflows, notebooks |
+| `--tools read,bash` | 8,723 | -9,446 | every tool definition but two |
+| `--exclude-tools subagent,workflow,workflow_control` | 15,501 | -2,668 | three tool definitions |
+| `--exclude-tools 'notebook_*'` | 16,384 | -1,785 | the notebook tools |
+| `--exclude-tools view,todo,pin_instruction,unpin_instruction,ask_user_question,bg_wait,contact_supervisor,tool_search` | 17,120 | -1,049 | elm-pi's own eight |
+<!-- /table:prompt-floor -->
+
+So 81% of what those two sessions spent was the floor, and 52% of the floor is
+tool definitions for tools the work did not use: at 9,446 tokens a request,
+1.35M tokens became about 283k that bought nothing. `--fast` halves the floor
+and is the right flag for a session of small one-file tasks; it is documented in
+`INSTALL.md` as the one-shot path and now has a number.
+
+**The one defect the batch found, and the fix.** Both project folders got a
+`solutions/__pycache__`: the session's Python wrote bytecode into the user's
+project, which is litter nobody asked for and nothing removes. `./pi` now
+exports `PYTHONDONTWRITEBYTECODE=1` beside the other environment it sets, the
+way `score.py` already does for its own imports; `PYTHONDONTWRITEBYTECODE=0`
+turns it back off. `tests/test_project.py` holds it. The batch was run again on
+the fix: 20/20 again, and no `__pycache__` in either project folder.
+
+**What this is not.** Two sessions, ten problems each, one model, one day: it
+says nothing about problems that need more than one file, about reading code
+that already exists, or about work long enough to compact. The problems were
+written with their edge cases in the prompt, so a pass here means the session
+implemented what it was told - not that it found the edge cases itself. The
+floor probe is one prompt per flag in one project folder; the four rows add up
+to a little more than the whole (tool definitions overlap in the prompt's own
+text), so read them as the size of each group, not as an exact decomposition.

@@ -254,5 +254,32 @@ console.log(JSON.stringify({ shared: mod.sharedPrefix("abcd", "abXd") }));
         self.assertIn('cp "$TREADMILL_EXTENSION" "$INST/agent/extensions/zz-', batch)
 
 
+class Record(unittest.TestCase):
+    """The live run of 2026-11-14, and the README's account of it, say the same thing."""
+
+    def test_the_readme_table_is_the_record(self):
+        record = json.loads((ROOT / "docs/tuning/2026-11-14/elm-cache.json").read_text())["models"]
+        readme = (ROOT / "docs/tuning/README.md").read_text()
+        names = {"qwen": "Qwen 3.5", "mistral": "Mistral Small 4", "llama": "Llama 3.3"}
+        self.assertEqual(set(names), set(record))
+        compared = warm = cold = 0
+        for key, name in names.items():
+            m = record[key]
+            self.assertIn(m["id"], json.dumps(probe.MODELS))
+            row = (f"| {name} | {m['repeat']['cold_s']:.1f} s | {m['repeat']['repeat_s']:.1f} s | {m['repeat']['warm']} of 8 | "
+                   f"{m['grow']['warm']} of 7 | {m['lifetime']['longest_warm_gap_s'] // 60} min | {m['shared']['warm']} of 4 | "
+                   f"{m['sprint']['extended_the_last']} of {m['sprint']['compared']} | {m['sprint']['warm']} of {m['sprint']['could_be_warm']} |")
+            self.assertIn(row, readme)
+            self.assertTrue(m["sprint"]["append_only"], name)            # what elm-pi answers for
+            self.assertEqual(0, m["grow"]["control_warm"], name)         # and the control never passed
+            self.assertEqual(0, m["repeat"]["reported_cached_tokens"])   # ELM reports none: hence the timing
+            compared += m["sprint"]["compared"]
+            warm += m["sprint"]["warm"]
+            cold += m["sprint"]["could_be_warm"] - m["sprint"]["warm"]
+        self.assertEqual((254, 47), (compared, cold))
+        self.assertIn("47 of 254", (ROOT / "docs/tuning/TREADMILL.md").read_text())
+        self.assertNotIn("calibration lattice", json.dumps(record))      # times and sizes, no prompt text
+
+
 if __name__ == "__main__":
     unittest.main()

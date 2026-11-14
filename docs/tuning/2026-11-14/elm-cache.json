@@ -1,0 +1,466 @@
+{
+ "when": "2026-11-14",
+ "how": "docs/tuning/harness/cache/cache_probe.py (tests 1-4, prefixes of 9000 random words, about 23k tokens) and cache_log.ts in a twelve-prompt `pi --auto` session per model (test 5)",
+ "reported_by_elm": "nothing: usage carries no cached-token field, and pi's cacheRead/cacheWrite were 0 in all 319 session files of the day",
+ "models": {
+  "qwen": {
+   "id": "Qwen/Qwen3.5-397B-A17B-FP8",
+   "repeat": {
+    "cold_s": 2.274,
+    "repeat_s": 0.286,
+    "warm": 7,
+    "of": 8,
+    "hit_rate": 0.88,
+    "misses_before_settling": 1,
+    "reused": true,
+    "reported_cached_tokens": 0,
+    "seconds": [
+     2.246,
+     7.106,
+     0.304,
+     0.278,
+     0.286,
+     0.277,
+     0.298,
+     0.273,
+     0.299,
+     2.301
+    ],
+    "prompt_tokens": 23133
+   },
+   "grow": {
+    "appended_s": 0.603,
+    "first_line_changed_s": 2.925,
+    "warm": 6,
+    "of": 7,
+    "hit_rate": 0.86,
+    "control_warm": 0,
+    "reused": true,
+    "seconds": {
+     "appended": [
+      2.646,
+      0.566,
+      2.601,
+      0.643,
+      0.577,
+      0.834,
+      0.603,
+      0.477
+     ],
+     "first_line_changed": [
+      2.329,
+      2.466,
+      4.192,
+      2.738,
+      2.842,
+      2.925,
+      3.037,
+      3.179
+     ]
+    }
+   },
+   "lifetime": {
+    "cold_s": 2.317,
+    "checks": [
+     {
+      "gap_s": 10,
+      "waited_s": 26.2,
+      "first_time_s": 2.557,
+      "again_s": 0.288,
+      "primes_warm": 3,
+      "warm": true,
+      "error": null
+     },
+     {
+      "gap_s": 60,
+      "waited_s": 60.0,
+      "first_time_s": 2.191,
+      "again_s": 1.082,
+      "primes_warm": 3,
+      "warm": true,
+      "error": null
+     },
+     {
+      "gap_s": 180,
+      "waited_s": 180.0,
+      "first_time_s": 2.355,
+      "again_s": 0.39,
+      "primes_warm": 2,
+      "warm": true,
+      "error": null
+     },
+     {
+      "gap_s": 420,
+      "waited_s": 420.0,
+      "first_time_s": 2.31,
+      "again_s": 0.347,
+      "primes_warm": 3,
+      "warm": true,
+      "error": null
+     },
+     {
+      "gap_s": 900,
+      "waited_s": 900.0,
+      "first_time_s": 2.348,
+      "again_s": 0.431,
+      "primes_warm": 3,
+      "warm": true,
+      "error": null
+     }
+    ],
+    "longest_warm_gap_s": 900,
+    "shortest_cold_gap_s": null,
+    "reused": true
+   },
+   "shared": {
+    "cold_s": 2.353,
+    "other_conversations_s": [
+     2.3,
+     0.381,
+     0.349,
+     0.386
+    ],
+    "warm": 3,
+    "of": 4,
+    "hit_rate": 0.75,
+    "reused": true,
+    "seconds": [
+     2.457,
+     0.682,
+     0.391,
+     2.3,
+     0.381,
+     0.349,
+     0.386,
+     2.248
+    ]
+   },
+   "sprint": {
+    "requests": 55,
+    "sessions": 1,
+    "largest_request_bytes": 251536,
+    "extended_the_last": 54,
+    "compared": 54,
+    "least_shared": 1.0,
+    "tools_changed": 0,
+    "not_extensions": [],
+    "append_only": true,
+    "first_token_s_median": 0.748,
+    "cold_s": 2.274,
+    "could_be_warm": 54,
+    "warm": 39,
+    "hit_rate": 0.72,
+    "warm_s_median": 0.553,
+    "seconds_lost_to_misses": 43.1,
+    "follows_new_bytes_r": -0.022,
+    "follows_all_bytes_r": 0.088
+   }
+  },
+  "mistral": {
+   "id": "mistralai/Mistral-Small-4-119B-2603",
+   "repeat": {
+    "cold_s": 1.945,
+    "repeat_s": 0.811,
+    "warm": 7,
+    "of": 8,
+    "hit_rate": 0.88,
+    "misses_before_settling": 2,
+    "reused": true,
+    "reported_cached_tokens": 0,
+    "seconds": [
+     2.003,
+     0.782,
+     1.948,
+     0.839,
+     0.8,
+     1.037,
+     0.81,
+     0.817,
+     0.811,
+     1.886
+    ],
+    "prompt_tokens": 23460
+   },
+   "grow": {
+    "appended_s": 0.935,
+    "first_line_changed_s": 2.143,
+    "warm": 6,
+    "of": 7,
+    "hit_rate": 0.86,
+    "control_warm": 0,
+    "reused": true,
+    "seconds": {
+     "appended": [
+      1.815,
+      0.915,
+      0.897,
+      0.895,
+      0.935,
+      2.198,
+      0.978,
+      0.97
+     ],
+     "first_line_changed": [
+      1.835,
+      1.709,
+      1.971,
+      1.997,
+      2.176,
+      2.143,
+      2.262,
+      2.281
+     ]
+    }
+   },
+   "lifetime": {
+    "cold_s": 1.932,
+    "checks": [
+     {
+      "gap_s": 10,
+      "waited_s": 25.2,
+      "first_time_s": 1.962,
+      "again_s": 0.828,
+      "primes_warm": 3,
+      "warm": true,
+      "error": null
+     },
+     {
+      "gap_s": 60,
+      "waited_s": 60.0,
+      "first_time_s": 1.883,
+      "again_s": 0.801,
+      "primes_warm": 3,
+      "warm": true,
+      "error": null
+     },
+     {
+      "gap_s": 180,
+      "waited_s": 180.0,
+      "first_time_s": 1.968,
+      "again_s": 0.846,
+      "primes_warm": 3,
+      "warm": true,
+      "error": null
+     },
+     {
+      "gap_s": 420,
+      "waited_s": 420.0,
+      "first_time_s": 1.95,
+      "again_s": 0.834,
+      "primes_warm": 3,
+      "warm": true,
+      "error": null
+     },
+     {
+      "gap_s": 900,
+      "waited_s": 900.0,
+      "first_time_s": 1.915,
+      "again_s": 0.885,
+      "primes_warm": 3,
+      "warm": true,
+      "error": null
+     }
+    ],
+    "longest_warm_gap_s": 900,
+    "shortest_cold_gap_s": null,
+    "reused": true
+   },
+   "shared": {
+    "cold_s": 1.953,
+    "other_conversations_s": [
+     0.788,
+     0.783,
+     0.842,
+     0.8
+    ],
+    "warm": 4,
+    "of": 4,
+    "hit_rate": 1.0,
+    "reused": true,
+    "seconds": [
+     1.945,
+     2.02,
+     0.818,
+     0.788,
+     0.783,
+     0.842,
+     0.8,
+     1.96
+    ]
+   },
+   "sprint": {
+    "requests": 151,
+    "sessions": 1,
+    "largest_request_bytes": 351482,
+    "extended_the_last": 150,
+    "compared": 150,
+    "least_shared": 1.0,
+    "tools_changed": 0,
+    "not_extensions": [],
+    "append_only": true,
+    "first_token_s_median": 1.02,
+    "cold_s": 1.945,
+    "could_be_warm": 150,
+    "warm": 125,
+    "hit_rate": 0.83,
+    "warm_s_median": 0.991,
+    "seconds_lost_to_misses": 9.6,
+    "follows_new_bytes_r": 0.17,
+    "follows_all_bytes_r": 0.551
+   }
+  },
+  "llama": {
+   "id": "meta-llama/Llama-3.3-70B-Instruct",
+   "repeat": {
+    "cold_s": 6.721,
+    "repeat_s": 0.363,
+    "warm": 7,
+    "of": 8,
+    "hit_rate": 0.88,
+    "misses_before_settling": 4,
+    "reused": true,
+    "reported_cached_tokens": 0,
+    "seconds": [
+     7.119,
+     0.363,
+     0.36,
+     0.346,
+     6.655,
+     0.382,
+     0.363,
+     0.363,
+     0.363,
+     6.323
+    ],
+    "prompt_tokens": 19547
+   },
+   "grow": {
+    "appended_s": 1.419,
+    "first_line_changed_s": 7.645,
+    "warm": 6,
+    "of": 7,
+    "hit_rate": 0.86,
+    "control_warm": 0,
+    "reused": true,
+    "seconds": {
+     "appended": [
+      6.324,
+      6.712,
+      0.645,
+      1.427,
+      0.623,
+      1.419,
+      0.637,
+      1.46
+     ],
+     "first_line_changed": [
+      6.314,
+      6.69,
+      6.877,
+      7.215,
+      7.645,
+      7.967,
+      8.367,
+      8.719
+     ]
+    }
+   },
+   "lifetime": {
+    "cold_s": 6.882,
+    "checks": [
+     {
+      "gap_s": 10,
+      "waited_s": 50.6,
+      "first_time_s": 6.657,
+      "again_s": 0.401,
+      "primes_warm": 3,
+      "warm": true,
+      "error": null
+     },
+     {
+      "gap_s": 60,
+      "waited_s": 60.0,
+      "first_time_s": 6.62,
+      "again_s": 14.147,
+      "primes_warm": 3,
+      "warm": false,
+      "error": null
+     },
+     {
+      "gap_s": 180,
+      "waited_s": 180.0,
+      "first_time_s": 6.293,
+      "again_s": 0.419,
+      "primes_warm": 3,
+      "warm": true,
+      "error": null
+     },
+     {
+      "gap_s": 420,
+      "waited_s": 420.0,
+      "first_time_s": 6.83,
+      "again_s": 0.522,
+      "primes_warm": 3,
+      "warm": true,
+      "error": null
+     },
+     {
+      "gap_s": 900,
+      "waited_s": 900.0,
+      "first_time_s": 6.31,
+      "again_s": 6.387,
+      "primes_warm": 4,
+      "warm": false,
+      "error": null
+     }
+    ],
+    "longest_warm_gap_s": 420,
+    "shortest_cold_gap_s": 60,
+    "reused": true
+   },
+   "shared": {
+    "cold_s": 6.776,
+    "other_conversations_s": [
+     0.496,
+     0.457,
+     0.515,
+     0.458
+    ],
+    "warm": 4,
+    "of": 4,
+    "hit_rate": 1.0,
+    "reused": true,
+    "seconds": [
+     6.949,
+     7.139,
+     0.39,
+     0.496,
+     0.457,
+     0.515,
+     0.458,
+     6.602
+    ]
+   },
+   "sprint": {
+    "requests": 51,
+    "sessions": 1,
+    "largest_request_bytes": 142054,
+    "extended_the_last": 50,
+    "compared": 50,
+    "least_shared": 1.0,
+    "tools_changed": 0,
+    "not_extensions": [],
+    "append_only": true,
+    "first_token_s_median": 1.38,
+    "cold_s": 6.721,
+    "could_be_warm": 50,
+    "warm": 43,
+    "hit_rate": 0.86,
+    "warm_s_median": 1.349,
+    "seconds_lost_to_misses": 37.8,
+    "follows_new_bytes_r": 0.11,
+    "follows_all_bytes_r": -0.09
+   }
+  }
+ }
+}

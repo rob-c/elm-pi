@@ -1,0 +1,126 @@
+{
+ "about": "What a session's fixed per-request cost is made of, and what a ten-problem batch cost, measured 2026-11-14 on an install built from the working tree (bootstrap: 40 extensions loaded, 0 failed), model Qwen/Qwen3.5-397B-A17B-FP8.",
+ "floor": {
+  "method": "./pi --auto [flags] -p 'Say OK.' </dev/null in one empty project folder, then the largest input_tokens in .pi/sessions/*.jsonl; one run per row",
+  "note": "the rows overlap: a tool's definition and the prompt both mention it, so read each row as the size of a group, not an exact split",
+  "probes": [
+   {
+    "label": "as shipped",
+    "flags": [
+     "(as shipped)"
+    ],
+    "first_request_input": 18169,
+    "what": "-"
+   },
+   {
+    "label": "`--fast`",
+    "flags": [
+     "--fast"
+    ],
+    "first_request_input": 9359,
+    "what": "no npm-package tools at all: sub-agents, workflows, notebooks"
+   },
+   {
+    "label": "`--tools read,bash`",
+    "flags": [
+     "--tools",
+     "read,bash"
+    ],
+    "first_request_input": 8723,
+    "what": "every tool definition but two"
+   },
+   {
+    "label": "`--exclude-tools subagent,workflow,workflow_control`",
+    "flags": [
+     "--exclude-tools",
+     "subagent,workflow,workflow_control"
+    ],
+    "first_request_input": 15501,
+    "what": "three tool definitions"
+   },
+   {
+    "label": "`--exclude-tools 'notebook_*'`",
+    "flags": [
+     "--exclude-tools",
+     "notebook_*"
+    ],
+    "first_request_input": 16384,
+    "what": "the notebook tools"
+   },
+   {
+    "label": "`--exclude-tools view,todo,pin_instruction,unpin_instruction,ask_user_question,bg_wait,contact_supervisor,tool_search`",
+    "flags": [
+     "--exclude-tools",
+     "view,todo,pin_instruction,unpin_instruction,ask_user_question,bg_wait,contact_supervisor,tool_search"
+    ],
+    "first_request_input": 17120,
+    "what": "elm-pi's own eight"
+   }
+  ]
+ },
+ "batch": {
+  "what": "two sessions of ten stock coding problems (HumanEval-flavoured), the same ten prompts in the same order in each, one file per problem under solutions/",
+  "check": "imports all ten files and runs the cases each prompt states; proved on the seed (0/10) and on a reference solution (10/10) before any session ran",
+  "runs": [
+   {
+    "id": "c10.1",
+    "passed": 10,
+    "problems": 10,
+    "wall": "5 min 54 s",
+    "input": 678217,
+    "output": 4125,
+    "requests": 30,
+    "tool_errors": 0,
+    "dialogs": 0,
+    "children": 0,
+    "first_request": 19152,
+    "largest_request": 26051
+   },
+   {
+    "id": "c10.2",
+    "passed": 10,
+    "problems": 10,
+    "wall": "5 min 27 s",
+    "input": 668983,
+    "output": 3514,
+    "requests": 30,
+    "tool_errors": 0,
+    "dialogs": 0,
+    "children": 0,
+    "first_request": 19152,
+    "largest_request": 25311
+   }
+  ],
+  "tool_calls_per_run": {
+   "write": 10,
+   "bash": 10
+  },
+  "never_used_tool_definitions_per_request": 9446,
+  "defect": "both project folders got solutions/__pycache__ - the session's python wrote bytecode into the user's project. Fixed in ./pi (PYTHONDONTWRITEBYTECODE=1, tests/test_project.py), and the batch was run again on the fix: 20/20, no __pycache__",
+  "rerun_on_the_fix": {
+   "install": "bc10b, built from the tree carrying the PYTHONDONTWRITEBYTECODE export",
+   "runs": [
+    {
+     "id": "c10.1",
+     "passed": 10,
+     "problems": 10,
+     "wall": "8 min 36 s",
+     "input": 755873,
+     "requests": 32,
+     "tool_errors": 1,
+     "error": "read of solutions/p01.py before it was written: [E_NOT_FOUND]"
+    },
+    {
+     "id": "c10.2",
+     "passed": 10,
+     "problems": 10,
+     "wall": "8 min 42 s",
+     "input": 676600,
+     "requests": 30,
+     "tool_errors": 0
+    }
+   ],
+   "pycache_in_either_project": false
+  }
+ }
+}

@@ -370,5 +370,18 @@ class PiReleaseTests(unittest.TestCase):
         self.assertEqual("1", probe({"PATH": "/usr/bin:/bin"}))
         self.assertEqual("0", probe({"PATH": "/usr/bin:/bin", "PI_CLIPBOARD_OSC52": "0"}))
 
+    def test_python_leaves_no_bytecode_in_the_users_project(self):
+        # The treadmill batch of 2026-11-14 (two sessions of ten stock coding
+        # problems) left a solutions/__pycache__ in each project folder: the
+        # session ran python on the files it had written. score.py already sets
+        # this for its own imports, for the same reason.
+        line = next(line for line in (ROOT / "pi").read_text().splitlines()
+                    if line.startswith("export PYTHONDONTWRITEBYTECODE="))
+        probe = lambda env: subprocess.run(
+            ["bash", "-c", f'{line}; "{sys.executable}" -c "import sys; print(sys.dont_write_bytecode)"'],
+            env=env, capture_output=True, text=True).stdout.strip()
+        self.assertEqual("True", probe({"PATH": "/usr/bin:/bin"}))
+        self.assertEqual("False", probe({"PATH": "/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "0"}))
+
 if __name__ == "__main__":
     unittest.main()

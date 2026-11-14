@@ -225,6 +225,36 @@ if (DAY2 / "mistral-top-p-confirmation.json").exists():
     TABLES["mistral-top-p"] = mistral_top_p
 
 
+
+DAY3 = HERE / "2026-11-14"
+
+
+def prompt_floor():
+    """What one request costs before any work: one probe per flag, same empty project."""
+    d = json.loads((DAY3 / "prompt-floor.json").read_text())["floor"]
+    base = d["probes"][0]["first_request_input"]
+    out = ["| Flags | First request | Difference | What the difference is |", "|---|---|---|---|"]
+    for p in d["probes"]:
+        diff = p["first_request_input"] - base
+        out.append(f"| {p['label']} | {p['first_request_input']:,} | "
+                   f"{'-' if diff == 0 else f'{diff:+,}'} | {p['what']} |")
+    return "\n".join(out)
+
+
+def c10_batch():
+    """Two sessions of ten stock coding problems: passes, cost, and what the work used."""
+    d = json.loads((DAY3 / "prompt-floor.json").read_text())["batch"]
+    out = ["| Run | Problems | Wall | Input | Output | Requests | Tool errors | Dialogs | Sub-agents |",
+           "|---|---|---|---|---|---|---|---|---|"]
+    for r in d["runs"]:
+        out.append(f"| {r['id']} | {r['passed']}/{r['problems']} | {r['wall']} | {r['input']:,} | {r['output']:,} | "
+                   f"{r['requests']} | {r['tool_errors']} | {r['dialogs']} | {r['children']} |")
+    return "\n".join(out)
+
+
+TABLES["prompt-floor"] = prompt_floor
+TABLES["c10"] = c10_batch
+
 if __name__ == "__main__":
     for name in sys.argv[1:] or TABLES:
         print(f"<!-- table:{name} -->\n{TABLES[name]()}\n<!-- /table:{name} -->\n")

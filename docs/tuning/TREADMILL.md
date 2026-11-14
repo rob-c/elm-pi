@@ -737,6 +737,17 @@ session, is the test for any change that touches the system prompt.
 Until that is run, "this does not break the cache" is an argument, not a
 measurement.
 
+**Since measured, from outside (2026-11-14, later the same day).** Five tests in
+`harness/cache/` time what the gateway will not report; the results are in the
+README's "ELM's prompt cache" section and `2026-11-14/elm-cache.json`. All three
+models reuse a prefix and keep it for 7 to 15 minutes at least. In three
+twelve-prompt sessions every one of 254 requests began with the whole of the one
+before, with the tool list unchanged - so both extensions held, and nothing else
+elm-pi adds breaks the prefix. And about one request in six comes back cold all
+the same (47 of 254), which no change to elm-pi can fix: it looks like several
+servers with a cache each. A change that touches the system prompt is now
+checked by running test 5 again and reading "requests extending the last".
+
 ### 9. The six areas, which need a task set first
 
 Reading plots and reading images have never been measured at all; uncertainty
