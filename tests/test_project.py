@@ -97,6 +97,20 @@ class ProjectConsistencyTests(unittest.TestCase):
         self.assertIn("@gotgenes/pi-permission-system", settings["providerMiddlewareExtensions"])
         self.assertIn("templates/workflows/settings.json", (ROOT / "bootstrap.sh").read_text())
 
+    def test_workflow_agents_load_the_guards_that_work_in_one_session(self):
+        """Workflow agents run in-process and load only what this list names (2026-11-13: each of
+        these measured live in a workflow agent; claim-guard after two made-up six-step runs)."""
+        listed = json.loads((ROOT / "templates/workflows/settings.json").read_text())["providerMiddlewareExtensions"]
+        for name in ("elm-only", "protected-paths", "command-guard", "trust-guard", "owner-guard", "report-guard",
+                     "server-reaper", "repeat-guard", "claim-guard", "date-note", "view-outputs"):
+            self.assertIn(name, listed)
+        # A name with no extension behind it is skipped without a word: each local one must exist.
+        for name in listed:
+            if not name.startswith("@") and name != "cc-safety-net":
+                self.assertTrue((ROOT / f"templates/extensions/{name}.ts").exists(), name)
+        # workflow agents have no web tools
+        self.assertNotIn("remote-research", listed)
+
     def test_steering_names_only_tools_and_apis_that_exist(self):
         for name in ("AGENTS.md", "APPEND_SYSTEM.md", "agents/qwen.md", "agents/llama.md"):
             text = (ROOT / "templates" / name).read_text()
@@ -118,18 +132,32 @@ class ProjectConsistencyTests(unittest.TestCase):
         )
         # the failure seen in a real run: .map( opened, never closed
         bad = good.replace("agent(`say ${x}`)));", "agent(`say ${x}`));")
+        # the other dialect, which the parser's meta-first error used to talk the model out of
+        runs = 'const [a] = await runs.all([{ key: "a", agent: "qwen", task: "x" }]);\nreturn a.output;\n'
+        # parses as a module, fails inside the async function the tool runs the body in (test3, test4)
+        wrapped = ("export const meta = { name: 'probe', description: 'probe' };\n"
+                   "export default async function run() {\n  return { report: await agent('x') };\n}\n")
         with tempfile.TemporaryDirectory() as directory:
             results = {}
-            for name, text in (("good", good), ("bad", bad)):
+            for name, text in (("good", good), ("bad", bad), ("runs", runs), ("wrapped", wrapped)):
                 path = Path(directory) / f"{name}.mjs"
                 path.write_text(text)
                 results[name] = subprocess.run([str(ROOT / "scripts/workflow-check"), str(path)],
                                                capture_output=True, text=True)
         self.assertEqual(0, results["good"].returncode, results["good"].stderr)
         self.assertIn("ok:", results["good"].stdout)  # top-level return is valid here
+        # test15: the model retyped the checked script into the call, and the copy did not parse
+        self.assertIn(f'Run it with workflow({{ script: "{Path(directory) / "good.mjs"}" }}) - the path, not the text',
+                      results["good"].stdout)
         self.assertEqual(1, results["bad"].returncode)
         self.assertIn(":2:", results["bad"].stderr)
         self.assertIn("hint:", results["bad"].stderr)
+        self.assertEqual(1, results["runs"].returncode)
+        self.assertIn("this is a pi-subagents script", results["runs"].stderr)
+        self.assertIn('subagent({ action: "validate"', results["runs"].stderr)
+        self.assertNotIn("must be the first statement", results["runs"].stderr)
+        self.assertEqual(1, results["wrapped"].returncode)
+        self.assertIn("the workflow tool would reject it when it runs", results["wrapped"].stderr)
 
     def test_pinned_instructions_load_everywhere_the_policy_does(self):
         config = json.loads((ROOT / "config/elm-pi.json").read_text())
@@ -192,7 +220,7 @@ class ProjectConsistencyTests(unittest.TestCase):
         routed = set(re.findall(r'\["([a-z-]+)", /', source))
         routed |= set(re.findall(r'return "(elm-[a-z-]+)"', source))
         skills = {p.parent.name for p in (ROOT / "templates/skills").glob("*/SKILL.md")}
-        self.assertEqual(15, len(skills))
+        self.assertEqual(16, len(skills))   # developing-elm-pi since 2026-11-13
         self.assertEqual(set(), routed - skills)          # never routes to a missing skill
         self.assertEqual(skills, routed)                  # and every skill is reachable
 
@@ -260,7 +288,15 @@ class PiReleaseTests(unittest.TestCase):
                 '{name:"bug",description:"Also new",argumentHint:"<what>"},{name:"copy"}]'
                 "async function uploadBugReport(bundle,options={}){}"
                 "async function tryShareViaRadius(tmpFile,context){}"
-                "async function shareViaGist(tmpFile,context){}")
+                "async function shareViaGist(tmpFile,context){}"
+                'if(offline,await runAuthCommand(args))return;'
+                'console.log(`${source_default.bold("Commands:")}\n'
+                '  ${APP_NAME} auth <command>   Some wording no release has used yet\n\n'
+                '${source_default.bold("Options:")}`)'
+                # the retry delay, which the jitter edit anchors to
+                "function retryDelayMs(policy,attempt){let delay=policy.baseDelayMs*2**Math.max(0,attempt-1),"
+                "safeDelay=Number.isSafeInteger(delay)?delay:Number.MAX_SAFE_INTEGER;"
+                "return Math.min(safeDelay,policy.maxAgentDelayMs??DEFAULT_MAX_AGENT_RETRY_DELAY_MS)}")
             run = lambda *extra: subprocess.run([sys.executable, str(ROOT / "patch-pi.py"), "--bundle", str(bundle), *extra],
                                                 capture_output=True, text=True)
             self.assertEqual(0, run().returncode)
@@ -269,6 +305,9 @@ class PiReleaseTests(unittest.TestCase):
             self.assertNotIn('name:"share"', patched)
             self.assertNotIn('name:"bug"', patched)
             self.assertIn('{name:"copy"}', patched)
+            self.assertNotIn("auth <command>", patched)
+            self.assertIn('"auth","mcp"].includes(args[0])', patched)
+            self.assertIn('Options:', patched)
 
     def test_tested_versions_cover_every_direct_dependency(self):
         versions = json.loads((ROOT / "config/versions.json").read_text())

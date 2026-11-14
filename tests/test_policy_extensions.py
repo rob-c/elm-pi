@@ -37,6 +37,7 @@ EXTENSIONS = ROOT / "templates/extensions"
 CONFIG = json.loads((ROOT / "config/elm-pi.json").read_text())
 QWEN = CONFIG["models"]["qwen"]
 LLAMA = CONFIG["models"]["llama"]
+MISTRAL = CONFIG["models"]["mistral"]
 
 # pinned-instructions.ts imports typebox at run time only to describe its tool
 # parameters. A stub keeps these tests independent of bootstrap.sh having run.
@@ -641,7 +642,7 @@ for (const config of INPUT.configs) {
 console.log(JSON.stringify(out));
 """
 
-SERVED = f"elm/{QWEN.lower()}, elm-shim/{LLAMA.lower()}"
+SERVED = f"elm/{QWEN.lower()}, elm-shim/{LLAMA.lower()}, elm/{MISTRAL.lower()}"
 AGENT_DIR = "/opt/elm-pi/agent"
 
 
@@ -670,6 +671,9 @@ def offsite(case_id, ctx, where, label_part="", agent_dir=AGENT_DIR):
 EXPLICIT = "an explicit model on the script or agent type"
 SCOPE_CASES = [
     ok("served_qwen_is_unchanged", {"requestedModel": f"elm/{QWEN}", "modelSource": "explicit"}),
+    ok("served_mistral_is_unchanged", {"requestedModel": f"elm/{MISTRAL}", "modelSource": "explicit"}),
+    ok("served_mistral_in_lower_case_with_a_thinking_level_is_unchanged",
+       {"requestedModel": f"elm/{MISTRAL.lower()}:high", "modelSource": "phase"}),
     ok("served_llama_through_the_shim_is_unchanged", {"requestedModel": f"elm-shim/{LLAMA}", "modelSource": "tier", "tier": "fast"}),
     ok("upper_case_spec_is_unchanged", {"requestedModel": f"ELM/{QWEN.upper()}", "modelSource": "explicit"}),
     ok("lower_case_spec_is_unchanged", {"requestedModel": f"elm/{QWEN.lower()}", "modelSource": "explicit"}),
@@ -684,6 +688,8 @@ SCOPE_CASES = [
        {"requestedModel": "anthropic/claude-sonnet-4", "resolvedModel": f"elm/{QWEN}", "modelSource": "tier", "tier": "big"}),
     unserved("invented_qwen_id_is_refused", {"requestedModel": "elm/qwen-3.5-397b", "modelSource": "explicit"}),
     unserved("llama_on_the_elm_provider_is_refused", {"requestedModel": f"elm/{LLAMA}", "modelSource": "explicit"}),
+    unserved("mistral_on_the_shim_provider_is_refused", {"requestedModel": f"elm-shim/{MISTRAL}", "modelSource": "explicit"}),
+    unserved("mistral_without_its_date_is_refused", {"requestedModel": "elm/mistralai/Mistral-Small-4-119B", "modelSource": "explicit"}),
     unserved("qwen_on_the_shim_provider_is_refused", {"requestedModel": f"elm-shim/{QWEN}", "modelSource": "explicit"}),
     unserved("provider_with_no_model_id_is_refused", {"requestedModel": "elm/", "modelSource": "explicit"}),
     unserved("qwen_id_without_its_organisation_is_refused",
@@ -734,7 +740,7 @@ class WorkflowModelScopeTests(unittest.TestCase):
         def config(config_id, env, cases):
             return {"id": config_id, "env": env,
                     "cases": [{"id": c["id"], "ctx": c["ctx"], "agentDir": c.get("agentDir")} for c in cases]}
-        models = {"ELM_QWEN_MODEL_ID": QWEN, "ELM_LLAMA_MODEL_ID": LLAMA}
+        models = {"ELM_QWEN_MODEL_ID": QWEN, "ELM_LLAMA_MODEL_ID": LLAMA, "ELM_MISTRAL_MODEL_ID": MISTRAL}
         cls.out = run_extension("workflow-model-scope.ts", SCOPE_RUNNER, {"configs": [
             config("default", models, SCOPE_CASES),
             config("unlocked", {**models, "PI_ELM_ALLOWED_PROVIDERS": "elm,elm-shim,anthropic"}, SCOPE_UNLOCKED_CASES),

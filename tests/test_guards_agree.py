@@ -98,8 +98,11 @@ def run_bash(prelude, lines, args, env, cwd):
             if chunk:
                 script.append("(\n" + "\n".join(chunk) + f"\n) >{q(out / str(g))} &")
         script.append("wait")
-        run = subprocess.run([BASH, "-c", "\n".join(script), "batch", *args], capture_output=True, text=True,
-                             env=env, cwd=cwd, timeout=300)
+        # In a file, not the -c argument: Linux refuses one argument over 128 KiB (MAX_ARG_STRLEN).
+        # eval keeps what -c gives the script: $0 "batch", the args, no BASH_SOURCE.
+        (out / "batch.sh").write_text("\n".join(script))
+        run = subprocess.run([BASH, "-c", '_b=$1; shift; eval "unset _b; $(< "$_b")"', "batch", str(out / "batch.sh"),
+                              *args], capture_output=True, text=True, env=env, cwd=cwd, timeout=300)
         if run.returncode != 0:
             raise AssertionError(f"bash failed:\n{run.stderr}")
         return "".join((out / str(g)).read_text() for g in range(groups) if (out / str(g)).exists())

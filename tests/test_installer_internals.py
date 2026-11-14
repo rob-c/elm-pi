@@ -99,6 +99,16 @@ def cleanup_tree(path):
     shutil.rmtree(path, ignore_errors=True)
 
 
+
+def batch_command(bash, script, scratch, *args):
+    """bash running script with $0 "batch" and args as $1..., exactly as `bash -c script batch
+    args...` would - except that the script travels in a file. Linux refuses one argument over
+    128 KiB (MAX_ARG_STRLEN; E2BIG, "Argument list too long"), and these batches grew past it;
+    macOS caps only the total. eval keeps -c's $0 and BASH_SOURCE."""
+    path = Path(scratch) / ".batch.sh"
+    path.write_text(script)
+    return [bash, "-c", '_b=$1; shift; eval "unset _b; $(< "$_b")"', "batch", str(path), *map(str, args)]
+
 DUMP = r'''
 _v() { local _n _s _x; for _n in "$@"; do eval "_s=\${$_n+x}"
   if [ -n "$_s" ]; then eval "_x=\${$_n}"; printf '@@%s=%s\n' "$_n" "$_x"; else printf '@@%s\n' "$_n"; fi; done; }
@@ -121,7 +131,7 @@ def run_batch(prelude, bodies, env, tmp, parallel=8):
         parts.append(f'(\n{body}\n) >"$T/.r{i}.out" 2>"$T/.r{i}.err" </dev/null &\n_pids="${{_pids:-}} $!:{i}"')
         if (i + 1) % parallel == 0 or i == len(bodies) - 1:
             parts.append('for _p in $_pids; do wait "${_p%%:*}"; echo $? >"$T/.r${_p##*:}.rc"; done; _pids=""')
-    subprocess.run([BASH, "-c", "\n".join(parts), "batch", str(tmp)], env=env, cwd=str(tmp),
+    subprocess.run(batch_command(BASH, "\n".join(parts), tmp, tmp), env=env, cwd=str(tmp),
                    check=True, capture_output=True, text=True, timeout=300)
     return [Run(int((tmp / f".r{i}.rc").read_text()), (tmp / f".r{i}.out").read_text(),
                 (tmp / f".r{i}.err").read_text()) for i in range(len(bodies))]
@@ -343,7 +353,8 @@ PY_FILES = ("patch-pi.py", "proxy/egress.py", "shim/shim.py", "scripts/elm_confi
             "scripts/verify_install.py", "scripts/pin_versions.py")
 SH_FILES = ("install.sh", "bootstrap.sh", "configure.sh", "pi", "pi.orig")
 # The candidate's own lib/sandbox.sh chooses the Python: here, this one.
-FAKE_SANDBOX = f'''elm_ensure_python() {{ [ -z "${{NO_PYTHON:-}}" ] || {{ ELM_PY_ERROR="no usable python"; return 1; }}; ELM_PI_PYTHON={q(PY)}; }}
+FAKE_SANDBOX = f'''elm_check_loader() {{ [ -z "${{NO_LOADER:-}}" ] || {{ ELM_LOADER_ERROR="no glibc loader"; return 1; }}; }}
+elm_ensure_python() {{ [ -z "${{NO_PYTHON:-}}" ] || {{ ELM_PY_ERROR="no usable python"; return 1; }}; ELM_PI_PYTHON={q(PY)}; }}
 elm_py() {{ "$ELM_PI_PYTHON" -E -S "$@"; }}
 '''
 
@@ -353,6 +364,10 @@ def V(name, check, files=None, check_sh=None, env=None, bug=None):
 
 
 VALIDATE_CASES = [
+    # Before Python: on NixOS without nix-ld the standalone CPython would not run either.
+    V("a_system_without_the_glibc_loader_stops_it_before_python", env={"NO_LOADER": "1", "NO_PYTHON": "1"},
+      check=lambda t, r, d: (t.assertEqual(1, r.rc), t.assertIn("DIE no glibc loader", r.out),
+                             t.assertNotIn("no usable python", r.out))),
     V("a_sound_source_passes_and_names_its_python",
       check=lambda t, r, d: (t.assertEqual(0, r.rc, r.out), t.assertIn(f"    checking the source with {PY}", r.out))),
     V("a_shell_syntax_error_in_the_installer_stops_it", files={"install.sh": "if then fi\n"},
@@ -1018,7 +1033,7 @@ CONFIGURE_CASES = [
       models={"providers": {"elm": {"models": [{"id": "other/model"}]}}},
       check=lambda t, r, d: t.assertEqual(
           [{"id": QWEN, "name": f"{QWEN} (ELM, university-hosted)", "reasoning": True, "input": ["text"],
-            "contextWindow": 262144, "maxTokens": 32768, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}},
+            "contextWindow": 262144, "maxTokens": 81920, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}},
            {"id": "other/model"}],
           _json(d, "agent/models.json")["providers"]["elm"]["models"])),
     G("an_empty_models_file_gets_a_provider_with_the_api_and_key_reference", models={},

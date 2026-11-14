@@ -10,6 +10,8 @@ node_modules/
 .elm-pi-source-manifest
 .elm-pi-stage-*/
 .elm-pi-old-*/
+.elm-pi-verify.*
+*.dev-setup-partial
 agent/npm/
 # generated at install time from templates/ by bootstrap.sh
 agent/

@@ -26,10 +26,9 @@ handful of one-line edits you could make in a single read-and-edit pass is
 faster done directly - measured on this setup, forcing delegation on trivial
 edits was more than ten times slower and often failed to finish.
 
-A child is cheap to start. A `qwen` child forks this conversation, and the
-gateway's prefix cache already holds that prefix, so it does not pay to read
-the conversation again; compute here has no per-token cost. What a child costs
-is its own turns, which is why the line above is about the size of the work.
+A child is cheap to start: it begins with only its prompt, not this
+conversation. What a child costs is its own turns, which is why the line above
+is about the size of the work.
 
 `subagent` is `async: true` by default, so a call returns immediately. One child
 is one call: `subagent({ agent: "qwen", task: "..." })`. Several independent
@@ -51,13 +50,17 @@ children that finished can still be read back
 (`subagent({ action: "children.list" })`).
 Write a workflow script (`elm-subagent-workflows`) only when one child needs
 another's result. Separate top-level calls for each child are not the pattern
-here. Collect with `bg_wait({ all: true })`, or `bg_wait({ id: "<runId>" })`
-for one run.
+here.
 
-**Do not pass `nonBlocking` to `bg_wait`.** Async runs notify this session when
-they finish, so a wait subscription buys nothing, and it is refused: it needs one
-exact `id` and cannot be combined with `all`, and it cannot work at all in print
-mode (`pi -p`).
+**After the launch, do what its result says.** "Detached. Return control now"
+(an interactive session): end your turn with one line saying what is running.
+Each child's notice and the run's final notice wake this session, so a wait
+buys nothing, and it holds the user's session: a real run here sat in
+10-minute `bg_wait` windows four times until the user pressed Escape. "Detached
+non-interactive run" (`pi -p`, where nobody can wake you to finish the answer):
+`bg_wait({ all: true })`, or `bg_wait({ id: "<runId>" })` for one run. Never pass
+`nonBlocking`: it needs one exact `id`, cannot be combined with `all`, and does
+not work in `pi -p`.
 
 Budget: 64 child launches per run (`maxSubagentSpawnsPerRun`), and at most 12 of a
 workflow's children run at once (`globalConcurrencyLimit` in
@@ -87,11 +90,14 @@ aggregated outputs, and tell each child to report tersely.
 
 ### Writing a sub-agent prompt
 
-A `qwen` child starts with a copy of this conversation (`defaultContext: fork`)
-and a `llama` child starts with nothing (`fresh`), but neither can be relied on
-to dig the task out of history. Every prompt must stand alone: name exact file
-paths, state precisely what to do, and say what to report back. A vague prompt
-wastes a whole round trip.
+Every child starts with nothing but its prompt (`defaultContext: fresh`, for
+`qwen` and `llama` alike). Forked children - a copy of this whole conversation
+on every turn - cost driven runs here (2026-11-13) half their children's input
+tokens and acted on parts of the request that were not theirs; pass
+`context: "fork"` only when a child truly needs the conversation. So every prompt
+must stand alone: the user's words that matter ("for local use", "100%
+consistent"), exact file paths, the facts you looked up, precisely what to do,
+and what to report back. A vague prompt wastes a whole round trip.
 
 Three failures account for most bad delegation, and each has a fix you write into
 the prompt:
@@ -244,15 +250,48 @@ children finished, concluded they were stuck, and rewrote all eight pages
 itself. The children then finished and wrote theirs. Same files, two authors,
 last writer wins.
 
-**The two cheap protections come first**, and they cost nothing:
+**The cheap protections come first**, and they cost nothing:
 
-1. **Collect before you check.** `bg_wait({all: true})` after a fan-out. The run
+1. **Wait for a child's notice before you check or change its files.** The run
    above went wrong because the parent checked for results that could not exist
-   yet. An empty directory means the children have not finished, not that they
-   failed.
+   yet: an empty directory means the children have not finished, not that they
+   failed. Until a child's notice ("Workflow child completed: **task-2**")
+   arrives, the files its task names are its own - read them, change none; this
+   install refuses the change. The run's end is "Background task completed".
 2. **One writer per file.** Split a fan-out by file, not by topic, so two
-   children are never aimed at the same path. Where that is not possible, do the
-   writing yourself and use children to gather.
+   children are never aimed at the same path, and tell each child to write only
+   its file: a dependency it lacks goes in its report. A real run here had the
+   solver child write stub `pipe.js` and `physics.js` over the two children
+   writing them. Where one writer per file is not possible, do the writing
+   yourself and use children to gather. Each child is told which files are its
+   siblings' (read from the launch), and a write to one is refused.
+3. **Settle what the pieces share before you fan out.** Children started
+   together cannot see each other's files while they work, so "use the same
+   classes as the other pages" is an instruction none of them can follow. In
+   test6 five children each wrote one page of a site to exactly that
+   instruction; two then rewrote the others' pages "to match", and the site
+   ended up as one child's pages over another's stylesheet. When the pieces must
+   agree - pages of one site, sections of one document, figures of one set,
+   modules behind one interface - write what they share first, yourself or as
+   the first step of a chain: the stylesheet, the page template with its
+   navigation and footer, the plotting style, the outline, the interface. Then
+   name that file in every task, with the exact names to use, and give each
+   child only its own files. Name it, do not paste it: a launch's tasks travel
+   in one call of at most 16 KB, and five tasks each carrying the same page of
+   instructions were refused for it (2026-11-13). This install refuses a side-by-side launch whose
+   tasks share a file that is not there yet, or are told to share a stylesheet,
+   navigation or footer without naming an existing file to take it from; test8
+   and test9 launched that way and got back four and five different footers.
+4. **Read what each child actually wrote before you report who did what.** A
+   child's report can claim another's work. Then check the pieces against each
+   other yourself; for anything visual, view them together and list every
+   difference before you call them consistent. In elm-pi's image test Qwen found
+   96% of planted differences when asked to list them; in test6, looking at
+   five pages one at a time and saying "consistent" missed an unstyled one.
+   Consistency is also what the pages say: a number, name or date that appears
+   on two pages must agree, and no page may contradict itself or another. test8's
+   species page called red deer "the only native deer species", one card before
+   listing roe deer as native, and nothing checked it.
 
 **Worktree isolation is available and off by default.** Turned on, each child
 branches from clean HEAD into its own git worktree and hands back a patch and a

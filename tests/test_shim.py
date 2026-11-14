@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import urllib.error
 import time
 import unittest
 from pathlib import Path
@@ -777,6 +778,166 @@ class ProxyResolutionTests(unittest.TestCase):
                 self.shim._build_opener()
 
 
+class _EgressHealth(http.server.BaseHTTPRequestHandler):
+    """Answers the elm-pi egress proxy's health route, as proxy/egress.py does."""
+
+    def do_GET(self):
+        body = b'{"proxy": "elm-pi-egress"}' if self.path == "/__elm_pi_egress__/health" else b"no"
+        self.send_response(200 if body != b"no" else 404)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+class CallerProxyTests(unittest.TestCase):
+    """The requesting session names its own proxy; the shim uses it if it is ours and alive.
+
+    Was a bug: the shim took the newest port file - another session that could end
+    mid-request - so a run of short `pi -p` sessions saw most Llama requests fail
+    with 502 "Remote end closed connection without response". And a shim started
+    with no proxy (by bootstrap.sh's load check) sent every later session's Llama
+    traffic straight to ELM.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.shim = load_shim("elm_pi_shim_caller")
+        cls.egress = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _EgressHealth)
+        threading.Thread(target=cls.egress.serve_forever, daemon=True).start()
+        cls.egress_url = f"http://127.0.0.1:{cls.egress.server_address[1]}"
+        cls.plain = socket.socket()
+        cls.plain.bind(("127.0.0.1", 0))
+        cls.plain.listen(16)
+        cls.plain_url = f"http://127.0.0.1:{cls.plain.getsockname()[1]}"
+        cls.dead_url = f"http://127.0.0.1:{closed_port()}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.egress.shutdown()
+        cls.egress.server_close()
+        cls.plain.close()
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        glob = mock.patch.object(self.shim, "PROXY_GLOB", str(self.dir / "elm-pi-egress-*.port"))
+        glob.start()
+        self.addCleanup(glob.stop)
+        self.shim._proxy_cached = None
+
+    def ask(self, value):
+        return self.shim.caller_proxy({} if value is None else {"X-Elm-Pi-Proxy": value})
+
+    # --- which header values are a usable proxy --------------------------------
+
+    def test_no_header_is_not_behind_a_proxy(self):
+        self.assertEqual((False, None), self.ask(None))
+
+    def test_an_empty_header_is_not_behind_a_proxy(self):
+        self.assertEqual((False, None), self.ask(""))
+
+    def test_a_live_egress_proxy_is_used(self):
+        self.assertEqual((True, self.egress_url), self.ask(self.egress_url))
+
+    def test_localhost_and_a_trailing_slash_name_the_same_proxy(self):
+        port = self.egress.server_address[1]
+        self.assertEqual((True, self.egress_url), self.ask(f" http://localhost:{port}/ "))
+
+    def test_something_else_on_the_port_is_not_used(self):
+        # A port can be held by something that is not ours: it must answer as egress.
+        self.assertEqual((True, None), self.ask(self.plain_url))
+
+    def test_a_dead_proxy_is_not_used(self):
+        self.assertEqual((True, None), self.ask(self.dead_url))
+
+    def test_a_remote_proxy_is_never_used(self):
+        for value in ("http://10.0.0.1:3128", "http://proxy.ed.ac.uk:3128", "https://127.0.0.1:1",
+                      f"{self.egress_url}/x", "http://127.0.0.1", "socks5://127.0.0.1:1080"):
+            with self.subTest(value=value):
+                self.assertEqual((True, None), self.ask(value))
+
+    # --- what _upstream does with it -------------------------------------------
+
+    def upstream(self, headers, managed=False, fail=()):
+        """Run Handler._upstream with the opener stubbed: the (proxy, managed) it was built
+        with each time, and the headers of the request it sent."""
+        built, sent = [], []
+        errors = list(fail)
+
+        class Opener:
+            def open(self, req, timeout=None):
+                sent.append(dict(req.header_items()))
+                if errors:
+                    raise errors.pop(0)
+                return "response"
+
+        def build(proxy=None, managed=None):
+            built.append((proxy, managed))
+            return Opener()
+
+        with mock.patch.object(self.shim, "_build_opener", build), \
+                mock.patch.object(self.shim, "PROXY_MANAGED", managed):
+            result = self.shim.Handler._upstream(None, "/v1/chat/completions", b"{}", headers)
+        return result, built, sent
+
+    def test_the_callers_proxy_is_the_route(self):
+        _, built, _ = self.upstream({"X-Elm-Pi-Proxy": self.egress_url})
+        self.assertEqual([(self.egress_url, True)], built)
+
+    def test_a_caller_behind_a_dead_proxy_is_never_sent_direct(self):
+        # Even through a shim started with no proxy: the caller has one, so one is required.
+        _, built, _ = self.upstream({"X-Elm-Pi-Proxy": self.dead_url}, managed=False)
+        self.assertEqual([(None, True)], built)
+
+    def test_without_the_header_the_shim_decides_as_before(self):
+        for managed in (False, True):
+            with self.subTest(managed=managed):
+                _, built, _ = self.upstream({"Authorization": "Bearer x"}, managed=managed)
+                self.assertEqual([(None, managed)], built)
+
+    def test_the_header_is_not_sent_to_elm(self):
+        _, _, sent = self.upstream({"X-Elm-Pi-Proxy": self.egress_url, "Authorization": "Bearer x"})
+        self.assertEqual({"Authorization": "Bearer x"}, {k: v for k, v in sent[0].items() if k != "Content-type"})
+
+    def test_a_connection_dropped_mid_request_is_retried_once(self):
+        for error in (http.client.RemoteDisconnected("Remote end closed connection without response"),
+                      ConnectionResetError(54, "Connection reset by peer")):
+            with self.subTest(error=type(error).__name__):
+                result, built, sent = self.upstream({"X-Elm-Pi-Proxy": self.egress_url}, fail=[error])
+                self.assertEqual("response", result)
+                self.assertEqual(2, len(sent))
+                self.assertEqual([(self.egress_url, True)] * 2, built)
+
+    def test_a_retry_without_a_caller_proxy_resolves_again(self):
+        with mock.patch.object(self.shim, "resolve_proxy", wraps=self.shim.resolve_proxy) as resolve:
+            result, _, sent = self.upstream({}, managed=True,
+                                            fail=[http.client.RemoteDisconnected("closed")])
+        self.assertEqual(("response", 2), (result, len(sent)))
+        resolve.assert_any_call(force=True)
+
+    def test_a_second_drop_is_reported(self):
+        drop = http.client.RemoteDisconnected("closed")
+        with self.assertRaises(http.client.RemoteDisconnected):
+            self.upstream({"X-Elm-Pi-Proxy": self.egress_url}, fail=[drop, drop])
+
+    def test_an_unmanaged_direct_request_is_not_retried(self):
+        with self.assertRaises(http.client.RemoteDisconnected):
+            self.upstream({}, managed=False, fail=[http.client.RemoteDisconnected("closed")])
+
+    def test_an_http_error_is_not_retried(self):
+        error = urllib.error.URLError("bad request")   # reason is not an OSError
+        with self.assertRaises(urllib.error.URLError):
+            self.upstream({"X-Elm-Pi-Proxy": self.egress_url}, fail=[error])
+
+    def test_managed_with_no_proxy_anywhere_refuses_to_go_direct(self):
+        with mock.patch.object(self.shim, "PROXY_MANAGED", False):
+            with self.assertRaisesRegex(RuntimeError, "no live elm-pi egress proxy"):
+                self.shim._build_opener(None, True)
+
+
 # =============================================================================
 # HTTP: what the shim sends upstream for a shimmed request
 # =============================================================================
@@ -1316,7 +1477,7 @@ import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 const [source, scenariosFile] = process.argv.slice(1);
 const scenarios = JSON.parse(readFileSync(scenariosFile, "utf8"));
-const KEYS = ["ELM_SHIM_PORT", "ELM_SHIM_PATH", "ELM_LLAMA_MODEL_ID", "PI_CODING_AGENT_DIR", "ELM_PI_PYTHON"];
+const KEYS = ["ELM_SHIM_PORT", "ELM_SHIM_PATH", "ELM_LLAMA_MODEL_ID", "PI_CODING_AGENT_DIR", "ELM_PI_PYTHON", "HTTPS_PROXY"];
 const out = {};
 for (const [name, env] of Object.entries(scenarios)) {
   for (const key of KEYS) delete process.env[key];
@@ -1403,8 +1564,11 @@ class ElmShimExtensionTests(unittest.TestCase):
             "failing": {"ELM_SHIM_PORT": str(cls.ports["failing"]), "ELM_SHIM_PATH": missing},
             "absent": {"ELM_SHIM_PORT": str(cls.ports["absent"]), "ELM_SHIM_PATH": missing},
             "agentdir": {"ELM_SHIM_PORT": str(cls.ports["absent"]), "PI_CODING_AGENT_DIR": "/nowhere/agent"},
+            # A session behind the egress proxy - the only kind that starts a shim. The
+            # address only has to look like the launcher's: nothing is sent through it.
             "spawn": {"ELM_SHIM_PORT": str(cls.spawned_port), "ELM_SHIM_PATH": str(shim_copy),
-                      "ELM_PI_PYTHON": sys.executable, "ELM_LLAMA_MODEL_ID": LLAMA},
+                      "ELM_PI_PYTHON": sys.executable, "ELM_LLAMA_MODEL_ID": LLAMA,
+                      "HTTPS_PROXY": f"http://127.0.0.1:{closed_port()}"},
         }
         scenarios_file = cls.dir / "scenarios.json"
         scenarios_file.write_text(json.dumps(scenarios))

@@ -8,6 +8,14 @@
     "@gotgenes/pi-permission-system",
     "command-guard",
     "cc-safety-net",
-    "pinned-instructions"
+    "pinned-instructions",
+    "trust-guard",
+    "owner-guard",
+    "report-guard",
+    "server-reaper",
+    "repeat-guard",
+    "claim-guard",
+    "date-note",
+    "view-outputs"
   ]
 }

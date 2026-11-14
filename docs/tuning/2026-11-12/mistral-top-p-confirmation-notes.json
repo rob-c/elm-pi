@@ -1,0 +1,7 @@
+{
+ "started": "2026-11-12T04:48:45Z",
+ "ended": "2026-11-12T07:43:50Z",
+ "run": "AB_SUITE=50 harness/ab6.py, three rounds; six Mistral arms on every task at the same moment: mistral-ctrl, @2, @3 from the install with the shipped settings, mistral-topp0.8, @2, @3 from a copy differing only in samplingParamsByThinkingLevel.high.top_p 0.8; reasoning high (the shipped default)",
+ "infra": "8 of 900 runs ended on a gateway error (paired.ended_on_gateway_error)",
+ "plan": "mistral-top-p-confirmation-plan.json, written before the run; read by paired.confirm"
+}

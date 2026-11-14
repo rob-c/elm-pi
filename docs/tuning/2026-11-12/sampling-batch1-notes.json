@@ -1,0 +1,8 @@
+{
+ "run": "2026-11-11T22:56:39Z to 2026-11-12T04:46:19Z, AB_SUITE=50 harness/ab6.py (50 tasks: ab.py 11, ab2.py 6, hard.py 8, hard2.py 25), three rounds, all 12 arms on every task at the same moment",
+ "installs": "three copies of one bootstrapped install: A the shipped settings (the -ctrl and -ctrl2 arms), B and C one alternative per model each; each install's Llama arms with their own shim (ports 8821-8823) at that arm's SHIM_TEMPERATURE",
+ "aa_control": "-ctrl2 is -ctrl again, from the same install at the same moment: what no difference looks like at this size",
+ "concurrent_with": "batch 2 (sampling-batch2.json) from 2026-11-12T00:06:48Z to 02:52:27Z; comparisons are only within a batch",
+ "infra": "a run whose pi exited non-zero or whose last reply was an error (paired.ended_on_gateway_error): 21 of 1800; the 17 (task, round) pairs they touch are left out of every comparison",
+ "rate_limit": "Qwen arms had about 380 turn errors each, nearly all HTTP 429 that pi retried; Mistral and Llama had almost none"
+}

@@ -32,6 +32,18 @@ fi
     return result == "ALLOW", result
 
 
+def model_allowed(model: str, setup: str) -> bool:
+    script = r'''
+source "$1/lib/policy.sh"
+export ELM_ALLOWED_PROVIDERS="elm elm-shim"
+export ELM_QWEN_MODEL_ID="Qwen/Qwen3.5-397B-A17B-FP8"
+export ELM_LLAMA_MODEL_ID="meta-llama/Llama-3.3-70B-Instruct"
+eval "$3"
+elm_policy_model_allowed "$2"
+'''
+    return subprocess.run(["bash", "-c", script, "policy-test", str(ROOT), model, setup], check=False).returncode == 0
+
+
 def extensions_disabled(*args: str) -> bool:
     script = r'''
 source "$1/lib/policy.sh"
@@ -49,6 +61,17 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(policy("--provider", "ELM", "--model", "elm/Qwen/x")[0])
         self.assertTrue(policy("--model", "Qwen/Qwen3.5-397B-A17B-FP8")[0])
         self.assertTrue(policy("--model=elm-shim/meta-llama/Llama-3.3-70B-Instruct")[0])
+        self.assertTrue(policy("--model", "elm/mistralai/Mistral-Small-4-119B-2603")[0])
+
+    def test_the_bare_mistral_id_is_accepted_only_when_the_install_names_it(self):
+        named = "export ELM_MISTRAL_MODEL_ID=mistralai/Mistral-Small-4-119B-2603"
+        self.assertTrue(model_allowed("mistralai/Mistral-Small-4-119B-2603", named))
+        self.assertTrue(model_allowed("MISTRALAI/mistral-small-4-119b-2603", named))
+        self.assertTrue(model_allowed("  mistralai/Mistral-Small-4-119B-2603 ", named))
+        self.assertFalse(model_allowed("mistralai/Mistral-Small-4-119B", named))
+        # runtime.env written before Mistral was served names no Mistral id
+        self.assertFalse(model_allowed("mistralai/Mistral-Small-4-119B-2603", "unset ELM_MISTRAL_MODEL_ID"))
+        self.assertFalse(model_allowed("mistralai/Mistral-Small-4-119B-2603", "export ELM_MISTRAL_MODEL_ID="))
 
     def test_unknown_and_case_variant_providers_are_denied(self):
         for args in (

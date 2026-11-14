@@ -11,9 +11,18 @@
 // prints the offending line under the error.
 //
 //   workflow-check .pi/tmp/<name>.mjs
+//
+// Two more checks the parser does not make, both from real runs here:
+//  - a pi-subagents script (runs.all, no export) is the other dialect. The
+//    parser's "export const meta ... must be the first statement" read as an
+//    instruction, and the model rewrote a correct script into the wrong one.
+//  - the tool runs the body inside `(async () => { ... })()`, so an
+//    `export default async function run()` that parses as a module fails only
+//    when run. The body is compiled that way here, and not run.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import vm from "node:vm";
 
 const file = process.argv[2];
 if (!file) {
@@ -30,10 +39,32 @@ try {
   process.exit(2);
 }
 
-const source = readFileSync(file, "utf8");
+let source;
 try {
-  const { meta } = parseWorkflowScript(source);
-  console.log(`ok: ${file} parses as a workflow script (meta.name "${meta.name}")`);
+  source = readFileSync(file, "utf8");
+} catch (error) {
+  console.error(`workflow-check: cannot read ${file} (${error.code ?? error.message})`);
+  process.exit(2);
+}
+if (!/^\s*export\b/m.test(source) && /\bruns\.(all|run|lanes)\s*\(/.test(source)) {
+  console.error(`${file}: this is a pi-subagents script (runs.*, no export), not a workflow-tool script.`);
+  console.error(`check it with subagent({ action: "validate", workflow: "./${file.replace(/^\.\//, "")}" }) and launch it`);
+  console.error("with subagent; do not add `export const meta`. workflow-check is for the `workflow` tool only.");
+  process.exit(1);
+}
+try {
+  const { meta, body } = parseWorkflowScript(source);
+  try {
+    new vm.Script(`(async () => {\n${body}\n})()`, { filename: file });
+  } catch (error) {
+    console.error(`${file}: parses, but the workflow tool would reject it when it runs: ${error.message}`);
+    console.error("hint: the script is top-level statements ending in `return`, run inside an async function -");
+    console.error("      no `export default`, no `function run()`, no `import`, and nothing exported but meta");
+    process.exit(1);
+  }
+  console.log(`ok: ${file} parses as a script for the \`workflow\` tool (meta.name "${meta.name}")`);
+  // test15: the model typed the checked script out again as `script`, and the copy did not parse.
+  console.log(`Run it with workflow({ script: "${file}" }) - the path, not the text: the file runs as checked.`);
 } catch (error) {
   const loc = error.loc ?? error.cause?.loc;
   console.error(`${file}${loc ? `:${loc.line}:${loc.column + 1}` : ""}: ${error.message}`);

@@ -59,6 +59,16 @@ HEALTH_PATH = "/__elm_pi_egress__/health"
 KEEPALIVE_IDLE_S = 60
 KEEPALIVE_INTVL_S = 15
 KEEPALIVE_CNT = 4
+# Keepalive only probes a quiet connection. One with data the far side has
+# stopped acknowledging is not quiet: the kernel retransmits until its own limit,
+# about 15 minutes on macOS, and the send that filled the buffer waits all that
+# time. On 2026-11-13 a request carrying a page screenshot stalled that way
+# mid-upload; pi's idle timer, which starts once the request is sent, never ran,
+# and the session sat 921 s until "[Errno 60] Operation timed out". Unacknowledged
+# data now drops the connection after 120 s - pi's httpIdleTimeoutMs - and pi
+# retries at once. A slow but live link keeps acknowledging and is not affected.
+UNACKED_TIMEOUT_S = 120
+TCP_RXT_CONNDROPTIME = 0x80   # macOS <netinet/tcp.h>; Python does not name it
 # Errors that say "not right now", not "stop serving". Ending the accept loop on
 # one of these takes the session's only route out with it.
 TRANSIENT_ACCEPT_ERRNOS = frozenset(
@@ -106,6 +116,21 @@ def tune_keepalive(sock):
             sock.setsockopt(socket.IPPROTO_TCP, opt, value)
         except OSError:
             pass  # a platform that will not tune it still keepalives
+    tune_unacked(sock)
+
+
+def tune_unacked(sock):
+    """Drop a connection whose sent data has gone unacknowledged for UNACKED_TIMEOUT_S."""
+    if hasattr(socket, "TCP_USER_TIMEOUT"):                 # Linux: milliseconds
+        option, value = socket.TCP_USER_TIMEOUT, UNACKED_TIMEOUT_S * 1000
+    elif sys.platform == "darwin":                          # macOS: seconds
+        option, value = TCP_RXT_CONNDROPTIME, UNACKED_TIMEOUT_S
+    else:
+        return
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, option, value)
+    except OSError:
+        pass  # left to the system's own limit
 
 
 def now():
@@ -151,7 +176,7 @@ class Proxy:
         if host in self.seen_open:
             return
         self.seen_open.add(host)
-        self.log("OPEN", host, "no allowlist in this install (--allow '*')")
+        self.log("OPEN", host, "recorded, not gated: an open run (pi --remote, --allow '*')")
 
     # -- connection handling -------------------------------------------------
 

@@ -8,6 +8,8 @@ failure names the exact input. Nothing here touches the network, the real
 agent/ directory or the real pi bundle; every root is a temp directory.
 """
 
+from __future__ import annotations  # `dict | None` below; installs run on Python 3.8 and 3.9 too
+
 import contextlib
 import importlib.util
 import io
@@ -77,7 +79,7 @@ def generate(cls, cases, check, expected_failures=()):
 CONFIG = {
     "nodeVersion": "v24.0.1",
     "python": {"version": "3.12", "packages": ["numpy", "scipy"]},
-    "models": {"qwen": "Qwen/Config-1", "llama": "meta/Config-2"},
+    "models": {"qwen": "Qwen/Config-1", "llama": "meta/Config-2", "mistral": "mistralai/Config-3"},
     "allowedProviders": ["elm", "elm-shim"],
     "builtinProviders": ["anthropic", "openai"],
     "providerCredentials": ["A_KEY", "B_KEY"],
@@ -85,6 +87,7 @@ CONFIG = {
     "excludedTools": {"always": ["nb_merge", "nb_move"], "workflows": ["workflow"]},
     "untrustedFolders": {"exact": ["/", "~/Library/Mobile Documents"], "tree": ["~/.ssh", "/it's $HOME"]},
     "proxyAllow": {"hosts": ["pypi.org", "x.io"]},
+    "permissionModes": {"default": "manual", "manualNoPrompt": ["read", "todo"]},
 }
 
 
@@ -99,12 +102,13 @@ def make_root(base: Path, state: dict | None = None) -> Path:
 # --- scripts/elm_config.py ----------------------------------------------------
 
 class RenderedTests(unittest.TestCase):
-    """elm_config.rendered(): only the two model tokens, nothing else."""
+    """elm_config.rendered(): only the model tokens, nothing else."""
 
-MODELS = {"qwen": "Q/q-1", "llama": "L/l-2"}
+MODELS = {"qwen": "Q/q-1", "llama": "L/l-2", "mistral": "M/m-3"}
 generate(RenderedTests, [
     ("qwen_token_becomes_the_qwen_id", "m=@QWEN_MODEL@", "m=Q/q-1"),
     ("llama_token_becomes_the_llama_id", "@LLAMA_MODEL@", "L/l-2"),
+    ("mistral_token_becomes_the_mistral_id", "elm/@MISTRAL_MODEL@", "elm/M/m-3"),
     ("every_occurrence_is_replaced", "@QWEN_MODEL@ @LLAMA_MODEL@ @QWEN_MODEL@", "Q/q-1 L/l-2 Q/q-1"),
     ("adjacent_tokens_both_replaced", "@QWEN_MODEL@@LLAMA_MODEL@", "Q/q-1L/l-2"),
     ("unterminated_token_is_left", "@QWEN_MODEL", "@QWEN_MODEL"),
@@ -113,6 +117,13 @@ generate(RenderedTests, [
     # bootstrap.sh seds this one into the permission config itself
     ("install_dir_token_is_left_for_bootstrap", "@INSTALL_DIR@/**", "@INSTALL_DIR@/**"),
 ], lambda self, text, expected: self.assertEqual(expected, elm_config.rendered(text, MODELS)))
+
+
+class RenderedWithoutAModelTests(unittest.TestCase):
+    def test_a_model_the_ids_do_not_name_keeps_its_token_and_the_rest_render(self):
+        # what a caller with an older id set passes: no KeyError, nothing guessed
+        self.assertEqual("Q/q-1 @MISTRAL_MODEL@",
+                         elm_config.rendered("@QWEN_MODEL@ @MISTRAL_MODEL@", {"qwen": "Q/q-1", "llama": "L/l-2"}))
 
 
 class RenderFileTests(unittest.TestCase):
@@ -170,18 +181,19 @@ class RuntimeEnvTests(unittest.TestCase):
     def test_file_is_private(self):
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
 
-    def test_eleven_exports_and_nothing_else(self):
+    def test_fifteen_exports_and_nothing_else(self):
         # the two one-path-per-line values continue inside their quotes
         lines = self.path.read_text().splitlines()
         exports = [line.split("=", 1)[0] for line in lines if line.startswith("export ")]
-        self.assertEqual(11, len(set(exports)))
-        self.assertEqual(13, len(lines))
+        self.assertEqual(15, len(set(exports)))
+        self.assertEqual(17, len(lines))
         self.assertEqual(set(self.env), {e[len("export "):] for e in exports})
 
 
 generate(RuntimeEnvTests, [
     ("qwen_id_comes_from_the_state_file", "ELM_QWEN_MODEL_ID", "Qwen/State-3"),
     ("llama_id", "ELM_LLAMA_MODEL_ID", "meta/Config-2"),
+    ("mistral_id_comes_from_the_config_when_the_state_file_has_none", "ELM_MISTRAL_MODEL_ID", "mistralai/Config-3"),
     ("allowed_providers_are_space_separated", "ELM_ALLOWED_PROVIDERS", "elm elm-shim"),
     ("builtin_providers_are_space_separated", "ELM_BUILTIN_PROVIDERS", "anthropic openai"),
     ("credentials_are_space_separated", "ELM_PROVIDER_CREDENTIALS", "A_KEY B_KEY"),
@@ -193,6 +205,11 @@ generate(RuntimeEnvTests, [
     # a quote and a $ survive the shell quoting literally
     ("untrusted_tree_keeps_quotes_and_dollars", "ELM_UNTRUSTED_TREE", "~/.ssh\n/it's $HOME"),
     ("proxy_hosts_are_comma_separated", "ELM_PROXY_ALLOW", "pypi.org,x.io"),
+    # the mode new sessions start in until /mode saves another
+    ("permission_mode_is_the_configs_default", "ELM_PERMISSION_MODE_DEFAULT", "manual"),
+    ("manual_no_prompt_tools_are_comma_separated", "ELM_MANUAL_NO_PROMPT", "read,todo"),
+    # a config without the key keeps an allowed launch's sub-agents asking, as before it existed
+    ("approved_agents_is_manual_when_the_config_has_none", "ELM_APPROVED_AGENTS", "manual"),
 ], lambda self, key, expected: self.assertEqual(expected, self.env[key]))
 
 
@@ -236,7 +253,9 @@ class SetModelTests(unittest.TestCase):
 
     def test_state_file_records_the_new_id_and_stays_private(self):
         elm_config.set_model(self.root, "qwen", "Q-2")
-        self.assertEqual({"qwen": "Q-2", "llama": "L-1"}, json.loads(self.agent("model-ids.json")))
+        # a model the state file did not have yet is recorded from the config
+        self.assertEqual({"qwen": "Q-2", "llama": "L-1", "mistral": "mistralai/Config-3"},
+                         json.loads(self.agent("model-ids.json")))
         self.assertEqual(0o600, stat.S_IMODE((self.root / "agent/model-ids.json").stat().st_mode))
 
     def test_settings_keys_and_values_move_and_the_rest_is_kept(self):
@@ -1043,14 +1062,30 @@ generate(FrontmatterTests, [
 
 # --- patch-pi.py ---------------------------------------------------------------
 
+HELP_BLOCK = ('${source_default.bold("Commands:")}\n'
+              "  ${APP_NAME} install <source> [-l]     Install extension source\n"
+              "  ${APP_NAME} auth <command>            Log in or out\n\n")
+
+
 def _sample(anchor):
     """Bundle text that an edit's anchor matches: the anchor itself, or for the
-    two list entries a description of the shape pi ships."""
+    two list entries a description of the shape pi ships, or --help's block."""
     if isinstance(anchor, str):
         return anchor
     if "argumentHint" in anchor.pattern:
         return '{name:"bug",description:"Report a bug",argumentHint:"[hint]"},'
+    if "Commands:" in anchor.pattern:
+        return HELP_BLOCK
     return '{name:"share",description:"Share the session"},'
+
+
+# Each deletion reworded into a shape its pattern does not match, its sentinel
+# still there: the thing is not gone, so it must not read as "already removed".
+REWORDED = {
+    "autocomplete: /share": '{name:"share",hidden:true},',
+    "autocomplete: /bug": '{name:"bug",hidden:true},',
+    "help: the subcommand list": "Commands:\n  pi auth <command>  Log in\n",
+}
 
 
 EDITS = {name: (anchor, replacement, sentinel) for name, anchor, replacement, sentinel in patch_pi.EDITS}
@@ -1060,6 +1095,37 @@ DELETIONS = {name for name, (_, replacement, _) in EDITS.items() if not replacem
 
 def slug(name):
     return "".join(c if c.isalnum() else "_" for c in name.lower()).strip("_").replace("__", "_")
+
+
+class RetryJitterTests(unittest.TestCase):
+    """The patched retryDelayMs, run: each wait within 25% of the doubling schedule, and varied."""
+
+    # pi 1.5.2's function, as its bundle has it; the patch's anchor is its last statement.
+    FUNCTION = ("function retryDelayMs(policy,attempt){let delay=policy.baseDelayMs*2**Math.max(0,attempt-1),"
+                "safeDelay=Number.isSafeInteger(delay)?delay:Number.MAX_SAFE_INTEGER;")
+
+    def test_each_wait_is_the_schedule_give_or_take_a_quarter(self):
+        node = shutil.which("node") or next((str(p) for p in (ROOT / ".node/bin/node",
+                                                              Path.home() / ".local/share/elm-pi/.node/bin/node")
+                                             if p.is_file()), None)
+        if not node:
+            self.skipTest("needs node")
+        anchor, replacement, _ = EDITS["retries: jitter"]
+        self.assertIn(anchor, self.FUNCTION + anchor)
+        patched = (self.FUNCTION + anchor).replace(anchor, replacement)
+        script = (f"const retryDelayMs = new Function('DEFAULT_MAX_AGENT_RETRY_DELAY_MS', {json.dumps(patched)}"
+                  " + '; return retryDelayMs;')(60000);"
+                  "const out = {};"
+                  "for (let a = 1; a <= 11; a++) out[a] = Array.from({length: 400},"
+                  " () => retryDelayMs({baseDelayMs: 1000, maxAgentDelayMs: 512000}, a));"
+                  "console.log(JSON.stringify(out));")
+        run = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(0, run.returncode, run.stderr)
+        for attempt, waits in json.loads(run.stdout).items():
+            nominal = min(1000 * 2 ** (int(attempt) - 1), 512000)   # the 11th is held at the cap
+            self.assertGreaterEqual(min(waits), 0.75 * nominal, attempt)
+            self.assertLessEqual(max(waits), 1.25 * nominal, attempt)
+            self.assertGreater(len(set(waits)), 100, f"attempt {attempt}: the waits do not vary")
 
 
 class PatchPiTests(unittest.TestCase):
@@ -1094,13 +1160,14 @@ class PatchPiTests(unittest.TestCase):
     def text(self):
         return "".join(b.decode("utf-8", "surrogateescape") for b in self.snapshot().values())
 
-    def test_apply_reports_seven_edits(self):
-        self.assertEqual((0, "    disabled /share and /bug (7 edits applied)\n", ""), self.run_patch())
+    def test_apply_reports_ten_edits(self):
+        self.assertEqual((0, "    disabled /share, /bug and pi's subcommands, jittered retries (10 edits applied)\n", ""), self.run_patch())
 
     def test_second_run_is_a_byte_identical_no_op(self):
         self.run_patch()
         before = self.snapshot()
-        self.assertEqual((0, "    /share and /bug already disabled (7 edits in place)\n", ""), self.run_patch())
+        self.assertEqual((0, "    /share, /bug and pi's subcommands already disabled, retries already jittered (10 edits in place)\n", ""),
+                         self.run_patch())
         self.assertEqual(before, self.snapshot())
 
     def test_check_on_an_unpatched_bundle_lists_every_edit_and_writes_nothing(self):
@@ -1114,7 +1181,8 @@ class PatchPiTests(unittest.TestCase):
     def test_check_after_apply_passes_and_writes_nothing(self):
         self.run_patch()
         before = self.snapshot()
-        self.assertEqual((0, "    /share and /bug are disabled (7 edits in place)\n", ""), self.run_patch("--check"))
+        self.assertEqual((0, "    /share, /bug and pi's subcommands are disabled, retries are jittered (10 edits in place)\n", ""),
+                         self.run_patch("--check"))
         self.assertEqual(before, self.snapshot())
 
     def test_a_partly_patched_bundle_gets_the_rest(self):
@@ -1122,7 +1190,7 @@ class PatchPiTests(unittest.TestCase):
         for name in list(EDITS)[4:]:
             patched[name] = EDITS[name][1]
         self.build(patched)
-        self.assertEqual((0, "    disabled /share and /bug (4 edits applied)\n", ""), self.run_patch())
+        self.assertEqual((0, "    disabled /share, /bug and pi's subcommands, jittered retries (4 edits applied)\n", ""), self.run_patch())
 
     def test_a_file_with_no_anchor_is_not_rewritten(self):
         quiet = self.bundle / "unrelated-0b2e.js"
@@ -1165,9 +1233,7 @@ def _missing_anchor(self, name):
     """An anchor that has gone is a hard error, and nothing is written."""
     samples = dict(SAMPLES)
     if name in DELETIONS:
-        # the entry reworded into a shape the pattern does not match: the
-        # command is still there, so it must not read as "already removed"
-        samples[name] = '{name:"share",hidden:true},' if "share" in name else '{name:"bug",hidden:true},'
+        samples[name] = REWORDED[name]
         message = f"    {name}: anchor absent but {EDITS[name][2]} is still in the bundle"
     else:
         samples[name] = "/* moved in a new release */"
@@ -1196,8 +1262,9 @@ def _applied(self, name):
     anchor, replacement, _ = EDITS[name]
     if replacement:
         self.assertEqual(1, text.count(replacement))
-        if replacement.startswith(SAMPLES[name]):
-            # the throw is inserted after the function opens: still one copy
+        if SAMPLES[name] in replacement:
+            # the throw goes in after the function opens, the subcommand
+            # refusal in front of the auth dispatch: still one copy of each
             self.assertEqual(1, text.count(SAMPLES[name]))
         else:
             self.assertNotIn(SAMPLES[name], text)
@@ -1210,6 +1277,154 @@ for _name in EDITS:
     generate(PatchPiTests, [(f"missing_anchor_fails_{slug(_name)}", _name)], _missing_anchor)
     generate(PatchPiTests, [(f"duplicate_anchor_fails_{slug(_name)}", _name)], _duplicate_anchor)
     generate(PatchPiTests, [(f"applied_{slug(_name)}", _name)], _applied)
+
+
+
+# --- patch-pi.py --gate: the permission modes in pi-permission-system -------------
+
+GATE_EDITS = {name: (anchor, replacement) for name, anchor, replacement, _ in patch_pi.GATE_EDITS}
+
+
+class GatePatchTests(unittest.TestCase):
+    """patch-pi.py --gate on a synthetic package laid out like the gate's: src/
+    with the two files the edits go into, and files it must leave alone."""
+
+    INDEX = ("export default function piPermissionSystemExtension(pi) {\n"
+             "  " + GATE_EDITS["yolo: the session's mode"][0] + "\n}\n")
+    MANAGER = ("import { surfaceFamilyOf } from \"#src/access-intent/path-surfaces\";\n"
+               + GATE_EDITS["manual: the floor's function"][0] + "\n  check(intent, sessionRules) {\n"
+               + GATE_EDITS["manual: the floor"][0] + "    return fullRules;\n  }\n}\n")
+    TOOL_ASK = ("export function buildToolAskPayload(facts) {\n  return {\n    evidence: bash\n        ? fullCommandEvidence(facts)\n"
+                + GATE_EDITS["manual: a launch's note"][0] + "  };\n}\n")
+    DIALOG = ("function coreFacts(payload) {\n  const facts = [];\n  if (context !== undefined) {\n"
+              + GATE_EDITS["dialog: an ask's notes"][0])
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.gate = Path(self.tmp.name) / "pi-permission-system"
+        write(self.gate / "src/index.ts", self.INDEX)
+        write(self.gate / "src/policy/permission-manager.ts", self.MANAGER)
+        write(self.gate / "src/policy/rule.ts", "export const x = 1;\n")
+        write(self.gate / "src/presentation/tool-ask-payload.ts", self.TOOL_ASK)
+        write(self.gate / "src/presentation/dialog-renderer.ts", self.DIALOG)
+        # Outside src/, and not TypeScript: never read.
+        write(self.gate / "dist/index.js", self.INDEX + self.MANAGER)
+        write(self.gate / "src/policy/permission-manager.ts.map", self.MANAGER)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_patch(self, *args):
+        return call(patch_pi.main, ["--gate", str(self.gate), *args])
+
+    def snapshot(self):
+        return {p.relative_to(self.gate).as_posix(): p.read_bytes() for p in sorted(self.gate.rglob("*")) if p.is_file()}
+
+    def source(self, rel):
+        return (self.gate / "src" / rel).read_text()
+
+    def test_apply_reports_three_edits(self):
+        self.assertEqual((0, "    the permission modes added to the gate (5 edits applied)\n", ""), self.run_patch())
+
+    def test_second_run_is_a_byte_identical_no_op(self):
+        self.run_patch()
+        before = self.snapshot()
+        self.assertEqual((0, "    the permission modes already in the gate (5 edits in place)\n", ""), self.run_patch())
+        self.assertEqual(before, self.snapshot())
+
+    def test_check_before_and_after(self):
+        before = self.snapshot()
+        code, _, err = self.run_patch("--check")
+        self.assertEqual(1, code)
+        for name in GATE_EDITS:
+            self.assertIn(f"    {name}: not applied\n", err)
+        self.assertEqual(before, self.snapshot())
+        self.run_patch()
+        self.assertEqual((0, "    the gate applies the permission modes (5 edits in place)\n", ""), self.run_patch("--check"))
+
+    def test_yolo_reads_the_processs_mode_beside_the_config(self):
+        self.run_patch()
+        self.assertIn('process.env.PI_ELM_PERMISSION_MODE === "yolo" || isYoloModeEnabled(configStore.current())',
+                      self.source("index.ts"))
+
+    def test_manual_floors_the_composed_rules_and_keeps_session_approvals(self):
+        self.run_patch()
+        manager = self.source("policy/permission-manager.ts")
+        self.assertIn('process.env.PI_ELM_PERMISSION_MODE === "manual"', manager)
+        self.assertIn("[...elmPiManualFloor(composedRules), ...(sessionRules ?? [])]", manager)
+        # the floor's function is defined once, ahead of the class that calls it
+        self.assertEqual(1, manager.count("function elmPiManualFloor("))
+        self.assertLess(manager.index("function elmPiManualFloor("), manager.index("export class PermissionManager"))
+        self.assertIn("PI_ELM_MANUAL_ALLOW", manager)
+
+    def test_a_launch_asked_in_manual_says_its_agents_will_work_in_auto(self):
+        self.run_patch()
+        note = self.source("presentation/tool-ask-payload.ts")
+        self.assertIn('process.env.PI_ELM_APPROVED_AGENTS === "auto"', note)
+        self.assertIn('check.toolName === "subagent"', note)
+        self.assertIn(patch_pi.LAUNCH_NOTE, note)
+        self.assertNotIn("    annotations: [],\n", note)
+        dialog = self.source("presentation/dialog-renderer.ts")
+        self.assertIn('for (const note of payload.annotations) facts.push({ label: "note", text: note.text });', dialog)
+        self.assertLess(dialog.index("payload.annotations"), dialog.index("return facts;"))
+
+    def test_an_install_patched_before_the_launch_note_takes_it_on(self):
+        """The two newer edits have anchors of their own, in files the first three do not touch."""
+        first = [e for e in patch_pi.GATE_EDITS if e[0] in ("yolo: the session's mode", "manual: the floor",
+                                                           "manual: the floor's function")]
+        for name, anchor, replacement, _ in first:
+            for rel in ("index.ts", "policy/permission-manager.ts"):
+                path = self.gate / "src" / rel
+                path.write_text(path.read_text().replace(anchor, replacement))
+        self.assertEqual((0, "    the permission modes added to the gate (2 edits applied)\n", ""), self.run_patch())
+        self.assertEqual((0, "    the gate applies the permission modes (5 edits in place)\n", ""), self.run_patch("--check"))
+
+    def test_files_outside_src_and_other_files_are_not_touched(self):
+        before = self.snapshot()
+        self.run_patch()
+        after = self.snapshot()
+        for rel in ("dist/index.js", "src/policy/permission-manager.ts.map", "src/policy/rule.ts"):
+            self.assertEqual(before[rel], after[rel], rel)
+
+    def test_a_moved_anchor_fails_and_writes_nothing(self):
+        write(self.gate / "src/index.ts", "export default function x() {}\n")
+        before = self.snapshot()
+        code, _, err = self.run_patch()
+        self.assertEqual(1, code)
+        self.assertIn("    yolo: the session's mode: anchor not found and no patched form present\n", err)
+        self.assertIn("Re-derive the --gate anchors", err)
+        self.assertEqual(before, self.snapshot())
+
+    def test_a_doubled_anchor_fails(self):
+        write(self.gate / "src/extra.ts", self.INDEX)
+        code, _, err = self.run_patch()
+        self.assertEqual(1, code)
+        self.assertIn("    yolo: the session's mode: anchor matched 2 times, expected 1\n", err)
+
+    def test_gate_option_needs_a_path(self):
+        self.assertEqual((2, "", "patch-pi: --gate requires a path\n"), call(patch_pi.main, ["--gate"]))
+
+    def test_a_directory_without_src_is_not_a_gate(self):
+        code, _, err = call(patch_pi.main, ["--gate", str(self.gate / "dist")])
+        self.assertEqual(1, code)
+        self.assertIn("patch-pi: no permission gate at", err)
+
+    def test_the_floor_keeps_the_path_families_and_skill(self):
+        floor = patch_pi.MANUAL_FLOOR
+        for kept in ('family === "path"', 'family === "external_directory"', 'surface === "skill"'):
+            self.assertIn(kept, floor)
+        # only an allow is turned into an ask; deny and ask pass through
+        self.assertIn('rule.action === "allow" && !keeps(rule.surface) ? { ...rule, action: "ask" } : rule', floor)
+
+
+class PiSubcommandPatchTests(unittest.TestCase):
+    def test_every_subcommand_pi_dispatches_is_refused(self):
+        _, replacement, _ = EDITS["cli: pi's subcommands"]
+        for name in ("install", "remove", "uninstall", "update", "list", "config", "auth", "mcp"):
+            self.assertIn(f'"{name}"', replacement)
+        self.assertIn("process.exitCode=2", replacement)
+        self.assertTrue(replacement.endswith("||await runAuthCommand(args))return;"))
+        self.assertIn("See LOCKDOWN.md.", patch_pi.SUBCOMMAND_REFUSAL)
 
 
 if __name__ == "__main__":

@@ -58,7 +58,11 @@
       "~/.mozilla/*": "deny",
       "~/.config/google-chrome/*": "deny",
       "~/.config/chromium/*": "deny",
-      "~/.local/share/keyrings/*": "deny"
+      "~/.local/share/keyrings/*": "deny",
+      "@AGENT_DIR@/permission-mode": {
+        "action": "deny",
+        "reason": "agent/permission-mode is the permission mode new sessions start in. Only the user changes it, with /mode; it is denied to the agent's tools in every mode. See LOCKDOWN.md (Permission modes)."
+      }
     },
     "bash": {
       "*": "allow",
@@ -70,6 +74,7 @@
       "gh *": "ask",
       "pi setup*": "ask",
       "pi update*": "ask",
+      "pi *--yolo*": "ask",
       "ssh *": { "action": "deny", "reason": "SSH and the tools built on it send data off this machine, past the egress proxy. Not available here; see LOCKDOWN.md." },
       "scp *": { "action": "deny", "reason": "SSH and the tools built on it send data off this machine, past the egress proxy. Not available here; see LOCKDOWN.md." },
       "sftp *": { "action": "deny", "reason": "SSH and the tools built on it send data off this machine, past the egress proxy. Not available here; see LOCKDOWN.md." },
@@ -278,7 +283,12 @@
       "rpm -F*": { "action": "deny", "reason": "System packages need an administrator, so do not run the package manager. Try the isolated options first, then give the user the exact command for this system and what it is for; see the installing-software skill." },
       "rpm --freshen*": { "action": "deny", "reason": "System packages need an administrator, so do not run the package manager. Try the isolated options first, then give the user the exact command for this system and what it is for; see the installing-software skill." },
       "rpm -e*": { "action": "deny", "reason": "System packages need an administrator, so do not run the package manager. Try the isolated options first, then give the user the exact command for this system and what it is for; see the installing-software skill." },
-      "rpm --erase*": { "action": "deny", "reason": "System packages need an administrator, so do not run the package manager. Try the isolated options first, then give the user the exact command for this system and what it is for; see the installing-software skill." }
+      "rpm --erase*": { "action": "deny", "reason": "System packages need an administrator, so do not run the package manager. Try the isolated options first, then give the user the exact command for this system and what it is for; see the installing-software skill." },
+      "*break-system-packages*": { "action": "deny", "reason": "Installing into the system's Python changes software everything else on this machine uses, and it is not undone with the project. Install into the project's environment or this install's (`pi setup --python`); see the scientific-python skill." },
+      "*PIP_BREAK_SYSTEM_PACKAGES*": { "action": "deny", "reason": "Installing into the system's Python changes software everything else on this machine uses, and it is not undone with the project. Install into the project's environment or this install's (`pi setup --python`); see the scientific-python skill." },
+      "*UV_BREAK_SYSTEM_PACKAGES*": { "action": "deny", "reason": "Installing into the system's Python changes software everything else on this machine uses, and it is not undone with the project. Install into the project's environment or this install's (`pi setup --python`); see the scientific-python skill." },
+      "uv pip *--system*": { "action": "deny", "reason": "Installing into the system's Python changes software everything else on this machine uses, and it is not undone with the project. Install into the project's environment or this install's (`pi setup --python`); see the scientific-python skill." },
+      "*UV_SYSTEM_PYTHON*": { "action": "deny", "reason": "Installing into the system's Python changes software everything else on this machine uses, and it is not undone with the project. Install into the project's environment or this install's (`pi setup --python`); see the scientific-python skill." }
     }
   },
   "piInfrastructureReadPaths": [

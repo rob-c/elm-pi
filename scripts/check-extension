@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Load one elm-pi extension with pi's own loader and check the repository registers, documents and tests it.
+#   scripts/check-extension <name | path/to/extension.ts>
+# Uses this clone's Node and pi after scripts/dev-setup.sh, else those of the install this shell runs under.
+set -euo pipefail
+unset CDPATH
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+INSTALL=""
+[ -z "${PI_CODING_AGENT_DIR:-}" ] || INSTALL="$(dirname "$PI_CODING_AGENT_DIR")"
+NODE="" PI_ROOT=""
+for root in "$HERE" "$INSTALL"; do
+  [ -n "$root" ] || continue
+  if [ -z "$NODE" ] && [ -x "$root/.node/bin/node" ]; then NODE="$root/.node/bin/node"; fi
+  if [ -z "$PI_ROOT" ] && [ -f "$root/node_modules/@earendil-works/pi-coding-agent/dist/index.js" ]; then PI_ROOT="$root"; fi
+done
+[ -n "$NODE" ] || NODE="$(command -v node || true)"
+[ -n "$NODE" ] || { echo "check-extension: no Node - run scripts/dev-setup.sh, or run this inside an elm-pi session" >&2; exit 2; }
+ELM_PI_PI_ROOT="$PI_ROOT" exec "$NODE" --no-warnings "$HERE/scripts/check-extension.mjs" "$@"

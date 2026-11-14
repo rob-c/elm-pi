@@ -1,0 +1,183 @@
+{
+ "about": "The model settings elm-pi ships, each with the evidence it was chosen on. tests/test_tuning_evidence.py checks the templates still ship these.",
+ "decisions": [
+  {
+   "model": "mistral",
+   "setting": "samplingParams",
+   "value": {
+    "temperature": 0.15
+   },
+   "where": "templates/models.json",
+   "date": "2026-11-11",
+   "evidence": [
+    "2026-11-11/temperature-probe.json",
+    "2026-11-11/temperature-0.15.json",
+    "2026-11-11/sweep.json"
+   ],
+   "why": "The gateway samples Mistral at 1.0 when nothing is sent; Mistral says 0.0-0.7 with reasoning off. 38/51 against 33/51. Swept with reasoning off: 60, 62, 59, 60 of 75 at 0, 0.15, 0.4, 0.7 - level."
+  },
+  {
+   "model": "mistral",
+   "setting": "samplingParamsByThinkingLevel",
+   "value": {
+    "high": {
+     "temperature": 0.7
+    }
+   },
+   "where": "templates/models.json",
+   "date": "2026-11-12",
+   "evidence": [
+    "2026-11-11/guard-reasoning-vibe.json",
+    "2026-11-11/tuning.json",
+    "2026-11-12/sampling-batch1.json",
+    "2026-11-12/mistral-top-p-confirmation-plan.json",
+    "2026-11-12/mistral-top-p-confirmation.json"
+   ],
+   "why": "Mistral's figure for reasoning_effort high; 46/51 with reasoning on. Re-tested in the tuning run: 72/75 at 0.7, 73 at 0.15, 69 at 0.4. top_p tested 2026-11-12: 0.8 +6.0 points against both shipped controls (95% task interval -0.4 to +12.8, Holm p 0.26), 0.95 +3.8: not shown; 0.8 tested again on its own, under a rule written beforehand: +1.4 points over 443 pairs, p 0.63, interval -2.7 to +5.1 - not shipped."
+  },
+  {
+   "model": "mistral",
+   "setting": "modelThinkingLevels",
+   "value": "high",
+   "where": "templates/settings.json",
+   "date": "2026-11-11",
+   "evidence": [
+    "2026-11-11/guard-reasoning-vibe.json"
+   ],
+   "why": "Reasoning on: 46/51 and no run failed without a tool call, against 35/51 with it off."
+  },
+  {
+   "model": "mistral",
+   "setting": "compat.supportsDeveloperRole",
+   "value": false,
+   "where": "templates/models.json",
+   "date": "2026-11-11",
+   "evidence": [
+    "2026-11-11/gateway-probes.json"
+   ],
+   "why": "The gateway answers the developer role with 400 Unknown message role: developer."
+  },
+  {
+   "model": "mistral",
+   "setting": "claim guard",
+   "value": "templates/extensions/claim-guard.ts",
+   "where": "config/elm-pi.json requiredExtensions",
+   "date": "2026-11-11",
+   "evidence": [
+    "2026-11-11/guard-reasoning-vibe.json"
+   ],
+   "why": "With reasoning off, 6 of 6 runs it sent back then passed; the task had failed 12 of 12."
+  },
+  {
+   "model": "mistral",
+   "setting": "compaction fallback",
+   "value": {
+    "model": "elm/@MISTRAL_MODEL@",
+    "thinkingLevel": "off"
+   },
+   "where": "templates/config/pi-task-models/config.json profiles.balanced.fallback",
+   "date": "2026-11-11",
+   "evidence": [
+    "2026-11-11/compaction.json"
+   ],
+   "why": "As many facts kept as Llama, in half the time."
+  },
+  {
+   "model": "qwen",
+   "setting": "maxTokens",
+   "value": 81920,
+   "where": "templates/models.json",
+   "date": "2026-11-11",
+   "evidence": [
+    "2026-11-11/gateway-probes.json"
+   ],
+   "why": "Accepted, and streamed 43,893 tokens in one reply."
+  },
+  {
+   "model": "mistral",
+   "setting": "maxTokens",
+   "value": 81920,
+   "where": "templates/models.json",
+   "date": "2026-11-11",
+   "evidence": [
+    "2026-11-11/gateway-probes.json"
+   ],
+   "why": "Accepted, and streamed 40,000 tokens in one reply."
+  },
+  {
+   "model": "qwen",
+   "setting": "samplingParams",
+   "value": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 1.5
+   },
+   "where": "templates/models.json",
+   "date": "2026-11-12",
+   "evidence": [
+    "2026-11-11/tuning.json",
+    "2026-11-11/tuning-arms.json",
+    "2026-11-11/sweep.json",
+    "2026-11-12/sampling-batch1.json",
+    "2026-11-12/sampling-batch2.json"
+   ],
+   "why": "Qwen's instruct profile: 41/42, against 39 without the presence penalty and 40 with the thinking profile. Temperature swept: 72/75 at 0.2, 0.4 and 0.7, 69 at 1.0. Re-tested 2026-11-12 on 50 tasks, pair by pair against the shipped profile: top_p 0.95 -0.8 points, top_k 40 -0.7, min_p 0.05 +1.4, presence_penalty 0 +1.5 and 0.5 -0.7, its own repeat -0.8; none p below 0.5."
+  },
+  {
+   "model": "qwen",
+   "setting": "samplingParamsByThinkingLevel",
+   "value": {
+    "high": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 0.0
+    }
+   },
+   "where": "templates/models.json",
+   "date": "2026-11-11",
+   "evidence": [
+    "sources.md"
+   ],
+   "why": "Qwen's thinking profile, from the model card; thinking stays off (measured ~400x slower), so not re-measured."
+  },
+  {
+   "model": "all",
+   "setting": "compat.supportsLongCacheRetention",
+   "value": false,
+   "where": "templates/models.json and templates/extensions/elm-shim.ts",
+   "date": "2026-11-11",
+   "evidence": [
+    "2026-11-11/gateway-fields.json"
+   ],
+   "why": "Accepted by the gateway, but no setting was measured with the fields; keeps PI_CACHE_RETENTION=long from adding them."
+  },
+  {
+   "model": "llama",
+   "setting": "SHIM_TEMPERATURE",
+   "value": "0",
+   "where": "shim/shim.py",
+   "date": "2026-11-12",
+   "evidence": [
+    "2026-11-11/sweep.json",
+    "2026-11-11/tuning.json",
+    "2026-11-12/sampling-batch1.json"
+   ],
+   "why": "The temperature Llama's tool requests reach ELM at. 0.3 scored 41/75 and 0.6 37 in the sweep; four runs at 0 scored 41, 35, 36 and 33, so neither is shown better. Again 2026-11-12, 50 tasks, pair by pair: 0.3 -0.8 points, 0.6 +2.3, the repeat of 0 +4.5."
+  },
+  {
+   "model": "all",
+   "setting": "httpIdleTimeoutMs",
+   "value": 120000,
+   "where": "templates/settings.json",
+   "date": "2026-11-12",
+   "evidence": [
+    "2026-11-12/stall-summary.json"
+   ],
+   "why": "How long a request may send nothing - no headers, no token - before pi ends it and retries. Over 41,261 successful ELM requests (tuning runs under 429 storms included), the longest wait before a short reply began was 58.4s, and none passed 60s; the two streams that did stall ran 477.6s and 1126.6s under pi's 300s default, one of them test6's eight minutes. 120s is twice the longest healthy wait, and ends a dead stream 180s sooner."
+  }
+ ]
+}

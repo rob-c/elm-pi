@@ -19,8 +19,9 @@ self-hosted ones. Web interface (and API keys):
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
 ```
 
-With every optional extra - the agent's own Python and offline PyPI search,
-~2.4 GB in all rather than ~1 GB (never the open network; that is `pi --remote`):
+About 2 GB, the agent's own scientific Python (numpy, scipy, matplotlib, Jupyter
+tools) included. With offline PyPI search as well, ~2.4 GB in all (never the open
+network; that is `pi --remote`):
 
 ```bash
 ELM_PI_WITH_ALL=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
@@ -34,7 +35,9 @@ another install, your `pi` command or your `PATH` (the installer creates
 ELM_PI_PREFIX="$HOME/sandbox/elm-pi" ELM_PI_NO_LINK=1 ELM_PI_NO_PATH=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"
 ```
 
-macOS or Linux, x86_64 or arm64. No `sudo`, nothing installed system-wide. It
+macOS or Linux, x86_64 or arm64: Ubuntu, AlmaLinux 8-10, Arch and NixOS
+(with nix-ld) are tested, see
+[Linux distributions](INSTALL.md#linux-distributions). No `sudo`, nothing installed system-wide. It
 lands in `~/.local/share/elm-pi`, links `~/.local/bin/pi`, puts that directory on
 your `PATH` in the shell profile you actually use (zsh, bash or fish —
 `--no-path` skips it), and asks for your ELM API key —
@@ -67,16 +70,16 @@ every step: **[INSTALL.md](INSTALL.md)**. Web version of this page:
 
 | | |
 |---|---|
-| **Model** | `Qwen/Qwen3.5-397B-A17B-FP8` — 262K context, tool calling, vision |
+| **Model** | `Qwen/Qwen3.5-397B-A17B-FP8` — 262K context, tool calling, vision. `mistralai/Mistral-Small-4-119B-2603` (`--mistral`) is the other university-hosted model with all three |
 | **Sub-agents** | 64-child fan-out budget, Qwen by default; Llama 3.3 via a local tool-call shim as a fallback |
 | **Editing** | Anchor-based (`pi-hashline-edit-pro`) — the built-in `edit` tool is off |
 | **Memory** | Per-project `AGENTS.md`. No memory tool: `pi-hermes-memory` is not installed |
 | **Software** | Fetched when a task needs it, the isolated way and without asking: PyPI packages into the agent's or the project's environment, conda-forge packages with pixi (`agent/pixi`), large toolchains in a `--network=none` container. Homebrew asks every time; apt/dnf are refused and the agent gives you the command. Each install is reported (what, where, how to remove) and logged in `agent/installs.log` |
 | **Web** | `pi-web-access` (DuckDuckGo, then Exa). **Off by default**; `pi --remote` turns it on for a run. Without it, only ELM, PyPI, conda-forge and the container registries are reachable |
-| **Skills** | 15 — physics methods, scientific code, installing software, containers, sub-agent orchestration. A router adds the ones a request needs, shown as a dim `skills:` line |
+| **Skills** | 16 — physics methods, scientific code, installing software, containers, sub-agent orchestration, developing elm-pi itself. A router adds the ones a request needs, shown as a dim `skills:` line |
 | **Prompt suggestions** | `pi-next-prompt`: the likely next prompt in grey after each reply; Tab takes it |
 | **Sessions** | `.pi/sessions/` inside each project, not one central 1.9 GB pile |
-| **Models offered** | ELM only. 42 non-ELM provider catalogues stripped |
+| **Models offered** | ELM only. 43 non-ELM provider catalogues stripped |
 
 ## Layout
 
@@ -97,8 +100,8 @@ proxy/              egress proxy: allowlists ELM, PyPI, conda-forge and containe
 agent/              generated: PI_CODING_AGENT_DIR (config, extensions, skills, state)
 agent/bin/          generated: fd rg jq yq shellcheck ast-grep uv mlr resvg pixi ruff, pinned + checksummed
 agent/pixi/         generated on use: conda-forge tools the agent installed with pixi
-agent/python/       generated with --with-python: the agent's own Python (uv-managed CPython + analysis stack)
-.node/ node_modules/  generated: Node 24 + pi, ~400 MB (whole base install ~1 GB)
+agent/python/       generated unless --no-python: the agent's own Python (uv-managed CPython + analysis stack, ~1 GB)
+.node/ node_modules/  generated: Node 24 + pi, ~400 MB (with the tools, ~1 GB; with agent/python, ~2 GB)
 ```
 
 `agent/` is generated from `templates/`; shared runtime values come from
@@ -148,13 +151,25 @@ is a `rm -rf` away from a clean one.
 
 ```bash
 pi                             # interactive, starts on Qwen 397B
-pi -p "..."                    # one-shot
+pi -p "..."                    # one-shot; in manual it reads, but runs and edits nothing
+pi --auto -p "..."             # one-shot that may run commands and edit
 pi --fast -p "..."             # one-shot, much quicker to start
 pi --llama -p "..."            # run on Llama 3.3 70B through the tool-call shim
+pi --mistral -p "..."          # run on Mistral Small 4 119B
 cat file | pi -p "summarise"
 pi update                      # latest elm-pi, pi and packages (see below)
 pi update --extensions         # back to the tested versions in config/versions.json
 ```
+
+**Show it things.** Qwen and Mistral both see images, and elm-pi has them look
+whenever anything is visual. Paste a screenshot (Ctrl+V), drag an image into
+the terminal, add one with `@`, or just name its path in your message
+(`what's wrong with figures/fit.png?`, or a screenshot's path from your
+Desktop) and it is attached. `pi @plot.png -p "..."` does the same in one shot.
+The agent renders and looks at the plots, PDFs and web pages it makes, and
+asks for a screenshot when you describe something it cannot see. Looking costs
+a few thousand tokens and there is no token budget here. Only Llama
+(`--llama`) is blind to images.
 
 Nothing updates itself while you are trying to start work: the launcher runs pi
 with `PI_OFFLINE=1`, so no version check, package check or tool download happens
@@ -169,7 +184,37 @@ pinned, and every bootstrap and `pi update` rebuilds it from `templates/`, so a
 package added that way would vanish at the next update. To add one for good,
 see [CONTRIBUTING.md](CONTRIBUTING.md); to try a local extension for one
 session, `PI_ELM_UNLOCK=1 pi -e /path/to/extension.ts` (plain `-e` is refused,
-see [LOCKDOWN.md](LOCKDOWN.md)).
+see [LOCKDOWN.md](LOCKDOWN.md)). pi's other subcommands are refused the same
+way, each saying what to use instead: `pi auth` (the key is in `.env`),
+`pi mcp` (MCP is off), `pi config` and `pi list` (the package set is
+`templates/`, what runs is `agent/installed-versions.json`) and
+`pi update --models` (ELM's models are `agent/models.json`, refreshed by
+`./configure.sh`). `patch-pi.py` takes them out of pi itself too.
+
+### Permission modes
+
+How much the agent may do before it asks you, in three steps:
+
+| Mode | |
+|---|---|
+| **manual** | where every new session starts. Nothing runs without your yes: every command, edit, Python cell, notebook change, sub-agent and web call asks first. Reading files in the project does not, nor do the tools that only talk to you or keep the session's notes (`todo`, `ask_user_question`, ...; `permissionModes.manualNoPrompt` in `config/elm-pi.json`). Answering "allow for this session" stops the same command asking again. Sub-agents ask once, at launch, and the ask says what allowing it means: the agents it starts then work in auto, while what auto asks about still comes to you (`permissionModes.approvedAgents`; `"manual"` has each of their calls ask as well) |
+| **auto** | the permission gate's rules as written: most commands and every edit in the project run, the risky ones ask first (`git push`, `sudo`, `gh`, `brew install`, `pi update`, ...) and some are refused (`ssh`, system package managers) |
+| **yolo** | every ask is answered yes, until the session ends. A refusal is still a refusal, and the egress proxy and the ELM-only policy are unchanged |
+
+Change it inside a session with `/mode`, which opens a menu of the three modes
+(the footer shows the current one). Picking manual or auto asks **Change for
+this session** or **Change default mode**, the second making new sessions start
+that way too; picking yolo offers only **Change for this session only**: yolo is never saved and never a
+default, so the next session, a resumed one included, starts in the default
+again. `pi --manual`, `pi --auto` or `pi --yolo` picks the mode for one run and
+leaves the default alone. Sub-agents run in their session's mode and their asks
+come to you there. A `PI_ELM_PERMISSION_MODE` in the environment can only make
+a run stricter, and `pi --yolo` started by the agent itself asks you first. The
+gate applies the mode, through the small patch `patch-pi.py --gate` makes to
+it; see [LOCKDOWN.md](LOCKDOWN.md#permission-modes).
+
+With `-p` there is nobody to ask, so in manual mode a one-shot run can read but
+not run commands or edit; `pi --auto -p "..."` lets it.
 
 `pi` is a symlink to `~/.local/share/elm-pi/pi`; the launcher resolves symlinks,
 so you can move or re-link it freely. `pi.orig` in the install directory is the
@@ -181,16 +226,26 @@ wrapper's fault?".
 |---|---|
 | `--fast` | skip the npm package set, which is most of the startup time. The policy extensions and the permission gate still load. No sub-agents, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
 | `--llama` | Llama 3.3 70B via the local shim. A fallback, **not** a speed-up — Qwen is faster here. |
+| `--mistral` | Mistral Small 4 119B (6.5B active per token), on ELM directly: tool calling, images, reasoning on by default. About twice as fast as Qwen; on small agent tasks it passed 46 of 51 where Qwen passed all, so Qwen stays the default and runs the sub-agents. Also in `/model`. Measurements in [INSTALL.md](INSTALL.md#mistral-small-4-the-other-model-with-tools-and-images). |
 | `--with-all` | every optional extra, without `--remote`: sets up the agent's Python and the offline PyPI index if missing (once, ~2 GB, recorded so `pi update` keeps them), and offers every tool otherwise left out for size, the `workflow` tools included. The web, the open proxy and computer use stay off. |
-| `--workflows` | offer the `workflow` tool (pi-dynamic-workflows) for this run (`PI_ELM_WORKFLOWS=1` does the same). Left out otherwise: it is used only on request, and its definition would go with every request. |
+| `--no-workflows` | leave the `workflow` tool (pi-dynamic-workflows) out of this run (`PI_ELM_WORKFLOWS=0` does the same); it is offered by default. Its definitions add about 6.9k characters to every request. |
+| `--workflows` | offer the `workflow` tool where `PI_ELM_WORKFLOWS=0` would leave it out |
 | `--remote` | web tools and computer use (screen and app control) on for this run, and the egress proxy records every destination instead of allowing only ELM and the package sources (PyPI, conda-forge, container registries). Models are unaffected: still ELM only, but the model is told to always research with the web tools, and cite them, rather than answer from memory. `PI_ELM_WEB=1` turns the tools on without opening the proxy. |
+| `--no-computer-use` | with `--remote`, the web without the screen: computer use stays off (`PI_ELM_COMPUTER_USE=0` does the same). A new install asks macOS for Screen Recording at its first `--remote`, since its helper app is signed afresh. |
+| `--manual` | permission mode for this run: nothing runs without your yes (above); where new sessions start unless auto is the default |
+| `--auto` | permission mode for this run: the gate's rules as written. The default stays as it is |
+| `--yolo` | permission mode for this run only: every ask answered yes; refusals still apply. Never the default |
 | `--help` | the launcher's flags and environment, then pi's own help, run with this install's config, offline and with credentials scrubbed |
+
+A session started at a terminal opens with a "Powered by ELM" banner and the
+service's address, <https://elm.edina.ac.uk/elm>; `PI_ELM_BANNER=0` leaves it out.
 
 | Command | |
 |---|---|
 | `/model` | switch between the ELM models |
 | `/thinking` | reasoning is **off** by default here — see below |
 | `/elm-policy` | why only ELM models are available |
+| `/mode` | a menu of the permission modes: manual or auto for this session or as the default, yolo for this session only. `/mode auto` (and the others) goes straight to its second menu |
 | `/export`, `/import` | session to HTML/JSONL and back |
 
 ## Things this install already knows
@@ -218,9 +273,11 @@ Hard-won settings that are in here deliberately. Full measurements in
   So the prompt gives a countable line - two or more independent questions, or
   three or more unread files - and one call (pi-subagents' built-in `parallel`
   workflow) launches the lot; up to 12 children run at once.
-- **`retry.maxRetries` is 6, `retry.provider.maxRetries` is 0.** Six from a 1s base
-  delay gives ~63s of tolerance for a shared-gateway 429 storm; SDK-level retries would swallow
-  out-of-quota errors before pi sees them.
+- **`retry.maxRetries` is 10, `retry.provider.maxRetries` is 0.** Ten from a 1s base
+  delay, doubling to 512s, gives ~1023s of tolerance (about 17 minutes) for a
+  shared-gateway 429 storm or a bad network. Each wait is jittered by up to 25%
+  (`patch-pi.py`), so sub-agents refused together do not retry together. SDK-level
+  retries would swallow out-of-quota errors before pi sees them.
 - **`pi -p` from a terminal is not hung**, it is reading stdin. The launcher closes
   stdin when it is a TTY.
 - **Load is reported, not policed.** Each sub-agent is a full Node process, and

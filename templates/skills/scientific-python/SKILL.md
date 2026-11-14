@@ -11,10 +11,11 @@ Use the environment the project uses: an activated conda env, a `.venv`, a
 `pyproject.toml`/`environment.yml`/`requirements.txt` in the project. Without
 one, and when `$ELM_PI_AGENT_PYTHON` is set, `python3` is this install's own
 environment: numpy, scipy, pandas, matplotlib, h5py, uproot, iminuit, sympy,
-openpyxl, xlsxwriter, pyarrow, jupytext, nbformat, nbconvert and ipykernel are
-already in it. When it is not set, the install was made without it: use the
-`python3` on PATH, install nothing into it, and if a package is missing say so
-- `pi setup --python` adds the environment. Check before writing code:
+openpyxl, xlsxwriter, pyarrow, jupytext, nbformat, nbconvert, ipykernel and pytest are
+already in it, and `jupyter nbconvert` runs from it. When it is not set, the
+install was made with `--no-python`: use the `python3` on PATH, install nothing
+into it, and if a package is missing say so - `pi setup --python` adds the
+environment. Check before writing code:
 `python3 -c "import sys, numpy, scipy; print(sys.executable, numpy.__version__, scipy.__version__)"`.
 
 A package that is missing can be installed into an environment that is not the
@@ -65,7 +66,8 @@ report from it - kernel state is not a result.
 ## Notebooks
 
 - Read and edit an `.ipynb` cell by cell with the `notebook_*` tools:
-  `notebook_summary` first (cells, ids, output previews), then
+  `notebook_summary` first (cells, ids, output previews - five lines each:
+  read a cut one whole with `notebook_read_cell_output` before quoting it), then
   `notebook_read_cell`, `notebook_edit_cell` or `notebook_write_cell`,
   `notebook_insert`, `notebook_delete` (delete and insert to move a cell;
   `notebook_write_cell` changes its type). Never edit the JSON

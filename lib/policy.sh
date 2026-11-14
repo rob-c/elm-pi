@@ -26,10 +26,15 @@ elm_policy_model_allowed() {
 
   # Exact bare ids are accepted for compatibility with pi's cross-provider
   # resolver. Every other slash-bearing value must carry an allowed provider.
-  if [ "$lower" = "$(printf '%s' "${ELM_QWEN_MODEL_ID:-}" | tr '[:upper:]' '[:lower:]')" ] || \
-     [ "$lower" = "$(printf '%s' "${ELM_LLAMA_MODEL_ID:-}" | tr '[:upper:]' '[:lower:]')" ]; then
-    return 0
-  fi
+  # Each only when this install's runtime.env names it: an unset or empty id
+  # must not make "" a model - a blank --model matched it and was allowed.
+  # (Mistral's is missing from a runtime.env written before it was served.)
+  local id
+  for id in "${ELM_QWEN_MODEL_ID:-}" "${ELM_LLAMA_MODEL_ID:-}" "${ELM_MISTRAL_MODEL_ID:-}"; do
+    if [ -n "$id" ] && [ "$lower" = "$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')" ]; then
+      return 0
+    fi
+  done
   provider="${candidate%%/*}"
   [ "$provider" != "$candidate" ] && elm_policy_provider_allowed "$provider"
 }

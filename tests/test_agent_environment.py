@@ -23,6 +23,16 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def from_an_install(rel):
+    """rel (".node/bin/node", "agent/bin/jq") from an elm-pi install: this checkout, when it is one;
+    $ELM_PI_INSTALL_DIR; the default prefix; then ~/sandboxes/elm-pi. None when none has it - the
+    caller skips. A path that does not exist is not a fallback: Python 3.14 on Linux reports it as
+    exit 127, not FileNotFoundError, so the test failed instead of skipping."""
+    roots = [ROOT, os.environ.get("ELM_PI_INSTALL_DIR"), Path.home() / ".local/share/elm-pi",
+             Path.home() / "sandboxes/elm-pi"]
+    return next((str(Path(r) / rel) for r in roots if r and (Path(r) / rel).is_file()), None)
 CONFIG = json.loads((ROOT / "config/elm-pi.json").read_text())
 LAUNCHER = (ROOT / "pi").read_text()
 BOOTSTRAP = (ROOT / "bootstrap.sh").read_text()
@@ -91,12 +101,58 @@ class ContainerRuleTests(unittest.TestCase):
         self.assertIn("containers skill", rules["docker run *"]["reason"])
         self.assertIn('-v "$PWD":"$PWD" -w "$PWD"', rules["docker run *"]["reason"])
 
+    def test_the_engine_check_and_every_container_call_have_a_time_limit(self):
+        # A Docker Desktop still starting held a `docker run` for 13 minutes in a
+        # real session; pi's bash tool has no default timeout.
+        skill = (ROOT / "templates/skills/containers/SKILL.md").read_text()
+        self.assertIn("with the bash tool's `timeout` set to 20 (seconds)", skill)
+        self.assertIn("never run it without the time limit", skill)
+        self.assertIn("1800 for a first\n`pull`", skill)
+        self.assertIn("600 for a run such as a LaTeX build", skill)
+
+    def test_an_unbuilt_document_is_reported_as_unbuilt(self):
+        # The same session reported "Presentation Complete" for a deck it never compiled.
+        documents = (ROOT / "templates/skills/physics-documents/SKILL.md").read_text()
+        self.assertIn("**Not built is not finished.**", documents)
+        self.assertIn('Never "complete", "ready"', documents)
+        containers = (ROOT / "templates/skills/containers/SKILL.md").read_text()
+        self.assertIn("the document is not built, and the report\nsays so (see `physics-documents`)", containers)
+
     def test_the_skill_mounts_the_project_at_its_own_path(self):
         # A container-side path such as /work is a folder outside the project to
         # the permission gate, which asks - and a sub-agent cannot answer.
         skill = (ROOT / "templates/skills/containers/SKILL.md").read_text()
         self.assertIn('--network=none -v "$PWD":"$PWD" -w "$PWD"', skill)
         self.assertNotIn(":/work", skill)
+
+
+class CompactionRouteTests(unittest.TestCase):
+    TASK_MODELS = json.loads((ROOT / "templates/config/pi-task-models/config.json").read_text())
+
+    def test_compaction_runs_on_qwen_and_falls_back_to_mistral(self):
+        # Measured: Mistral kept as many facts as Llama in half the time (INSTALL.md).
+        profile = self.TASK_MODELS["profiles"][self.TASK_MODELS["tasks"]["pi-auto-compact/autoCompact"]]
+        self.assertEqual({"model": "elm/@QWEN_MODEL@", "thinkingLevel": "off"}, profile["primary"])
+        self.assertEqual({"model": "elm/@MISTRAL_MODEL@", "thinkingLevel": "off"}, profile["fallback"])
+
+    def test_mistral_with_reasoning_replaced_llama_in_the_other_routes(self):
+        # With reasoning on it beat Llama 31 to 23 of 33 agent tasks (INSTALL.md).
+        profiles = self.TASK_MODELS["profiles"]
+        self.assertEqual({"model": "elm/@MISTRAL_MODEL@", "thinkingLevel": "high"}, profiles["fast"]["primary"])
+        self.assertEqual({"model": "elm/@MISTRAL_MODEL@", "thinkingLevel": "high"}, profiles["frontier"]["fallback"])
+        self.assertNotIn("LLAMA", json.dumps(profiles))
+
+    def test_mistral_thinks_by_default_and_qwen_does_not(self):
+        settings = json.loads((ROOT / "templates/settings.json").read_text())
+        self.assertEqual({"elm/@QWEN_MODEL@": "off", "elm/@MISTRAL_MODEL@": "high"}, settings["modelThinkingLevels"])
+        self.assertEqual("off", settings["defaultThinkingLevel"])
+
+    def test_every_route_names_a_served_model(self):
+        served = {"elm/@QWEN_MODEL@", "elm/@MISTRAL_MODEL@", "elm-shim/@LLAMA_MODEL@"}
+        for name, profile in self.TASK_MODELS["profiles"].items():
+            for role in ("primary", "fallback"):
+                with self.subTest(profile=name, role=role):
+                    self.assertIn(profile[role]["model"], served)
 
 
 class ProxyListTests(unittest.TestCase):
@@ -142,7 +198,7 @@ class AgentPythonTests(unittest.TestCase):
         sums = (ROOT / "templates/tools.sha256").read_text()
         for triple in ("aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl"):
             self.assertIn(f"uv/{version}/uv-{triple}.tar.gz", sums)
-        self.assertIn("WITH_PYTHON=0;", BOOTSTRAP)                    # opt-in
+        self.assertIn("WITH_PYTHON=1;", BOOTSTRAP)                    # built by default since 2026-11-14
         self.assertIn("--with-python) WITH_PYTHON=1", BOOTSTRAP)
         self.assertIn("uv venv --quiet --seed --managed-python", BOOTSTRAP)
         self.assertTrue(CONFIG["python"]["packages"])
@@ -151,19 +207,19 @@ class AgentPythonTests(unittest.TestCase):
 class ComputerUseTests(unittest.TestCase):
     SNIPPET = block(LAUNCHER, "# --- computer use, with --remote only", 'LLAMA_MODEL="elm-shim/')
 
-    def run_block(self, remote, child=False):
+    def run_block(self, remote, child=False, computer_use=True):
         here = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(subprocess.run, ["rm", "-rf", str(here)])
         ext = here / "agent/npm/node_modules/@injaneity/pi-computer-use/extensions/computer-use.ts"
         ext.parent.mkdir(parents=True)
         ext.write_text("")
-        script = (f'HERE="$1"; REMOTE="$2"; PRE=()\n{self.SNIPPET}\n'
+        script = (f'HERE="$1"; REMOTE="$2"; COMPUTER_USE="$3"; PRE=()\n{self.SNIPPET}\n'
                   'printf "%s\\n" "${PRE[@]+"${PRE[@]}"}" "SIGN=${PI_COMPUTER_USE_CODESIGN_IDENTITY:-}" '
                   '"APP=${PI_COMPUTER_USE_HELPER_APP_PATH:-}"')
         env = {k: v for k, v in os.environ.items() if not k.startswith("PI_COMPUTER_USE") and k != "PI_ELM_CHILD"}
         if child:
             env["PI_ELM_CHILD"] = "1"
-        out = subprocess.run(["bash", "-c", script, "t", str(here), "1" if remote else "0"], env=env,
+        out = subprocess.run(["bash", "-c", script, "t", str(here), "1" if remote else "0", "1" if computer_use else "0"], env=env,
                              capture_output=True, text=True, check=True).stdout
         return out.replace(str(here), "$HERE").splitlines()
 
@@ -176,6 +232,10 @@ class ComputerUseTests(unittest.TestCase):
     def test_not_without_remote_and_never_in_a_child(self):
         self.assertNotIn("-e", self.run_block(remote=False))
         self.assertNotIn("-e", self.run_block(remote=True, child=True))
+
+    def test_not_with_no_computer_use(self):
+        """pi --remote --no-computer-use: the web without the screen (2026-11-13)."""
+        self.assertNotIn("-e", self.run_block(remote=True, computer_use=False))
 
     def test_installed_but_not_loaded_by_default(self):
         packages = json.loads((ROOT / "templates/packages.json").read_text())["dependencies"]
@@ -243,7 +303,7 @@ class PypiIndexTests(unittest.TestCase):
 
     def test_installed_only_when_asked_and_pinned(self):
         self.assertIn("--with-pypi-index) WITH_PYPI_INDEX=1", BOOTSTRAP)
-        self.assertEqual(2, BOOTSTRAP.count("--with-python|--with-pypi-index)"))   # parsed, and repeated from the record
+        self.assertEqual(2, BOOTSTRAP.count("--with-python|--with-pypi-index|--no-python)"))   # parsed, and repeated from the record
         self.assertIn('[ "$(sha256_of "$file")" = "$want" ] || die "checksum mismatch for $path"', BOOTSTRAP)
         self.assertRegex(CONFIG["pypiIndex"]["revision"], r"^[0-9a-f]{40}$")
         self.assertIn("pypi-search", (ROOT / "templates/skills/scientific-python/SKILL.md").read_text())
@@ -270,7 +330,7 @@ class InstallOptionTests(unittest.TestCase):
             (here / "agent/python/env/bin/python").write_text("")
             (here / "agent/python/env/bin/python").chmod(0o755)
         script = ('HERE="$1"; shift; cd "$HERE"\n'
-                  'WITH_PYTHON=0; WITH_PYPI_INDEX=0; RESET_OPTIONS=0; GIVEN_FLAGS=""; DROPPED_FLAGS=""\n'
+                  'WITH_PYTHON=1; WITH_PYPI_INDEX=0; RESET_OPTIONS=0; GIVEN_FLAGS=""; DROPPED_FLAGS=""\n'
                   'for arg in "$@"; do case "$arg" in --reset-options) RESET_OPTIONS=1 ;; esac; done\n'
                   + self.PARSE.replace('--reset-options) RESET_OPTIONS=1 ;;', '--reset-options) ;;') + "\n"
                   + self.OPTIONS + '\nprintf "%s|%s|%s" "$GIVEN_FLAGS" "$WITH_PYTHON" "$WITH_PYPI_INDEX"')
@@ -284,19 +344,26 @@ class InstallOptionTests(unittest.TestCase):
         self.assertEqual(({"--with-python"}, True, False),
                          self.options("--no-pypi-index", record="--with-python --with-pypi-index"))
 
-    def test_the_agents_python_is_opt_in(self):
-        self.assertEqual((set(), False, False), self.options())
+    def test_the_agents_python_is_built_unless_left_out(self):
+        """Built by default since 2026-11-14: every driven task that needed numpy, scipy, matplotlib or
+        Jupyter worked around its absence, once with `pip install --break-system-packages`."""
+        self.assertEqual((set(), True, False), self.options())
+        self.assertEqual(({"--no-python"}, False, False), self.options("--no-python"))
         self.assertEqual(({"--with-python"}, True, False), self.options("--with-python"))
         self.assertEqual(({"--with-pypi-index"}, True, True), self.options("--with-pypi-index"))
 
     def test_a_choice_is_repeated_until_taken_back(self):
         self.assertEqual(({"--with-python"}, True, False), self.options(record="--with-python"))
-        self.assertEqual((set(), False, False), self.options("--no-python", record="--with-python --with-pypi-index"))
+        self.assertEqual(({"--no-python"}, False, False), self.options(record="--no-python"))
+        self.assertEqual(({"--no-python"}, False, False), self.options("--no-python", record="--with-python --with-pypi-index"))
         self.assertEqual(({"--with-python"}, True, False), self.options("--no-pypi-index", record="--with-python --with-pypi-index"))
+        self.assertEqual(({"--with-python"}, True, False), self.options("--with-python", record="--no-python"))
+        self.assertEqual(({"--with-python", "--with-pypi-index"}, True, True), self.options("--with-all", record="--no-python"))
 
-    def test_an_install_that_already_has_it_keeps_it(self):
-        self.assertEqual(({"--with-python"}, True, False), self.options(python_env=True))
-        self.assertEqual((set(), False, False), self.options("--no-python", python_env=True))
+    def test_an_install_made_while_it_was_opt_in_gains_it(self):
+        self.assertEqual(({"--no-shim"}, True, False), self.options(record="--no-shim"))
+        self.assertEqual((set(), True, False), self.options(python_env=True))
+        self.assertEqual(({"--no-python"}, False, False), self.options("--no-python", python_env=True))
 
     def test_pi_setup_runs_bootstrap_with_the_matching_flag(self):
         snippet = block(LAUNCHER, "# --- 'pi setup'", "# --- keep .pi out of the repository")
@@ -325,7 +392,7 @@ class SoftwareInstallTests(unittest.TestCase):
         self.assertIn("uv,mlr,resvg,", BOOTSTRAP)
         self.assertIn("pixi,ruff}", BOOTSTRAP)
         sums = (ROOT / "templates/tools.sha256").read_text()
-        for tool, version in (("mlr", "6.22.0"), ("resvg", "0.48.1"), ("ruff", "0.17.1")):
+        for tool, version in (("mlr", "6.22.0"), ("resvg", "0.49.0"), ("ruff", "0.17.4")):
             self.assertIn(f'{tool.upper()}_VERSION="${{{tool.upper()}_VERSION:-{version}}}"', BOOTSTRAP)
             self.assertGreaterEqual(sums.count(f"{tool}/{version}/"), 3)
 
@@ -390,8 +457,8 @@ class SoftwareInstallTests(unittest.TestCase):
 class PixiTests(unittest.TestCase):
     def test_pinned_checksummed_and_kept_in_the_install(self):
         self.assertIn("resvg,pixi,", BOOTSTRAP)
-        self.assertIn('PIXI_VERSION="${PIXI_VERSION:-0.82.0}"', BOOTSTRAP)
-        self.assertEqual(4, (ROOT / "templates/tools.sha256").read_text().count("pixi/0.82.0/"))
+        self.assertIn('PIXI_VERSION="${PIXI_VERSION:-0.84.2}"', BOOTSTRAP)
+        self.assertEqual(4, (ROOT / "templates/tools.sha256").read_text().count("pixi/0.84.2/"))
         snippet = block(LAUNCHER, "# --- pixi: conda-forge packages", "# --- where jiti")
         self.assertIn('export PIXI_HOME="$HERE/agent/pixi"', snippet)
         self.assertIn('export PIXI_CACHE_DIR="$HERE/agent/pixi/cache"', snippet)
@@ -420,8 +487,7 @@ class PixiTests(unittest.TestCase):
             self.assertEqual("deny", bash_rule(command))
 
     def test_conda_search_prints_names_summaries_and_how_to_use_them(self):
-        jq = shutil.which("jq") or next((str(p) for p in (Path.home() / "sandboxes/elm-pi/agent/bin/jq",
-                                                         ROOT / "agent/bin/jq") if p.exists()), None)
+        jq = shutil.which("jq") or from_an_install("agent/bin/jq")
         if not jq:
             self.skipTest("needs jq")
         here = Path(tempfile.mkdtemp()).resolve()
@@ -462,7 +528,9 @@ class InstallNotesTests(unittest.TestCase):
     )
 
     def run_notes(self, commands):
-        binary = shutil.which("node") or str(Path.home() / "sandboxes/elm-pi/.node/bin/node")
+        binary = shutil.which("node") or from_an_install(".node/bin/node")
+        if not binary:
+            self.skipTest("needs node: none on PATH and no elm-pi install found")
         agent = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(subprocess.run, ["rm", "-rf", str(agent)])
         env = {**os.environ, "PI_CODING_AGENT_DIR": str(agent), "PIXI_HOME": str(agent / "pixi"),
@@ -585,7 +653,9 @@ console.log(JSON.stringify(out));
 """
 
     def test_a_new_pin_waits_for_compaction_and_an_unpin_does_not(self):
-        binary = shutil.which("node") or str(Path.home() / "sandboxes/elm-pi/.node/bin/node")
+        binary = shutil.which("node") or from_an_install(".node/bin/node")
+        if not binary:
+            self.skipTest("needs node: none on PATH and no elm-pi install found")
         tmp = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)])
         ext = tmp / "ext"
@@ -610,9 +680,16 @@ console.log(JSON.stringify(out));
     def test_retries_start_at_the_second_the_gateway_asks_for(self):
         retry = json.loads((ROOT / "templates/settings.json").read_text())["retry"]
         self.assertEqual(1000, retry["baseDelayMs"])   # 429s carry Retry-After: 1
-        self.assertEqual(6, retry["maxRetries"])       # 1+2+4+8+16+32 = 63s for a long storm
+        self.assertEqual(10, retry["maxRetries"])      # 1, 2, 4 ... 512s: ~17 minutes before a turn fails
+        # pi caps each wait at maxAgentDelayMs (60s unless set): the cap is the last wait, not below it
+        self.assertEqual(retry["baseDelayMs"] * 2 ** (retry["maxRetries"] - 1), retry["maxAgentDelayMs"])
         self.assertEqual(0, retry["provider"]["maxRetries"])
         self.assertIn('"retry",', BOOTSTRAP)            # installer-owned: reaches existing installs
+
+    def test_a_silent_request_is_retried_after_two_minutes(self):
+        # docs/tuning/2026-11-12/stall-summary.json: no healthy wait passed 60s; a stall held test6 eight minutes
+        self.assertEqual(120000, json.loads((ROOT / "templates/settings.json").read_text())["httpIdleTimeoutMs"])
+        self.assertIn('"httpIdleTimeoutMs",', BOOTSTRAP)   # installer-owned: reaches existing installs
 
 
 class FixedPromptTests(unittest.TestCase):
@@ -644,7 +721,7 @@ class FixedPromptTests(unittest.TestCase):
     def test_the_rules_stay_and_only_the_detail_moved(self):
         agents = (ROOT / "templates/AGENTS.md").read_text()
         for rule in (".pi/.gitignore", "`## Facts`", ".pi/tmp/", "five lowercase letters",
-                     '"$PI_CODING_AGENT_DIR/egress.log"', "pi --remote", "(from memory,", "pi --workflows"):
+                     '"$PI_CODING_AGENT_DIR/egress.log"', "pi --remote", "(from memory,", "pi --no-workflows"):
             self.assertIn(rule, agents)
         detail = "".join(p.read_text() for p in (ROOT / "templates/reference").glob("*.md"))
         for moved in ("git rm -r --cached", "pi-hermes-memory", "requirePath", "X-Elm-Pi-Remedy", "__pycache__"):
@@ -668,7 +745,9 @@ class FixedPromptTests(unittest.TestCase):
         self.assertEqual([], [doc for doc in shipped if f"`{doc}`" not in where])
 
     def test_sizes_do_not_creep_back(self):
-        self.assertLess(len((ROOT / "templates/AGENTS.md").read_text()), 10000)
+        # 10,000 until 2026-11-12, when the user asked for images to be used unasked and often:
+        # "Images: look, don't guess" took the 300 characters it needed.
+        self.assertLess(len((ROOT / "templates/AGENTS.md").read_text()), 10300)
         # Every request carries it: detail goes to reference/, which the model reads when needed.
         self.assertLess(len((ROOT / "templates/APPEND_SYSTEM.md").read_text()), 8000)
         for skill in (ROOT / "templates/skills").glob("*/SKILL.md"):
@@ -723,9 +802,12 @@ class DiskSpaceTests(unittest.TestCase):
         self.assertIn("the agent's Python", r.stdout)
         self.assertIn("about 1.0 GB more while it runs", r.stdout)
         self.assertIn("NOTED=1", r.stdout)
-        plain = self.installer()
-        self.assertIn("about 1.0 GB in", plain.stdout)
-        self.assertNotIn("Python", plain.stdout)
+        plain = self.installer()                                         # the agent's Python is in it
+        self.assertIn("about 2.0 GB in", plain.stdout)
+        self.assertIn("the agent's Python (~1.0 GB)", plain.stdout)
+        without = self.installer("--no-python")
+        self.assertIn("about 1.0 GB in", without.stdout)
+        self.assertNotIn("Python", without.stdout)
 
     def test_too_little_room_stops_before_any_download(self):
         r = self.installer("--with-all", free_kb=2_000_000)          # 2 GB free, 3.4 GB needed

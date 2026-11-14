@@ -32,8 +32,10 @@ BASH = "/bin/bash" if Path("/bin/bash").exists() else shutil.which("bash")
 ALWAYS = ",".join(CONFIG["excludedTools"]["always"])
 WEB = ",".join(CONFIG["webTools"])
 WF = ",".join(CONFIG["excludedTools"]["workflows"])
-DEFAULT_XT = f"{ALWAYS},{WEB},{WF}"
+# The workflow tools are offered by default since 2026-11-13; --no-workflows leaves them out.
+DEFAULT_XT = f"{ALWAYS},{WEB}"
 LLAMA = "meta-llama/Llama-3.3-70B-Instruct"
+MISTRAL = "mistralai/Mistral-Small-4-119B-2603"
 QWEN = "Qwen/Qwen3.5-397B-A17B-FP8"
 
 
@@ -75,7 +77,11 @@ def run_batch(prelude, bodies, env, tmp):
     parts = ['T="$1"', DUMP, prelude]
     for i, body in enumerate(bodies):
         parts.append(f'(\n{body}\n) >"$T/.r{i}.out" 2>"$T/.r{i}.err" </dev/null\necho $? >"$T/.r{i}.rc"')
-    subprocess.run([BASH, "-c", "\n".join(parts), "batch", str(tmp)], env=env, cwd=str(tmp),
+    # From a file: as a `bash -c` argument, a class's batch outgrew macOS's
+    # 1 MiB limit on arguments plus environment.
+    script = tmp / ".batch.sh"
+    script.write_text("\n".join(parts))
+    subprocess.run([BASH, str(script), str(tmp)], env=env, cwd=str(tmp),
                    check=True, capture_output=True, text=True, timeout=300)
     return [Result(int((tmp / f".r{i}.rc").read_text()), (tmp / f".r{i}.out").read_text(),
                    (tmp / f".r{i}.err").read_text()) for i in range(len(bodies))]
@@ -215,8 +221,12 @@ def fixed(value):
 
 C = Case
 FLAG_CASES = (
+    # auto01 (2026-11-13): refused, bg_wait was called four times in a row; a session its runs wake is not offered it
+    C("an_interactive_session_is_not_offered_bg_wait", [], pre=lambda h: ["--exclude-tools", f"{DEFAULT_XT},bg_wait"],
+      raw_pre=True, rest=[]),
+    C("json_mode_keeps_bg_wait", ["--mode", "json", "x"], pre=fixed(xt(DEFAULT_XT)), rest=["--mode", "json", "x"]),
     C("session_gets_the_default_exclusions", ["-p", "x"], pre=fixed(xt(DEFAULT_XT)), rest=["-p", "x"],
-      vars={"FAST": "0", "LLAMA": "0", "REMOTE": "0", "WORKFLOWS": "0", "WITH_ALL": "0"}),
+      vars={"FAST": "0", "LLAMA": "0", "REMOTE": "0", "WORKFLOWS": "1", "WITH_ALL": "0"}),
     C("no_arguments_still_exclude", [], pre=fixed(xt(DEFAULT_XT)), rest=[]),
     C("fast_loads_policy_gate_and_conveniences", ["--fast", "-p", "x"],
       pre=lambda h: fastpre(h) + xt(DEFAULT_XT), rest=["-p", "x"], vars={"FAST": "1"}),
@@ -253,24 +263,58 @@ FLAG_CASES = (
     # Prompt text that mentions --model is not the caller choosing a model.
     C("llama_model_kept_when_the_prompt_mentions_model", ["--llama", "-p", "what does --model do"],
       pre=fixed(["--model", f"elm-shim/{LLAMA}"] + xt(DEFAULT_XT))),
+    C("mistral_picks_the_elm_mistral_model", ["--mistral", "-p", "x"],
+      pre=fixed(["--model", f"elm/{MISTRAL}"] + xt(DEFAULT_XT)), rest=["-p", "x"], vars={"MISTRAL": "1", "LLAMA": "0"}),
+    C("mistral_leaves_an_explicit_model", ["--mistral", "--model", "elm/q"], pre=fixed(xt(DEFAULT_XT)),
+      rest=["--model", "elm/q"]),
+    C("mistral_leaves_an_explicit_model_equals", ["--mistral", "--model=elm/q"], pre=fixed(xt(DEFAULT_XT))),
+    C("mistral_leaves_an_explicit_provider", ["--mistral", "--provider", "elm"], pre=fixed(xt(DEFAULT_XT))),
+    C("mistral_model_kept_when_the_prompt_mentions_model", ["--mistral", "-p", "what does --model do"],
+      pre=fixed(["--model", f"elm/{MISTRAL}"] + xt(DEFAULT_XT))),
+    # Mistral is on the elm provider, which needs no shim.
+    C("fast_mistral_loads_no_shim_extension", ["--fast", "--mistral"],
+      pre=lambda h: fastpre(h) + ["--model", f"elm/{MISTRAL}"] + xt(DEFAULT_XT)),
+    C("mistral_after_double_dash_is_prompt_text", ["-p", "--", "--mistral"], pre=fixed(xt(DEFAULT_XT)),
+      rest=["-p", "--", "--mistral"], vars={"MISTRAL": "0"}),
+    C("mistral_as_an_options_value_is_text", ["--append-system-prompt", "--mistral"], pre=fixed(xt(DEFAULT_XT)),
+      rest=["--append-system-prompt", "--mistral"], vars={"MISTRAL": "0"}),
+    C("mistral_on_an_install_whose_runtime_env_does_not_name_it", ["--mistral", "-p", "x"],
+      env={"ELM_MISTRAL_MODEL_ID": ""}, rc=1, err_has=["--mistral needs this install's Mistral model id", "bootstrap.sh"]),
+    C("llama_and_mistral_together_are_refused", ["--llama", "--mistral", "-p", "x"], rc=2,
+      err_has="--llama and --mistral each choose the model for the run; give one of them."),
+    C("mistral_and_llama_together_are_refused_in_either_order", ["--mistral", "-p", "x", "--llama"], rc=2,
+      err_has="give one of them"),
     C("remote_opens_the_web_and_loads_computer_use", ["--remote", "-p", "x"],
-      pre=lambda h: cu(h) + xt(ALWAYS, WF), rest=["-p", "x"],
+      pre=lambda h: cu(h) + xt(ALWAYS), rest=["-p", "x"],
       vars={"REMOTE": "1", "PI_ELM_WEB": "1", "ELM_PI_PROXY_ALLOW": "*",
             "PI_COMPUTER_USE_CODESIGN_IDENTITY": "-"},
       err_has=["--remote - web tools on", "computer use is on"], err_lacks="pi-web-access is not installed"),
     C("remote_adds_to_a_given_allow_list", ["--remote"], env={"ELM_PI_PROXY_ALLOW": "api.exa.ai"},
       vars={"ELM_PI_PROXY_ALLOW": "api.exa.ai,*"}),
     C("remote_without_packages_says_there_are_no_web_tools", ["--remote"], variant="bare",
-      pre=fixed(xt(ALWAYS, WF)), err_has="pi-web-access is not installed", err_lacks="computer use is on"),
+      pre=fixed(xt(ALWAYS)), err_has="pi-web-access is not installed", err_lacks="computer use is on"),
     C("remote_in_a_child_has_no_computer_use", ["--remote"], env={"PI_ELM_CHILD": "1"},
-      pre=fixed(xt(ALWAYS, WF)), vars={"PI_COMPUTER_USE_CODESIGN_IDENTITY": None}, err_lacks="computer use"),
+      pre=fixed(xt(ALWAYS)), vars={"PI_COMPUTER_USE_CODESIGN_IDENTITY": None}, err_lacks="computer use"),
+    # auto05 (2026-11-13): --remote on a fresh install stopped at macOS's Screen Recording prompt; the web
+    # without the screen is now a flag (and an environment switch).
+    C("remote_without_computer_use_opens_the_web_only", ["--remote", "--no-computer-use", "-p", "x"],
+      pre=fixed(xt(ALWAYS)), rest=["-p", "x"], vars={"REMOTE": "1", "PI_ELM_WEB": "1", "PI_COMPUTER_USE_CODESIGN_IDENTITY": None},
+      err_has="--remote - web tools on", err_lacks="computer use is on"),
+    C("remote_with_computer_use_switched_off_in_the_environment", ["--remote", "-p", "x"], env={"PI_ELM_COMPUTER_USE": "0"},
+      pre=fixed(xt(ALWAYS)), rest=["-p", "x"], vars={"PI_COMPUTER_USE_CODESIGN_IDENTITY": None}, err_lacks="computer use is on"),
     C("remote_merges_the_callers_exclusion", ["--remote", "-xt", "bash"],
-      pre=lambda h: cu(h) + xt(ALWAYS, WF, "bash"), rest=[]),
+      pre=lambda h: cu(h) + xt(ALWAYS, "bash"), rest=[]),
     C("plain_session_does_not_load_computer_use", ["-p", "x"], vars={"PI_COMPUTER_USE_CODESIGN_IDENTITY": None},
       err_lacks="computer use"),
     C("workflows_flag_offers_the_workflow_tools", ["--workflows"], pre=fixed(xt(ALWAYS, WEB)),
       vars={"WORKFLOWS": "1"}, rest=[]),
-    C("workflows_from_the_environment", [], env={"PI_ELM_WORKFLOWS": "1"}, pre=fixed(xt(ALWAYS, WEB)),
+    C("no_workflows_flag_leaves_them_out", ["--no-workflows", "-p", "x"], pre=fixed(xt(ALWAYS, WEB, WF)),
+      vars={"WORKFLOWS": "0"}, rest=["-p", "x"]),
+    C("workflows_off_from_the_environment", [], env={"PI_ELM_WORKFLOWS": "0"}, pre=fixed(xt(ALWAYS, WEB, WF)),
+      vars={"WORKFLOWS": "0"}),
+    C("workflows_flag_overrides_the_environment", ["--workflows"], env={"PI_ELM_WORKFLOWS": "0"},
+      pre=fixed(xt(ALWAYS, WEB)), vars={"WORKFLOWS": "1"}),
+    C("any_other_environment_value_offers_them", [], env={"PI_ELM_WORKFLOWS": "yes"}, pre=fixed(xt(ALWAYS, WEB)),
       vars={"WORKFLOWS": "1"}),
     C("web_env_with_workflows_leaves_only_the_always_list", ["--workflows"], env={"PI_ELM_WEB": "1"},
       pre=fixed(xt(ALWAYS))),
@@ -307,8 +351,29 @@ FLAG_CASES = (
       err_has="`pi install` is not available"),
     C("install_as_prompt_text_is_not_refused", ["-p", "install"], rest=["-p", "install"]),
     C("capitalised_install_is_not_the_subcommand", ["Install"], rest=["Install"]),
-    C("older_runtime_env_without_the_always_list", [], env={"ELM_EXCLUDED_TOOLS": ""}, pre=fixed(xt(WEB, WF))),
-    C("no_workflow_tools_listed_leaves_no_trailing_comma", [], env={"ELM_WORKFLOW_TOOLS": ""},
+    # The permission modes: the launcher's, taken out of pi's arguments.
+    C("manual_is_the_launchers", ["--manual", "-p", "x"], vars={"MODE_FLAG": "manual"}, rest=["-p", "x"]),
+    C("auto_is_the_launchers", ["-p", "x", "--auto"], vars={"MODE_FLAG": "auto"}, rest=["-p", "x"]),
+    C("yolo_is_the_launchers", ["--yolo"], vars={"MODE_FLAG": "yolo"}, rest=[]),
+    C("the_last_mode_flag_wins", ["--yolo", "--manual"], vars={"MODE_FLAG": "manual"}, rest=[]),
+    C("no_mode_flag_leaves_it_empty", [], vars={"MODE_FLAG": ""}),
+    C("yolo_after_double_dash_is_prompt_text", ["-p", "--", "--yolo"], vars={"MODE_FLAG": ""},
+      rest=["-p", "--", "--yolo"]),
+    C("yolo_as_an_option_value_is_not_the_launchers", ["--name", "--yolo"], vars={"MODE_FLAG": ""},
+      rest=["--name", "--yolo"]),
+    # pi's own subcommands: refused with what to do instead, never sent on as a prompt.
+    C("auth_is_refused", ["auth", "login", "anthropic"], rc=2,
+      err_has=["`pi auth` is not available", ".env", "configure.sh"]),
+    C("auth_alone_is_refused", ["auth"], rc=2, err_has="`pi auth` is not available"),
+    C("mcp_is_refused", ["mcp", "list"], rc=2, err_has=["`pi mcp` is not available", "-builtin:mcp"]),
+    C("config_is_refused", ["config"], rc=2, err_has=["`pi config` is not available", "templates/settings.json"]),
+    C("list_is_refused", ["list"], rc=2, err_has=["`pi list` is not available", "agent/installed-versions.json"]),
+    C("auth_after_a_launcher_flag_is_refused", ["--manual", "auth", "logout", "x"], rc=2,
+      err_has="`pi auth` is not available"),
+    C("auth_as_prompt_text_is_not_refused", ["-p", "auth"], rest=["-p", "auth"]),
+    C("mcp_after_double_dash_is_prompt_text", ["--", "mcp"], rest=["--", "mcp"]),
+    C("older_runtime_env_without_the_always_list", [], env={"ELM_EXCLUDED_TOOLS": ""}, pre=fixed(xt(WEB))),
+    C("no_workflow_tools_listed_leaves_no_trailing_comma", ["--no-workflows"], env={"ELM_WORKFLOW_TOOLS": ""},
       pre=fixed(xt(ALWAYS, WEB))),
     # After --, the launcher's own flags are prompt text, kept in the prompt:
     # `pi -p -- --remote` must not open the network.
@@ -348,7 +413,7 @@ class LauncherFlagTests(BatchTest):
 
     @classmethod
     def prelude(cls):
-        return f'. {q(ROOT / "lib/policy.sh")}\nELM_LLAMA_MODEL_ID={q(LLAMA)}'
+        return f'. {q(ROOT / "lib/policy.sh")}\nELM_LLAMA_MODEL_ID={q(LLAMA)}\nELM_MISTRAL_MODEL_ID={q(MISTRAL)}'
 
     @classmethod
     def body(cls, case):
@@ -356,14 +421,31 @@ class LauncherFlagTests(BatchTest):
         return "\n".join([
             "set -euo pipefail", f"HERE={q(cls.tmp / case.kw.get('variant', 'full'))}", exports(env),
             setargs(case.args), cls.PARSE, cls.PRE,
-            "_v FAST LLAMA REMOTE WORKFLOWS WITH_ALL PI_ELM_WEB ELM_PI_PROXY_ALLOW PI_COMPUTER_USE_CODESIGN_IDENTITY",
+            "_v FAST LLAMA MISTRAL REMOTE WORKFLOWS WITH_ALL MODE_FLAG PI_ELM_WEB ELM_PI_PROXY_ALLOW PI_COMPUTER_USE_CODESIGN_IDENTITY",
             '_a PRE ${PRE[@]+"${PRE[@]}"}', '_a ARG "$@"'])
 
     def check(self, case, r):
         super().check(case, r)
         here = self.tmp / case.kw.get("variant", "full")
         if "pre" in case.kw:
-            self.assertEqual(case.kw["pre"](here), r.list("PRE"))
+            # bg_wait is left out wherever the session is woken by its runs (not -p, --mode json, --with-all or
+            # a sub-agent child): checked here, and taken out before the rest of the list is compared.
+            pre = r.list("PRE")
+            if case.kw.get("raw_pre"):
+                self.assertEqual(case.kw["pre"](here), pre)
+                return
+            json_mode = any(a == "--mode" and b in ("json", "print") for a, b in zip(case.args, case.args[1:]))
+            woken = (not {"-p", "--print", "--with-all"} & set(case.args) and "PI_SUBAGENT_CHILD" not in case.env
+                     and "--tools" not in case.args and "-t" not in case.args and not json_mode)
+            if "--exclude-tools" in pre:
+                at = pre.index("--exclude-tools") + 1
+                names = pre[at].split(",")
+                self.assertEqual(woken, "bg_wait" in names, pre[at])
+                names = [n for n in names if n != "bg_wait"]
+                pre = pre[:at - 1] + pre[at + 1:] if not names else pre[:at] + [",".join(names)] + pre[at + 1:]
+            else:
+                self.assertFalse(woken and "--tools" not in case.args, "bg_wait was not excluded")
+            self.assertEqual(case.kw["pre"](here), pre)
         if "rest" in case.kw:
             self.assertEqual(case.kw["rest"], r.list("ARG"))
 
@@ -616,11 +698,13 @@ class UpdateTests(BatchTest):
     """Which `pi update` forms are taken over, and how the installer is called."""
 
     CASES = (
-        C("update_models_is_pis_own", ["update", "--models"], out_has="@@FELLTHROUGH", out_lacks="INSTALL"),
-        C("extensions_and_models_together_are_refused", ["update", "--extensions", "--models"], rc=2,
-          err_has="must be run separately"),
+        # pi's catalogue refresh: ELM's models are agent/models.json (configure.sh).
+        C("update_models_is_refused", ["update", "--models"], rc=2,
+          err_has=["`pi update --models` is not available", "configure.sh"], out_lacks=["INSTALL", "@@FELLTHROUGH"]),
+        C("models_with_extensions_is_refused_not_run", ["update", "--extensions", "--models"], rc=2,
+          err_has="`pi update --models` is not available", out_lacks="BOOT"),
         C("models_and_extensions_in_either_order", ["update", "--models", "--extensions"], rc=2,
-          err_has="must be run separately"),
+          err_has="`pi update --models` is not available", out_lacks="BOOT"),
         C("update_with_other_flags_still_runs_the_installer", ["update", "--force"],
           out_has="INSTALL --update --no-path --no-link"),
         C("installer_runs_against_this_install_unlinked_and_online", ["update"],
@@ -680,7 +764,7 @@ class WithAllSetupTests(BatchTest):
           calls="--non-interactive --with-all", offline="unset"),
     )
     BLOCK = block(LAUNCHER, 'if [ "$WITH_ALL" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ]',
-                  "# --- keep .pi out of the repository")
+                  "# --- permission mode ----")
 
     @classmethod
     def prepare(cls):
@@ -1002,5 +1086,202 @@ class InsideInstallTests(BatchTest):
                           f"NEEDS_ELM_KEY={case.kw.get('needs_key', 1)}", cls.BLOCK])
 
 
+
+# --- permission mode -----------------------------------------------------------------
+
+def M(name, mode=None, rc=0, **kw):
+    """A case whose run ends in `mode` (and exports it), or is refused with rc."""
+    if mode is not None:
+        kw.setdefault("vars", {})["MODE"] = mode
+        kw["exported"] = mode
+    return C(name, rc=rc, **kw)
+
+
+NO_PROMPT = ",".join(CONFIG["permissionModes"]["manualNoPrompt"])
+
+
+@generate
+class PermissionModeTests(BatchTest):
+    """Which mode a run gets: a flag for that run; a sub-agent's session's mode
+    (yolo handed on as auto); else this install's default - agent/permission-mode
+    once /mode has saved one, else the shipped manual - which is never yolo.
+    Started from a shell, the environment can only tighten it. And the gate
+    checks: a mode asked for by name that nothing would apply is refused."""
+
+    CASES = (
+        # The default: manual as shipped, or what /mode saved.
+        M("a_new_session_starts_in_manual", "manual", quiet=True),
+        M("no_shipped_default_is_manual", "manual", env={"ELM_PERMISSION_MODE_DEFAULT": None}, quiet=True),
+        M("a_saved_auto_is_the_default", "auto", saved="auto\n", quiet=True),
+        M("a_saved_manual_over_a_shipped_auto", "manual", saved="manual\n",
+          env={"ELM_PERMISSION_MODE_DEFAULT": "auto"}, quiet=True),
+        M("a_saved_file_without_a_newline", "auto", saved="auto", quiet=True),
+        M("yolo_is_never_a_saved_default", "manual", saved="yolo\n", quiet=True),
+        M("yolo_is_never_the_shipped_default", "manual", env={"ELM_PERMISSION_MODE_DEFAULT": "yolo"}, quiet=True),
+        M("an_unreadable_saved_value_is_ignored", "auto", saved="paranoid\n",
+          env={"ELM_PERMISSION_MODE_DEFAULT": "auto"}, quiet=True),
+        M("the_default_is_exported_for_mode", "manual", saved="auto\n", flag="manual", default="auto"),
+        # A flag: this run only, and it says the default is unchanged.
+        M("auto_flag_is_for_this_session", "auto", flag="auto", default="manual",
+          err_has="permission mode: auto for this session; new sessions start in manual"),
+        M("manual_flag_over_a_saved_auto", "manual", flag="manual", saved="auto\n",
+          err_has="new sessions start in auto"),
+        M("a_flag_equal_to_the_default_says_nothing", "auto", flag="auto", saved="auto\n", quiet=True),
+        M("yolo_flag_is_for_this_session_only", "yolo", flag="yolo", default="manual",
+          err_has="yolo for this session only - every ask is answered yes; denies still apply. New sessions start in manual."),
+        M("yolo_flag_never_changes_the_saved_default", "yolo", flag="yolo", saved="auto\n", default="auto",
+          err_has="New sessions start in auto."),
+        # A sub-agent runs in its session's mode; yolo is never handed on.
+        M("child_of_a_manual_session", "manual", saved="auto\n",
+          env={"PI_ELM_CHILD": "1", "PI_ELM_PERMISSION_MODE": "manual"}, quiet=True),
+        M("child_of_an_auto_session_on_a_manual_install", "auto",
+          env={"PI_ELM_CHILD": "1", "PI_ELM_PERMISSION_MODE": "auto"}, quiet=True),
+        M("child_of_a_yolo_session_runs_as_auto", "auto",
+          env={"PI_ELM_CHILD": "1", "PI_ELM_PERMISSION_MODE": "yolo"}, quiet=True),
+        M("child_with_an_unknown_mode_is_manual", "manual", saved="auto\n",
+          env={"PI_ELM_CHILD": "1", "PI_ELM_PERMISSION_MODE": "Auto"}, quiet=True),
+        M("child_with_no_mode_takes_the_default", "auto", saved="auto\n", env={"PI_ELM_CHILD": "1"}, quiet=True),
+        M("child_given_a_flag_takes_it", "auto", flag="auto",
+          env={"PI_ELM_CHILD": "1", "PI_ELM_PERMISSION_MODE": "manual"}, quiet=True),
+        # Started from a shell: the environment can tighten, never loosen.
+        M("environment_manual_tightens_a_saved_auto", "manual", saved="auto\n",
+          env={"PI_ELM_PERMISSION_MODE": "manual"}),
+        M("environment_manual_beats_the_yolo_flag", "manual", flag="yolo",
+          env={"PI_ELM_PERMISSION_MODE": "manual"}, err_has="keeps this run manual; --yolo cannot loosen it"),
+        M("environment_auto_tightens_the_yolo_flag", "auto", flag="yolo", env={"PI_ELM_PERMISSION_MODE": "auto"},
+          err_has="keeps this run auto"),
+        M("environment_yolo_cannot_loosen", "manual", env={"PI_ELM_PERMISSION_MODE": "yolo"},
+          err_has="cannot loosen a run; this one is manual (pi --yolo to choose it)"),
+        M("environment_auto_cannot_loosen_manual", "manual", env={"PI_ELM_PERMISSION_MODE": "auto"},
+          err_has="cannot loosen a run"),
+        M("an_unknown_environment_mode_is_read_as_manual", "manual", saved="auto\n",
+          env={"PI_ELM_PERMISSION_MODE": "Yolo"}),
+        M("an_empty_environment_mode_is_unset", "manual", env={"PI_ELM_PERMISSION_MODE": ""}, quiet=True),
+        # Only a patched gate applies a mode: asked for by name, refused; as the
+        # default on an install without one, auto, and said.
+        M("manual_flag_without_a_gate_is_refused", rc=2, flag="manual", variant="nogate",
+          err_has="has no permission gate (made with --no-packages), so it cannot run in manual mode"),
+        M("yolo_flag_with_an_unpatched_gate_is_refused", rc=2, flag="yolo", variant="unpatched",
+          err_has=["does not apply the permission modes", "pi update --extensions"]),
+        M("manual_flag_with_a_half_patched_gate_is_refused", rc=2, flag="manual", variant="halfpatched",
+          err_has="does not apply the permission modes"),
+        M("default_manual_without_a_gate_runs_as_auto", "auto", variant="nogate", default="auto",
+          err_has="so it runs in auto mode", err_lacks="new sessions start"),
+        M("default_manual_with_an_unpatched_gate_runs_as_auto", "auto", variant="unpatched",
+          err_has="so it runs in auto mode"),
+        M("a_child_without_a_gate_runs_as_auto_quietly", "auto", variant="nogate",
+          env={"PI_ELM_CHILD": "1", "PI_ELM_PERMISSION_MODE": "manual"}, quiet=True),
+        M("auto_needs_no_gate", "auto", flag="auto", variant="nogate"),
+        # The tools manual leaves alone are this install's list, never the caller's.
+        M("the_no_prompt_list_is_the_installs", "manual", env={"PI_ELM_MANUAL_ALLOW": "bash,write"}, allow=NO_PROMPT),
+        M("an_empty_no_prompt_list_is_kept_empty", "manual",
+          env={"ELM_MANUAL_NO_PROMPT": "", "PI_ELM_MANUAL_ALLOW": "bash"}, allow=""),
+        # Print mode: in manual nobody can answer, and it says how to let things run.
+        M("print_mode_in_manual_says_nothing_can_be_asked", "manual", args=["-p", "x"],
+          err_has="manual mode with -p: there is no one to ask, so commands and edits are refused (pi --auto -p"),
+        M("print_mode_in_auto_has_no_note", "auto", flag="auto", args=["-p", "x"], saved="auto\n", quiet=True),
+        M("an_interactive_manual_session_is_quiet", "manual", quiet=True),
+    )
+    BLOCK = block(LAUNCHER, "# --- permission mode ----", "# --- keep .pi out of the repository")
+
+    @classmethod
+    def prepare(cls):
+        manager = 'const fullRules = x; // PI_ELM_PERMISSION_MODE === "manual"\n'
+        index = 'const isYoloEnabled = () => PI_ELM_PERMISSION_MODE === "yolo";\n'
+        for variant, files in {"patched": (manager, index), "unpatched": ("plain\n", "plain\n"),
+                               "halfpatched": (manager, "plain\n")}.items():
+            gate_src = cls.tmp / variant / GATE_REL / "src"
+            touch(gate_src / "policy/permission-manager.ts", files[0])
+            touch(gate_src / "index.ts", files[1])
+        (cls.tmp / "nogate").mkdir()
+
+    @classmethod
+    def body(cls, case):
+        here = cls.tmp / f"{case.kw.get('variant', 'patched')}"
+        # Each case its own agent/permission-mode, so cases cannot see each other's.
+        agent = cls.tmp / "saved" / re.sub(r"\W+", "_", case.name)
+        env = {"ELM_PERMISSION_MODE_DEFAULT": "manual", "ELM_MANUAL_NO_PROMPT": NO_PROMPT,
+               "PI_ELM_PERMISSION_MODE": None, "PI_ELM_CHILD": None, "PI_ELM_MANUAL_ALLOW": None, **case.env}
+        saved = case.kw.get("saved")
+        lines = ["set -euo pipefail", f"mkdir -p {q(agent / 'agent')}"]
+        if saved is not None:
+            lines.append(f"printf %s {q(saved)} > {q(agent / 'agent/permission-mode')}")
+        return "\n".join(lines + [
+            f"HERE={q(agent)}", f"GATE_PKG={q(here / GATE_REL)}",
+            f"MODE_FLAG={q(case.kw.get('flag') or '')}", exports(env), setargs(case.args),
+            cls.BLOCK, "_v MODE",
+            "printf '@@EXPORTED=%s\\n' \"$(printenv PI_ELM_PERMISSION_MODE || true)\"",
+            "printf '@@DEFAULT=%s\\n' \"$(printenv PI_ELM_PERMISSION_DEFAULT || true)\"",
+            "printf '@@ALLOW=%s\\n' \"$(printenv PI_ELM_MANUAL_ALLOW || true)\""])
+
+    def check(self, case, r):
+        super().check(case, r)
+        if "exported" in case.kw:
+            self.assertEqual(case.kw["exported"], r.vars.get("EXPORTED"))
+        if "default" in case.kw:
+            self.assertEqual(case.kw["default"], r.vars.get("DEFAULT"))
+        if "allow" in case.kw:
+            self.assertEqual(case.kw["allow"], r.vars.get("ALLOW"))
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class BannerTests(unittest.TestCase):
+    """The "Powered by ELM" banner: a session at a terminal shows it; programs and children never see it."""
+
+    BLOCK = LAUNCHER[LAUNCHER.index("# --- Powered by ELM"):LAUNCHER.index("# --- --remote: let this run")]
+    BOX = "\033[0;1;38;5;22;48;5;255m"   # bold dark green (palette 22, #005f00) on light grey (255, #eeeeee)
+
+    def run_block(self, args, env=None, tty=True):
+        import pty
+        script = "NEEDS_ELM_KEY=1\nset -- " + " ".join(args) + "\n" + self.BLOCK
+        environ = {"PATH": "/usr/bin:/bin", "TERM": "xterm-256color", **(env or {})}
+        if not tty:
+            return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=environ).stderr
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.execve("/bin/bash", ["bash", "-c", script], environ)
+        out = b""
+        while True:
+            try:
+                data = os.read(fd, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            out += data
+        os.waitpid(pid, 0)
+        return out.decode().replace("\r\n", "\n")
+
+    def test_a_session_at_a_terminal_shows_the_logo_the_team_and_the_service(self):
+        shown = self.run_block([], {"COLUMNS": "120"})
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", shown)
+        self.assertIn("Powered by ELM:", plain)
+        self.assertIn("   o_.--'--._o     EEEEEEE  LLLLLLL  MM     MM", plain)
+        self.assertIn("Thank you to the ELM team at EDINA and Information", plain)
+        self.assertIn("https://elm.edina.ac.uk/elm", plain)
+        self.assertIn("Powered by ELM:", self.run_block(["--remote", "--auto"], {"COLUMNS": "120"}))
+
+    def test_the_box_is_the_same_everywhere_it_is_drawn(self):
+        """256-colour palette entries, not the 16 a theme redefines; every line the same width, reset at its end."""
+        lines = [l for l in self.run_block([], {"COLUMNS": "120"}).split("\n") if self.BOX in l]
+        self.assertEqual(14, len(lines))
+        self.assertEqual({74}, {len(re.sub(r"\x1b\[[0-9;]*m", "", l)) for l in lines})
+        for line in lines:
+            self.assertTrue(line.startswith(self.BOX) and line.endswith("\033[0m"), repr(line))
+        self.assertEqual("", re.sub(r"[ -~\n\r\x1b]", "", self.BLOCK))   # ASCII only: no font or locale changes it
+
+    def test_without_colour_or_room_it_is_plain_text_not_a_broken_box(self):
+        for env in ({"NO_COLOR": "1"}, {"TERM": "dumb"}, {"COLUMNS": "60"}):
+            with self.subTest(env=env):
+                shown = self.run_block([], env)
+                self.assertIn("Powered by ELM:", shown)
+                self.assertNotIn("\033[", shown)
+
+    def test_programs_children_and_the_switch_never_see_it(self):
+        for args, env, tty in ((["-p", "x"], None, True), (["--print", "x"], None, True), (["--mode", "rpc"], None, True),
+                               (["--mode=json"], None, True), ([], {"PI_ELM_CHILD": "1"}, True),
+                               ([], {"PI_ELM_BANNER": "0"}, True), ([], None, False)):
+            with self.subTest(args=args, env=env, tty=tty):
+                self.assertNotIn("Powered by ELM", self.run_block(args, env, tty))

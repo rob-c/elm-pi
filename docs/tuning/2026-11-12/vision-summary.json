@@ -1,0 +1,240 @@
+{
+ "factual": {
+  "a1_bars": {
+   "mistral-high": {
+    "right": 25,
+    "asked": 25
+   },
+   "mistral-off": {
+    "right": 25,
+    "asked": 25
+   },
+   "qwen-off": {
+    "right": 25,
+    "asked": 25
+   }
+  },
+  "a2_lines": {
+   "mistral-high": {
+    "right": 24,
+    "asked": 25
+   },
+   "mistral-off": {
+    "right": 25,
+    "asked": 25
+   },
+   "qwen-off": {
+    "right": 25,
+    "asked": 25
+   }
+  },
+  "a3_shapes": {
+   "mistral-high": {
+    "right": 11,
+    "asked": 15
+   },
+   "mistral-off": {
+    "right": 14,
+    "asked": 15
+   },
+   "qwen-off": {
+    "right": 15,
+    "asked": 15
+   }
+  },
+  "a4_table": {
+   "mistral-high": {
+    "right": 20,
+    "asked": 20
+   },
+   "mistral-off": {
+    "right": 20,
+    "asked": 20
+   },
+   "qwen-off": {
+    "right": 20,
+    "asked": 20
+   }
+  },
+  "a5_frog_index": {
+   "mistral-high": {
+    "right": 19,
+    "asked": 20
+   },
+   "mistral-off": {
+    "right": 20,
+    "asked": 20
+   },
+   "qwen-off": {
+    "right": 16,
+    "asked": 20
+   }
+  }
+ },
+ "layout_defect_named": {
+  "mistral-high": {
+   "runs": 5,
+   "named": 0
+  },
+  "mistral-off": {
+   "runs": 5,
+   "named": 0
+  },
+  "qwen-off": {
+   "runs": 5,
+   "named": 1
+  }
+ },
+ "consistency": {
+  "b1_page_pair": {
+   "mistral-high": {
+    "runs": 5,
+    "recall": 0.8,
+    "false_per_run": 0.2,
+    "found": {
+     "nav renamed": 5,
+     "navbar blue": 1,
+     "button text": 5,
+     "card removed": 5
+    }
+   },
+   "mistral-off": {
+    "runs": 5,
+    "recall": 0.55,
+    "false_per_run": 12.2,
+    "found": {
+     "nav renamed": 3,
+     "navbar blue": 1,
+     "button text": 5,
+     "card removed": 2
+    }
+   },
+   "qwen-off": {
+    "runs": 5,
+    "recall": 1.0,
+    "false_per_run": 0.6,
+    "found": {
+     "nav renamed": 5,
+     "navbar blue": 5,
+     "button text": 5,
+     "card removed": 5
+    }
+   }
+  },
+  "b2_chart_pair": {
+   "mistral-high": {
+    "runs": 5,
+    "recall": 0.933,
+    "false_per_run": 0.6,
+    "found": {
+     "B 7->11": 4,
+     "title run->spill": 5,
+     "E blue->green": 5
+    }
+   },
+   "mistral-off": {
+    "runs": 5,
+    "recall": 0.8,
+    "false_per_run": 1.4,
+    "found": {
+     "B 7->11": 3,
+     "title run->spill": 5,
+     "E blue->green": 4
+    }
+   },
+   "qwen-off": {
+    "runs": 5,
+    "recall": 0.867,
+    "false_per_run": 0.4,
+    "found": {
+     "B 7->11": 3,
+     "title run->spill": 5,
+     "E blue->green": 5
+    }
+   }
+  },
+  "b3_subtle_pair": {
+   "mistral-high": {
+    "runs": 5,
+    "recall": 0.8,
+    "false_per_run": 2.4,
+    "found": {
+     "nav order swapped": 5,
+     "heading what is a frog": 3,
+     "heading taxonomy": 4
+    }
+   },
+   "mistral-off": {
+    "runs": 5,
+    "recall": 0.6,
+    "false_per_run": 6.4,
+    "found": {
+     "nav order swapped": 5,
+     "heading what is a frog": 0,
+     "heading taxonomy": 4
+    }
+   },
+   "qwen-off": {
+    "runs": 5,
+    "recall": 1.0,
+    "false_per_run": 0,
+    "found": {
+     "nav order swapped": 5,
+     "heading what is a frog": 5,
+     "heading taxonomy": 5
+    }
+   }
+  },
+  "b4_identical_pair": {
+   "mistral-high": {
+    "runs": 5,
+    "recall": 1.0,
+    "false_per_run": 1.2,
+    "found": {}
+   },
+   "mistral-off": {
+    "runs": 5,
+    "recall": 1.0,
+    "false_per_run": 12.8,
+    "found": {}
+   },
+   "qwen-off": {
+    "runs": 5,
+    "recall": 1.0,
+    "false_per_run": 0.6,
+    "found": {}
+   }
+  }
+ },
+ "speed": {
+  "mistral-high": {
+   "runs": 45,
+   "median_seconds": 3.5,
+   "median_output_tokens": 489
+  },
+  "mistral-off": {
+   "runs": 45,
+   "median_seconds": 1.9,
+   "median_output_tokens": 224
+  },
+  "qwen-off": {
+   "runs": 45,
+   "median_seconds": 4.8,
+   "median_output_tokens": 204
+  }
+ },
+ "overall_factual": {
+  "mistral-high": {
+   "right": 99,
+   "asked": 105
+  },
+  "mistral-off": {
+   "right": 104,
+   "asked": 105
+  },
+  "qwen-off": {
+   "right": 101,
+   "asked": 105
+  }
+ }
+}

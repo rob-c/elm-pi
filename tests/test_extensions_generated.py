@@ -589,13 +589,27 @@ for i in range(10):
         joined, [s for s in SKILL_ORDER if s in picked])
 
 
+# The runner's PATH is /usr/bin:/bin. Without TeX there, a request that routes
+# physics-documents gets containers right after it (routesHere).
+NO_TEX_ON_RUNNER_PATH = not any(os.path.exists(os.path.join(d, c)) for d in ("/usr/bin", "/bin")
+                                for c in ("latexmk", "pdflatex", "xelatex", "lualatex", "tectonic"))
+
+
+def routed_here(picked):
+    routed = [s for s in SKILL_ORDER if s in picked]
+    if NO_TEX_ON_RUNNER_PATH and "physics-documents" in routed:
+        routed = [s for s in routed if s != "containers"]
+        routed.insert(routed.index("physics-documents") + 1, "containers")
+    return routed
+
+
 # The session message: of the skills routed and not yet present, the first two
 # are inlined and the next two named, never more.
 def message_case(picked, present=()):
     prompt = ". ".join(REQUESTS[s][0] for s in picked)
     context = [{"type": "custom_message", "customType": "skill-routing",
                 "details": {"inlined": list(present), "named": []}}] if present else []
-    left = [s for s in SKILL_ORDER if s in picked and s not in present][:4]
+    left = [s for s in routed_here(picked) if s not in present][:4]
     expected = {"inlined": left[:2], "named": left[2:]} if left else None
     return {"input": {"kind": "message", "prompt": prompt, "context": context},
             "check": lambda t, r: t.assertEqual(expected, r)}
@@ -648,7 +662,7 @@ TODO_STUBS = {
         "export class Text { constructor(text, x, y) { this.text = text; } }\n"
         "export const matchesKey = (data, key) => false;\n"
         "export const truncateToWidth = (s, width) => s;\n"),
-    "typebox": "const f = (...a) => ({ a }); export const Type = { Object: f, String: f, Optional: f, Number: f, Boolean: f };",
+    "typebox": "const f = (...a) => ({ a }); export const Type = { Object: f, String: f, Optional: f, Number: f, Boolean: f, Array: f };",
 }
 
 # Runs each sequence against one fresh instance. The branch is the session:
@@ -832,8 +846,9 @@ MUPDF_STUB = r"""
 const words = (bytes) => Buffer.from(bytes).toString("utf8").trim().split(/\s+/);
 globalThis.__loaded = [];
 export class Image {
-  constructor(bytes) { const w = words(bytes); if (w[0] !== "IMG") throw new Error("not an image"); this.w = +w[1]; this.h = +w[2]; }
+  constructor(bytes) { const w = words(bytes); const at = w.indexOf("IMG"); if (at < 0) throw new Error("not an image"); this.w = +w[at + 1]; this.h = +w[at + 2]; }
   getWidth() { return this.w; } getHeight() { return this.h; } destroy() {}
+  toPixmap() { return { destroy() {} }; }
 }
 export const Document = {
   openDocument(bytes, name) {
@@ -879,7 +894,9 @@ for (const [id, c] of Object.entries(cases)) {
     result = await tool.execute("v", params, undefined, undefined, ctx);
   } else {
     await handlers.tool_call({ toolCallId: "b", toolName: "bash", input: { command: "make figures" } }, ctx);
-    for (const [name, body] of Object.entries(c.files)) fs.writeFileSync(`${cwd}/${name}`, body);
+    // A stand-in PNG starts and ends as one, since view-outputs attaches only files whose bytes say they are images.
+    const png = (body) => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(` ${body} IEND`)]);
+    for (const [name, body] of Object.entries(c.files)) fs.writeFileSync(`${cwd}/${name}`, name.endsWith(".png") ? png(body) : body);
     result = await handlers.tool_result({ toolCallId: "b", toolName: "bash", input: { command: "make figures" },
       content: [{ type: "text", text: "made" }], isError: false }, ctx);
   }
@@ -1031,7 +1048,7 @@ class ViewOutputsGeneratedTests(unittest.TestCase):
             ext = cls.tmp / "ext"
             ext.mkdir()
             stub_package(ext, "typebox", "const f = (...a) => ({ a }); "
-                                         "export const Type = { Object: f, String: f, Optional: f, Boolean: f };")
+                                         "export const Type = { Object: f, String: f, Optional: f, Boolean: f, Array: f };")
             stub_package(ext, "mupdf", MUPDF_STUB)
             shutil.copy(EXTENSIONS / "view-outputs.ts", ext / "view-outputs.ts")
             (cls.tmp / "work").mkdir()
@@ -1211,6 +1228,8 @@ const reply = (status, body, type = "application/json") => (req, res) => { res.w
 const STUBS = {
   ok: reply(200, JSON.stringify({ shim: "elm-pi", pid: 1 })),
   okExtra: reply(200, JSON.stringify({ shim: "elm-pi", version: 7, upstream: "x" })),
+  okCaller: reply(200, JSON.stringify({ shim: "elm-pi", pid: 2, callerProxy: true })),
+  okCallerFalse: reply(200, JSON.stringify({ shim: "elm-pi", pid: 3, callerProxy: false })),
   upper: reply(200, JSON.stringify({ shim: "ELM-PI" })),
   other: reply(200, JSON.stringify({ shim: "elm-pi-legacy" })),
   empty: reply(200, "{}"),
@@ -1224,7 +1243,8 @@ const STUBS = {
 const servers = {};
 for (const [name, handler] of Object.entries(STUBS)) servers[name] = await listen(handler);
 const out = {};
-const KEYS = ["ELM_SHIM_PORT", "ELM_SHIM_PATH", "ELM_LLAMA_MODEL_ID", "PI_CODING_AGENT_DIR", "ELM_PI_PYTHON", "MARK"];
+const KEYS = ["ELM_SHIM_PORT", "ELM_SHIM_PATH", "ELM_LLAMA_MODEL_ID", "PI_CODING_AGENT_DIR", "ELM_PI_PYTHON", "MARK",
+              "HTTPS_PROXY", "https_proxy", "PI_OFFLINE", "ELM_PI_NO_PROXY"];
 let n = 0;
 for (const [id, c] of Object.entries(cases)) {
   for (const key of KEYS) delete process.env[key];
@@ -1251,13 +1271,15 @@ console.log(JSON.stringify(out));
 """
 
 
-def provider(port, model):
+def provider(port, model, proxy=None):
     return {"id": "elm-shim", "config": {
+        **({"headers": {"X-Elm-Pi-Proxy": proxy}} if proxy else {}),
         "name": "ELM (tool-shim)", "baseUrl": f"http://127.0.0.1:{port}", "apiKey": "$ELM_API_KEY",
         "api": "openai-completions",
         "models": [{"id": model, "name": "Llama 3.3 70B (ELM, tool-shim)", "reasoning": False, "input": ["text"],
                     "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 128000,
-                    "maxTokens": 8192, "samplingParams": {"temperature": 0.6, "top_p": 0.9}}]}}
+                    "maxTokens": 8192, "samplingParams": {"temperature": 0.6, "top_p": 0.9},
+                    "compat": {"supportsLongCacheRetention": False}}]}}
 
 
 def registers(model):
@@ -1300,25 +1322,101 @@ SHIM_CASES["no listener the shim path outranks the agent dir"] = {
     "check": warns(MISSING)}
 
 
-def spawned(model, python):
+# What the launcher exports for a session: its own egress proxy, on loopback.
+SESSION_PROXY = "http://127.0.0.1:43219"
+
+
+def spawned(model, python, proxy=SESSION_PROXY):
     """The shim was started as `<python> -E -S <shim>` with SHIM_PORT, then registered."""
     def check(t, r):
         t.assertEqual(f"{python.replace('{dir}', str(t.tmp))}\n-E\n-S\n{t.tmp}/spawnshim/shim.py\n{r['port']}\n", r["record"])
         if not r["providers"] and (r["seenAt"] is None or r["seenAt"] > 4000):
             # The extension waits ~5 s for a shim it started; here the interpreter itself ran later than that.
             t.skipTest(f"machine too loaded: the interpreter ran {r['seenAt'] or 'after'} ms in, past the extension's wait")
-        t.assertEqual(([provider(r["port"], model)], []), (r["providers"], r["notes"]))
+        t.assertEqual(([provider(r["port"], model, proxy)], []), (r["providers"], r["notes"]))
     return check
 
 
 for label, python_env, python in [("named interpreter", "{dir}/py/fakepython", "{dir}/py/fakepython"),
                                   ("python3 on PATH", None, "{dir}/pathbin/python3"),
                                   ("empty interpreter falls back to python3", "", "{dir}/pathbin/python3")]:
-    env = {"ELM_SHIM_PATH": "{dir}/spawnshim/shim.py", "ELM_LLAMA_MODEL_ID": "spawned-llama", "MARK": f"{{dir}}/mark-{slug(label)}"}
+    env = {"ELM_SHIM_PATH": "{dir}/spawnshim/shim.py", "ELM_LLAMA_MODEL_ID": "spawned-llama", "MARK": f"{{dir}}/mark-{slug(label)}",
+           "HTTPS_PROXY": SESSION_PROXY}
     if python_env is not None:
         env["ELM_PI_PYTHON"] = python_env
     SHIM_CASES[f"spawn with {label}"] = {"input": {"port": None, "spawn": True, "env": env},
                                          "check": spawned("spawned-llama", python)}
+
+
+def registers_with(model, proxy):
+    def check(t, r):
+        t.assertEqual(([provider(r["port"], model, proxy)], []), (r["providers"], r["notes"]))
+    return check
+
+
+def starts_nothing(shim):
+    """No shim is started (its interpreter never ran), and the provider is not registered."""
+    def check(t, r):
+        t.assertIsNone(r["record"], "a shim was started while offline")
+        warns(shim)(t, r)
+    return check
+
+
+# The session's own egress proxy goes with every Llama request (shim.py prefers it):
+# only a loopback http address, which is what the launcher exports.
+for label, key, value, sent in [
+        ("loopback", "HTTPS_PROXY", "http://127.0.0.1:43210", True),
+        ("loopback with a slash", "HTTPS_PROXY", "http://127.0.0.1:43210/", True),
+        ("localhost", "HTTPS_PROXY", "http://localhost:43210", True),
+        ("lower case variable", "https_proxy", "http://127.0.0.1:43211", True),
+        ("campus proxy", "HTTPS_PROXY", "http://proxy.ed.ac.uk:3128", False),
+        ("https scheme", "HTTPS_PROXY", "https://127.0.0.1:43210", False),
+        ("no port", "HTTPS_PROXY", "http://127.0.0.1", False),
+        ("a path", "HTTPS_PROXY", "http://127.0.0.1:43210/x", False),
+        ("empty", "HTTPS_PROXY", "", False)]:
+    SHIM_CASES[f"session proxy {label} {'is' if sent else 'is not'} sent to the shim"] = {
+        "input": {"stub": "ok", "env": {"ELM_SHIM_PATH": MISSING, "ELM_LLAMA_MODEL_ID": "m", key: value}},
+        "check": registers_with("m", value if sent else None)}
+# A shim that takes the caller's proxy is reused by a session behind one. An older
+# one is replaced if it is this install's (it runs this SHIM); the stubs here run
+# no such process, so they are someone else's and are used as they are.
+for stub, label in (("okCaller", "one that takes the caller's proxy"), ("ok", "an older one not ours to replace"),
+                    ("okCallerFalse", "one that says it does not take it, not ours to replace")):
+    SHIM_CASES[f"a session behind the proxy reuses {label}"] = {
+        "input": {"stub": stub, "env": {"ELM_SHIM_PATH": MISSING, "ELM_LLAMA_MODEL_ID": "m", "HTTPS_PROXY": SESSION_PROXY}},
+        "check": registers_with("m", SESSION_PROXY)}
+SHIM_CASES["a session with no proxy reuses one that takes the caller's proxy"] = {
+    "input": {"stub": "okCaller", "env": {"ELM_SHIM_PATH": MISSING, "ELM_LLAMA_MODEL_ID": "m"}},
+    "check": registers("m")}
+
+# Only a session behind the egress proxy starts a shim. bootstrap.sh's extension
+# check and its `pi --list-models` run with none, and each left a shim with no
+# proxy behind it, which later sessions reused - their Llama traffic going
+# straight to ELM.
+_SPAWN_ENV = {"ELM_SHIM_PATH": "{dir}/spawnshim/shim.py", "ELM_LLAMA_MODEL_ID": "spawned-llama",
+              "ELM_PI_PYTHON": "{dir}/py/fakepython"}
+SHIM_CASES["a session with no proxy starts no shim"] = {
+    "input": {"port": None, "spawn": True, "env": {**_SPAWN_ENV, "MARK": "{dir}/mark-noproxy"}},
+    "check": starts_nothing("{dir}/spawnshim/shim.py")}
+SHIM_CASES["a campus proxy alone starts no shim"] = {
+    "input": {"port": None, "spawn": True,
+              "env": {**_SPAWN_ENV, "MARK": "{dir}/mark-campus", "HTTPS_PROXY": "http://proxy.ed.ac.uk:3128"}},
+    "check": starts_nothing("{dir}/spawnshim/shim.py")}
+SHIM_CASES["a session with no proxy reuses a shim that is already running"] = {
+    "input": {"stub": "ok", "env": {"ELM_SHIM_PATH": MISSING, "ELM_LLAMA_MODEL_ID": "m"}},
+    "check": registers("m")}
+SHIM_CASES["a session run unproxied on purpose starts none"] = {
+    "input": {"port": None, "spawn": True, "env": {**_SPAWN_ENV, "MARK": "{dir}/mark-unproxied", "ELM_PI_NO_PROXY": "1"}},
+    "check": starts_nothing("{dir}/spawnshim/shim.py")}
+SHIM_CASES["a session run unproxied on purpose reuses a shim that is running"] = {
+    "input": {"stub": "ok", "env": {"ELM_SHIM_PATH": MISSING, "ELM_LLAMA_MODEL_ID": "m", "ELM_PI_NO_PROXY": "1"}},
+    "check": registers("m")}
+# Was a regression, caught before it shipped: PI_OFFLINE=1 is every session's
+# setting (the launcher's), so it must not stop the shim.
+SHIM_CASES["a session behind the proxy with PI_OFFLINE set still starts one"] = {
+    "input": {"port": None, "spawn": True,
+              "env": {**_SPAWN_ENV, "MARK": "{dir}/mark-offline", "PI_OFFLINE": "1", "HTTPS_PROXY": SESSION_PROXY}},
+    "check": spawned("spawned-llama", "{dir}/py/fakepython")}
 
 
 class ElmShimGeneratedTests(unittest.TestCase):

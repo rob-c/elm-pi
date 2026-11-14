@@ -9,12 +9,12 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "latest",
-    "mupdf": "latest"
+    "mupdf": "latest",
+    "typebox": "latest",
+    "typescript": "latest"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "latest",
-    "@earendil-works/pi-tui": "latest",
-    "typebox": "latest",
-    "typescript": "latest"
+    "@earendil-works/pi-tui": "latest"
   }
 }

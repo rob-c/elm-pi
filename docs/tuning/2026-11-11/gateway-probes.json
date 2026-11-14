@@ -1,0 +1,832 @@
+{
+ "quick": {
+  "models": {
+   "status": 200,
+   "ids": [
+    "Qwen/Qwen3.5-397B-A17B-FP8",
+    "Snowflake/snowflake-arctic-embed-l-v2.0",
+    "codex-auto-review",
+    "gpt-3.5-turbo-instruct",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4o",
+    "gpt-4o-audio-preview",
+    "gpt-4o-mini",
+    "gpt-4o-mini-audio-preview",
+    "gpt-4o-mini-search-preview",
+    "gpt-4o-mini-transcribe",
+    "gpt-4o-mini-tts",
+    "gpt-4o-search-preview",
+    "gpt-4o-transcribe",
+    "gpt-4o-transcribe-diarize",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5.1",
+    "gpt-5.2",
+    "gpt-5.3-codex",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+    "gpt-5.5",
+    "gpt-5.6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-6-astra",
+    "gpt-6-luna",
+    "gpt-6-sol",
+    "gpt-6.1-sol",
+    "gpt-audio",
+    "gpt-image-2",
+    "gpt-live-transcribe",
+    "gpt-realtime-2.1",
+    "gpt-realtime-2.1-mini",
+    "gpt-realtime-mini",
+    "gpt-realtime-translate",
+    "gpt-realtime-whisper",
+    "gpt-transcribe",
+    "ifmain/moderation_by_embeddings",
+    "meta-llama/Llama-3.3-70B-Instruct",
+    "mistralai/Mistral-Small-4-119B-2603",
+    "nemotron_moderator",
+    "o3",
+    "o3-pro",
+    "o4-mini-deep-research",
+    "omni-moderation-latest",
+    "text-embedding-3-large",
+    "text-embedding-3-small",
+    "tts-1",
+    "tts-1-hd",
+    "utter-project/EuroLLM-22B-Instruct-2512",
+    "whisper-1"
+   ],
+   "error": null
+  },
+  "metadata": {
+   "qwen": {
+    "id": "Qwen/Qwen3.5-397B-A17B-FP8",
+    "object": "model",
+    "created": 1771229110,
+    "owned_by": "elm"
+   },
+   "mistral": {
+    "id": "mistralai/Mistral-Small-4-119B-2603",
+    "object": "model",
+    "created": 1787581908,
+    "owned_by": "elm"
+   },
+   "llama": {
+    "id": "meta-llama/Llama-3.3-70B-Instruct",
+    "object": "model",
+    "created": 1746057600,
+    "owned_by": "elm"
+   }
+  },
+  "mistral": {
+   "plain": {
+    "status": 200,
+    "seconds": 0.61,
+    "finish_reason": "stop",
+    "content": "OK",
+    "reasoning_chars": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 20,
+     "total_tokens": 22,
+     "completion_tokens": 2,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    }
+   },
+   "reasoning_none": {
+    "status": 200,
+    "seconds": 0.54,
+    "finish_reason": "stop",
+    "content": "OK",
+    "reasoning_chars": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 20,
+     "total_tokens": 22,
+     "completion_tokens": 2,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    }
+   },
+   "reasoning_high": {
+    "status": 200,
+    "seconds": 1.72,
+    "finish_reason": "stop",
+    "content": "391",
+    "reasoning_chars": 644,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 30,
+     "total_tokens": 283,
+     "completion_tokens": 253,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 247
+     }
+    }
+   },
+   "tools": {
+    "status": 200,
+    "seconds": 0.61,
+    "finish_reason": "tool_calls",
+    "content": "",
+    "reasoning_chars": 0,
+    "tool_calls": [
+     {
+      "name": "get_weather",
+      "arguments": "{\"city\": \"Edinburgh\"}"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 86,
+     "total_tokens": 99,
+     "completion_tokens": 13,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    }
+   },
+   "tools_streamed": {
+    "status": 200,
+    "seconds": 0.76,
+    "first_token_seconds": null,
+    "chunks": 10,
+    "finish_reason": "tool_calls",
+    "usage": {
+     "prompt_tokens": 86,
+     "total_tokens": 99,
+     "completion_tokens": 13,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    },
+    "content_chars": 0,
+    "content_head": "",
+    "content_tail": "",
+    "reasoning_chars": 0,
+    "tool_calls": [
+     {
+      "id": "p2gzjiIqw",
+      "name": "get_weather",
+      "arguments": "{\"city\": \"Edinburgh\"}"
+     }
+    ]
+   },
+   "tool_round_trip": {
+    "status": 200,
+    "seconds": 0.74,
+    "finish_reason": "stop",
+    "content": "The weather in Edinburgh is **drizzle** with a temperature of **9°C**.",
+    "reasoning_chars": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 123,
+     "total_tokens": 142,
+     "completion_tokens": 19,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    }
+   },
+   "developer_role": {
+    "status": 400,
+    "error": "{\"error\":{\"message\":\"Unknown message role: developer\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}}",
+    "seconds": 0.67
+   },
+   "system_role": {
+    "status": 200,
+    "seconds": 0.55,
+    "finish_reason": "stop",
+    "content": "Edinburgh",
+    "reasoning_chars": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 26,
+     "total_tokens": 29,
+     "completion_tokens": 3,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    }
+   },
+   "image": {
+    "status": 200,
+    "seconds": 3.45,
+    "finish_reason": "stop",
+    "content": "White",
+    "reasoning_chars": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 26,
+     "total_tokens": 28,
+     "completion_tokens": 2,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    }
+   },
+   "max_tokens_32768": {
+    "status": 200,
+    "seconds": 0.61,
+    "finish_reason": "stop",
+    "content": "OK",
+    "reasoning_chars": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 20,
+     "total_tokens": 22,
+     "completion_tokens": 2,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    }
+   },
+   "max_tokens_81920": {
+    "status": 200,
+    "seconds": 0.55,
+    "finish_reason": "stop",
+    "content": "OK",
+    "reasoning_chars": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 20,
+     "total_tokens": 22,
+     "completion_tokens": 2,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    }
+   },
+   "max_tokens_1000000": {
+    "status": 400,
+    "error": "{\"error\":{\"message\":\"max_tokens=1000000 cannot be greater than max_model_len=262144. Please request fewer output tokens. (parameter=max_tokens, value=1000000)\",\"type\":\"BadRequestError\",\"param\":\"max_tokens\",\"code\":400}}",
+    "seconds": 0.26
+   },
+   "max_completion_tokens_81920": {
+    "status": 200,
+    "seconds": 0.58,
+    "finish_reason": "stop",
+    "content": "OK",
+    "reasoning_chars": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 20,
+     "total_tokens": 22,
+     "completion_tokens": 2,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    }
+   }
+  },
+  "qwen": {
+   "max_tokens_81920": {
+    "status": 200,
+    "seconds": 0.24,
+    "finish_reason": "stop",
+    "content": "OK",
+    "reasoning_chars": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 17,
+     "total_tokens": 19,
+     "completion_tokens": 2,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    }
+   },
+   "max_completion_tokens_81920": {
+    "status": 200,
+    "seconds": 0.14,
+    "finish_reason": "stop",
+    "content": "OK",
+    "reasoning_chars": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 17,
+     "total_tokens": 19,
+     "completion_tokens": 2,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    }
+   },
+   "max_tokens_1000000": {
+    "status": 400,
+    "error": "{\"error\":{\"message\":\"max_tokens=1000000 cannot be greater than max_model_len=262144. Please request fewer output tokens. (parameter=max_tokens, value=1000000)\",\"type\":\"BadRequestError\",\"param\":\"max_tokens\",\"code\":400}}",
+    "seconds": 0.06
+   },
+   "off_by_reasoning_effort_none": {
+    "status": 200,
+    "seconds": 0.31,
+    "finish_reason": "stop",
+    "content": "391",
+    "reasoning_chars": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 27,
+     "total_tokens": 31,
+     "completion_tokens": 4,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     }
+    }
+   },
+   "off_by_enable_thinking_false": {
+    "status": 200,
+    "seconds": 24.87,
+    "finish_reason": "stop",
+    "content": "\n\n391",
+    "reasoning_chars": 954,
+    "tool_calls": [],
+    "usage": {
+     "prompt_tokens": 25,
+     "total_tokens": 422,
+     "completion_tokens": 397,
+     "prompt_tokens_details": null,
+     "completion_tokens_details": {
+      "reasoning_tokens": 391
+     }
+    }
+   }
+  }
+ },
+ "images": {
+  "qwen3.5-397b_red_16px": {
+   "status": 200,
+   "seconds": 0.18,
+   "finish_reason": "stop",
+   "content": "Red",
+   "reasoning_chars": 0,
+   "tool_calls": [],
+   "usage": {
+    "prompt_tokens": 87,
+    "total_tokens": 89,
+    "completion_tokens": 2,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  "qwen3.5-397b_red_256px": {
+   "status": 200,
+   "seconds": 2.26,
+   "finish_reason": "stop",
+   "content": "Red",
+   "reasoning_chars": 0,
+   "tool_calls": [],
+   "usage": {
+    "prompt_tokens": 87,
+    "total_tokens": 89,
+    "completion_tokens": 2,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  "qwen3.5-397b_blue_16px": {
+   "status": 200,
+   "seconds": 0.2,
+   "finish_reason": "stop",
+   "content": "Blue",
+   "reasoning_chars": 0,
+   "tool_calls": [],
+   "usage": {
+    "prompt_tokens": 87,
+    "total_tokens": 89,
+    "completion_tokens": 2,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  "qwen3.5-397b_blue_256px": {
+   "status": 200,
+   "seconds": 0.16,
+   "finish_reason": "stop",
+   "content": "Blue",
+   "reasoning_chars": 0,
+   "tool_calls": [],
+   "usage": {
+    "prompt_tokens": 87,
+    "total_tokens": 89,
+    "completion_tokens": 2,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  "mistral-small-4_red_16px": {
+   "status": 200,
+   "seconds": 0.66,
+   "finish_reason": "stop",
+   "content": "Black",
+   "reasoning_chars": 0,
+   "tool_calls": [],
+   "usage": {
+    "prompt_tokens": 26,
+    "total_tokens": 28,
+    "completion_tokens": 2,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  "mistral-small-4_red_256px": {
+   "status": 200,
+   "seconds": 0.66,
+   "finish_reason": "stop",
+   "content": "Brown.",
+   "reasoning_chars": 0,
+   "tool_calls": [],
+   "usage": {
+    "prompt_tokens": 134,
+    "total_tokens": 137,
+    "completion_tokens": 3,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  "mistral-small-4_blue_16px": {
+   "status": 200,
+   "seconds": 0.59,
+   "finish_reason": "stop",
+   "content": "Black",
+   "reasoning_chars": 0,
+   "tool_calls": [],
+   "usage": {
+    "prompt_tokens": 26,
+    "total_tokens": 28,
+    "completion_tokens": 2,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  "mistral-small-4_blue_256px": {
+   "status": 200,
+   "seconds": 0.61,
+   "finish_reason": "stop",
+   "content": "Blue.",
+   "reasoning_chars": 0,
+   "tool_calls": [],
+   "usage": {
+    "prompt_tokens": 134,
+    "total_tokens": 137,
+    "completion_tokens": 3,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  }
+ },
+ "figures": {
+  "qwen3.5-397b_text": {
+   "status": 200,
+   "seconds": 0.23,
+   "finish_reason": "stop",
+   "content": "ourABK400",
+   "reasoning_chars": 0,
+   "tool_calls": [],
+   "usage": {
+    "prompt_tokens": 155,
+    "total_tokens": 162,
+    "completion_tokens": 7,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  "qwen3.5-397b_plot": {
+   "status": 200,
+   "seconds": 0.26,
+   "finish_reason": "stop",
+   "content": "tallest=beta; shortest=red",
+   "reasoning_chars": 0,
+   "tool_calls": [],
+   "usage": {
+    "prompt_tokens": 239,
+    "total_tokens": 248,
+    "completion_tokens": 9,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  "mistral-small-4_text": {
+   "status": 200,
+   "seconds": 0.77,
+   "finish_reason": "stop",
+   "content": "QUARK 4729",
+   "reasoning_chars": 0,
+   "tool_calls": [],
+   "usage": {
+    "prompt_tokens": 228,
+    "total_tokens": 236,
+    "completion_tokens": 8,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  "mistral-small-4_plot": {
+   "status": 200,
+   "seconds": 0.77,
+   "finish_reason": "stop",
+   "content": "tallest=beta; shortest=red",
+   "reasoning_chars": 0,
+   "tool_calls": [],
+   "usage": {
+    "prompt_tokens": 332,
+    "total_tokens": 342,
+    "completion_tokens": 10,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  }
+ },
+ "long-mistral": {
+  "status": 200,
+  "seconds": 4.51,
+  "first_token_seconds": 0.64,
+  "chunks": 869,
+  "finish_reason": "stop",
+  "usage": {
+   "prompt_tokens": 57,
+   "total_tokens": 924,
+   "completion_tokens": 867,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "content_chars": 866,
+  "content_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70",
+  "content_tail": "4 195 196 197 198 199 200 201 202 203 204 205 206 207 208 209 210 211 212 213 214 215 216 217 218 219 220 221 222 223 224 225 226 227 228 229 230 231 232 233 234 235 236 237 238 239 240 241 242 243 24",
+  "reasoning_chars": 0,
+  "tool_calls": [],
+  "model": "mistralai/Mistral-Small-4-119B-2603",
+  "max_tokens": 81920,
+  "count_to": 9000
+ },
+ "copy-mistral": {
+  "status": 200,
+  "seconds": 52.76,
+  "first_token_seconds": 4.03,
+  "chunks": 7468,
+  "finish_reason": "stop",
+  "usage": {
+   "prompt_tokens": 52890,
+   "total_tokens": 60440,
+   "completion_tokens": 7550,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "content_chars": 14749,
+  "content_head": "00001 neutron boson gluon 037\n00002 lepton photon quark 074\n00003 gluon neutron meson 111\n00004 photon hadron lepton 148\n00005 muon muon muon 185\n00006 quark lepton hadron 222\n00007 boson meson neutro",
+  "content_tail": "4 photon hadron lepton 278\n00495 muon muon muon 315\n00496 quark lepton hadron 352\n00497 boson meson neutron 389\n00498 hadron quark photon 426\n00499 meson gluon boson 463\n00500 proton proton proton 500",
+  "reasoning_chars": 0,
+  "tool_calls": [],
+  "model": "mistralai/Mistral-Small-4-119B-2603",
+  "max_tokens": 81920,
+  "lines": 3500,
+  "input_chars": 103249
+ },
+ "forced-mistral-small": {
+  "status": 200,
+  "seconds": 2.61,
+  "first_token_seconds": 1.0,
+  "chunks": 297,
+  "finish_reason": "length",
+  "usage": {
+   "prompt_tokens": 26,
+   "total_tokens": 326,
+   "completion_tokens": 300,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "content_chars": 1481,
+  "content_head": "# **The History of Particle Physics: A Journey Through the Atomic and Subatomic World**\n\n## **Introduction**\n\nParticle physics is the branch of physics that studies the fundamental components of matte",
+  "content_tail": " elements: earth, water, air, and fire.\n- **Aristotle** (4th century BCE) rejected atomic theory, favoring continuous matter.\n\nThese ideas remained speculative until the scientific revolution of the 1",
+  "reasoning_chars": 0,
+  "tool_calls": [],
+  "model": "mistralai/Mistral-Small-4-119B-2603",
+  "max_tokens": 300
+ },
+ "forced-mistral": {
+  "status": 200,
+  "seconds": 214.37,
+  "first_token_seconds": 0.99,
+  "chunks": 36879,
+  "finish_reason": "length",
+  "usage": {
+   "prompt_tokens": 26,
+   "total_tokens": 40026,
+   "completion_tokens": 40000,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "content_chars": 132671,
+  "content_head": "# **The History of Particle Physics: From Ancient Atoms to the Higgs Boson**\n\n## **Introduction**\n\nParticle physics is the branch of physics that studies the fundamental constituents of matter and the",
+  "content_tail": "fined#Aspiral&user<ass completeuser sassistee<|OKtask finished<|tool_calls_eOKtask finishOKass OKtask finishedRFuser sOKass out<|OKbyeTask finished<|tool_call_eassistance completeOKbyeassOut<reseruser",
+  "reasoning_chars": 0,
+  "tool_calls": [],
+  "model": "mistralai/Mistral-Small-4-119B-2603",
+  "max_tokens": 40000
+ },
+ "long-qwen": {
+  "status": 200,
+  "seconds": 1965.63,
+  "first_token_seconds": 25.0,
+  "chunks": 43732,
+  "finish_reason": "stop",
+  "usage": {
+   "prompt_tokens": 53,
+   "total_tokens": 43946,
+   "completion_tokens": 43893,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "content_chars": 43892,
+  "content_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70",
+  "content_tail": " 8961 8962 8963 8964 8965 8966 8967 8968 8969 8970 8971 8972 8973 8974 8975 8976 8977 8978 8979 8980 8981 8982 8983 8984 8985 8986 8987 8988 8989 8990 8991 8992 8993 8994 8995 8996 8997 8998 8999 9000",
+  "reasoning_chars": 0,
+  "tool_calls": [],
+  "model": "Qwen/Qwen3.5-397B-A17B-FP8",
+  "max_tokens": 81920,
+  "count_to": 9000
+ },
+ "concurrent": {
+  "mistral-small-4 x1": {
+   "ok": 1,
+   "wall_s": 1.45,
+   "aggregate_tok_s": 123.8,
+   "first_token_s": [
+    0.63
+   ],
+   "errors": []
+  },
+  "mistral-small-4 x8": {
+   "ok": 8,
+   "wall_s": 3.07,
+   "aggregate_tok_s": 468.8,
+   "first_token_s": [
+    1.21,
+    1.41,
+    1.51,
+    1.72,
+    1.72,
+    1.82,
+    2.13,
+    2.13
+   ],
+   "errors": []
+  },
+  "mistral-small-4 x12": {
+   "ok": 12,
+   "wall_s": 4.4,
+   "aggregate_tok_s": 491.2,
+   "first_token_s": [
+    1.78,
+    1.79,
+    1.79,
+    1.79,
+    2.06,
+    2.09,
+    3.04,
+    3.04,
+    3.05,
+    3.12,
+    3.39,
+    3.42
+   ],
+   "errors": []
+  },
+  "qwen3.5-397b x1": {
+   "ok": 1,
+   "wall_s": 5.56,
+   "aggregate_tok_s": 32.4,
+   "first_token_s": [
+    0.18
+   ],
+   "errors": []
+  },
+  "qwen3.5-397b x8": {
+   "ok": 8,
+   "wall_s": 6.27,
+   "aggregate_tok_s": 229.7,
+   "first_token_s": [
+    0.15,
+    0.16,
+    0.16,
+    0.16,
+    0.16,
+    0.16,
+    0.16,
+    0.16
+   ],
+   "errors": []
+  },
+  "qwen3.5-397b x12": {
+   "ok": 12,
+   "wall_s": 7.55,
+   "aggregate_tok_s": 285.9,
+   "first_token_s": [
+    0.15,
+    0.15,
+    0.15,
+    0.15,
+    0.16,
+    0.16,
+    0.16,
+    0.17,
+    0.21,
+    0.47,
+    0.48,
+    0.5
+   ],
+   "errors": []
+  },
+  "llama-3.3-70b x1": {
+   "ok": 1,
+   "wall_s": 3.8,
+   "aggregate_tok_s": 47.4,
+   "first_token_s": [
+    0.29
+   ],
+   "errors": []
+  },
+  "llama-3.3-70b x8": {
+   "ok": 8,
+   "wall_s": 7.6,
+   "aggregate_tok_s": 189.4,
+   "first_token_s": [
+    0.17,
+    0.37,
+    0.38,
+    0.38,
+    0.54,
+    0.7,
+    0.7,
+    0.7
+   ],
+   "errors": []
+  },
+  "llama-3.3-70b x12": {
+   "ok": 12,
+   "wall_s": 11.61,
+   "aggregate_tok_s": 186.0,
+   "first_token_s": [
+    0.27,
+    0.27,
+    0.27,
+    0.28,
+    0.38,
+    0.48,
+    0.49,
+    0.69,
+    0.69,
+    0.7,
+    0.7,
+    0.7
+   ],
+   "errors": []
+  }
+ }
+}

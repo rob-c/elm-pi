@@ -150,7 +150,7 @@ class LauncherTests(unittest.TestCase):
         web = ",".join(config["webTools"])
         always = ",".join(config["excludedTools"]["always"])
         workflows = ",".join(config["excludedTools"]["workflows"])
-        default = f"{always},{web},{workflows}"
+        default = f"{always},{web}"     # the workflow tools are offered by default (2026-11-13)
         excluded = lambda r: r.args_seen[r.args_seen.index("--exclude-tools") + 1]
         r = self.fx.run("-xt", "bash", "--exclude-tools", "edit", "-p", "x")
         args = r.args_seen
@@ -164,12 +164,15 @@ class LauncherTests(unittest.TestCase):
         # an explicit allowlist is left exactly as given
         r = self.fx.run("--tools", "read", "-p", "x")
         self.assertNotIn("--exclude-tools", r.args_seen)
-        # PI_ELM_WEB=1 brings back the web tools only; --workflows the workflow tools only
+        # PI_ELM_WEB=1 brings back the web tools only; --no-workflows leaves the workflow tools out
         r = self.fx.run("-xt", "bash", "-p", "x", env={"PI_ELM_WEB": "1"})
-        self.assertEqual(f"{always},{workflows},bash", excluded(r))
-        r = self.fx.run("--workflows", "-p", "x")
+        self.assertEqual(f"{always},bash", excluded(r))
+        r = self.fx.run("--no-workflows", "-p", "x")
+        self.assertEqual(f"{always},{web},{workflows}", excluded(r))
+        self.assertNotIn("--no-workflows", r.args_seen)     # the launcher's flag, not pi's
+        r = self.fx.run("--workflows", "-p", "x", env={"PI_ELM_WORKFLOWS": "0"})
         self.assertEqual(f"{always},{web}", excluded(r))
-        self.assertNotIn("--workflows", r.args_seen)     # the launcher's flag, not pi's
+        self.assertNotIn("--workflows", r.args_seen)
 
     # --- --with-all: every optional extra, without --remote ----------------------------
     def fake_bootstrap(self, builds=True):
@@ -371,7 +374,7 @@ class InstallOptionsTests(unittest.TestCase):
         text = (ROOT / "bootstrap.sh").read_text()
         apply_flag = re.search(r"^apply_flag\(\) \{.*?^\}\n", text, re.S | re.M).group(0)
         block = text[text.index("# --- the options this install was made with"):
-                     text.index("# Before anything runs pi:")]
+                     text.index("# Not NODE_VERSION:")]
         self.script = ("set -euo pipefail\nsay() { :; }\n"
                        "WITH_SHIM=1; WITH_PACKAGES=1; AUTH_LOCK=1; WITH_TOOLS=1; WITH_PATCH=1\n"
                        'GIVEN_FLAGS="$1"; RESET_OPTIONS="$2"; HERE="$PWD"\n'

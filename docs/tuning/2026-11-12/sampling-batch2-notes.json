@@ -1,0 +1,7 @@
+{
+ "run": "2026-11-12T00:06:48Z to 02:52:27Z, AB_SUITE=50 harness/ab6.py (50 tasks: ab.py 11, ab2.py 6, hard.py 8, hard2.py 25), three rounds",
+ "concurrent_with": "batch 1 (sampling-batch1.json), started 2026-11-11T22:56:39Z; comparisons are only within a batch",
+ "control": "qwen-ctrl ran from the same install as batch 1's controls, unchanged",
+ "rate_limit": "Eight Qwen arms in flight across the two batches: about 550 turn errors per arm, nearly all 429s that pi retried. 2-4 runs per arm ended on one (the infra flag); without those pairs the comparisons are unchanged",
+ "infra": "a run whose pi exited non-zero or whose last reply was an error: the gateway's verdict, not the model's"
+}

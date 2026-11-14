@@ -565,7 +565,7 @@ class OpenModeRecordTests(unittest.TestCase):
 
     def test_first_contact_is_logged_with_reason(self):
         self.proxy.note_open("pypi.org")
-        self.assertEqual(["OPEN     pypi.org no allowlist in this install (--allow '*')"],
+        self.assertEqual(["OPEN     pypi.org recorded, not gated: an open run (pi --remote, --allow '*')"],
                          log_lines(self.proxy))
 
     def test_second_contact_is_not_logged(self):
@@ -1029,7 +1029,7 @@ class OpenModeTests(unittest.TestCase):
     def test_first_contact_is_recorded(self):
         proxy = proxy_for(["*"])
         self.tunnel(proxy)
-        self.assertEqual(["OPEN     127.0.0.1 no allowlist in this install (--allow '*')"],
+        self.assertEqual(["OPEN     127.0.0.1 recorded, not gated: an open run (pi --remote, --allow '*')"],
                          log_lines(proxy))
 
     def test_repeat_contact_is_not_recorded_again(self):
@@ -1042,7 +1042,7 @@ class OpenModeTests(unittest.TestCase):
         proxy = proxy_for(["*"])
         reply = exchange(proxy, b"GET http://127.0.0.1:%d/x HTTP/1.1\r\n\r\n" % self.origin.port, shut=False)
         self.assertEqual(Origin.RESPONSE, reply)
-        self.assertEqual("OPEN     127.0.0.1 no allowlist in this install (--allow '*')",
+        self.assertEqual("OPEN     127.0.0.1 recorded, not gated: an open run (pi --remote, --allow '*')",
                          log_lines(proxy)[0])
 
     def test_failure_is_failed_not_rejected(self):
@@ -1560,6 +1560,15 @@ class SocketTuningTests(unittest.TestCase):
 
     def test_probe_count(self):
         self.assertEqual(4, self.option("TCP_KEEPCNT"))
+
+    def test_unacknowledged_data_drops_the_connection_after_two_minutes(self):
+        """2026-11-13: an upload the gateway stopped acknowledging held a session 921 s, until the kernel gave up."""
+        if hasattr(socket, "TCP_USER_TIMEOUT"):
+            self.assertEqual(120000, self.option("TCP_USER_TIMEOUT"))
+        elif sys.platform == "darwin":
+            self.assertEqual(120, self.tuned().getsockopt(socket.IPPROTO_TCP, egress.TCP_RXT_CONNDROPTIME))
+        else:
+            self.skipTest("no per-connection retransmission limit on this platform")
 
     def test_closed_socket_is_harmless(self):
         s = socket.socket()

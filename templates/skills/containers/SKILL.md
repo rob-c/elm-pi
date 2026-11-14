@@ -14,15 +14,25 @@ usual case. Use the machine's own tool when it has one.
 
 ## Which engine
 
+Check first, with the bash tool's `timeout` set to 20 (seconds):
+
 ```bash
 docker info >/dev/null 2>&1 && echo docker
 podman info >/dev/null 2>&1 && echo podman
 ```
 
-The commands below are the same for both; use whichever answered. If neither
-did, say so and stop: Docker Desktop has to be running on macOS, a Podman
-machine started (`podman machine start`), and installing an engine needs an
-administrator - it is the user's decision, not yours.
+Never skip this and never run it without the time limit. A Docker Desktop that
+is installed but still starting holds every `docker` command until it is up: a
+session here sat 13 minutes on a `docker run` before it said the daemon was not
+running. The commands below are the same for both engines; use whichever
+answered. If neither did within the limit, say so and stop: Docker Desktop has
+to be running on macOS, a Podman machine started (`podman machine start`), and
+installing an engine needs an administrator - it is the user's decision, not
+yours.
+
+Give every later `docker`/`podman` call a `timeout` too: 1800 for a first
+`pull` (say the image's size before it), 600 for a run such as a LaTeX build.
+A command that hits the limit is reported as that, not retried blind.
 
 ## The rules here
 
@@ -72,7 +82,9 @@ docker run --rm --network=none -v "$PWD":"$PWD" -w "$PWD" texlive/texlive:latest
 `latest-medium` first; a missing package (`! LaTeX Error: File 'x.sty' not
 found`) means `latest`. The PDF lands in the project folder, where it is
 attached to the command's result: look at it, and fix every error, overfull
-box worth fixing and undefined reference before reporting.
+box worth fixing and undefined reference before reporting. No engine, or a
+build that fails and cannot be fixed: the document is not built, and the report
+says so (see `physics-documents`).
 
 ## Reporting
 

@@ -1,0 +1,15 @@
+{
+ "written": "2026-11-12T04:48:01Z",
+ "written_before_the_run": true,
+ "why": "Batch 1 (sampling-batch1.json): Mistral, reasoning high, at top_p 0.8 was +9.0 points against its control (21:9 discordant, p=0.043) but +3.0 against the A/A repeat of that control (p=0.50); +6.0 against both pooled, 95% task-bootstrap interval -0.4 to +12.8; Holm-adjusted over the six comparisons p=0.26. Not shown, but plausible enough to test on its own.",
+ "hypothesis": "Mistral Small 4 at reasoning_effort high passes more tasks at temperature 0.7, top_p 0.8 than at the shipped temperature 0.7 (top_p unset, so 1.0).",
+ "design": "Mistral only. Three shipped arms (one install) and three top_p 0.8 arms (another), all six running every task at the same moment; harness/ab6.py with AB_SUITE=50, three rounds. Replicate i of the shipped arm is paired with replicate i of top_p 0.8 on the same task and round: 50 x 3 x 3 = 450 pairs. Pairs touched by a gateway error are left out (paired.ended_on_gateway_error).",
+ "power": "A 6-point difference with about 20% of pairs discordant needs about 425 pairs for 80% power at a two-sided 0.05 (McNemar).",
+ "decision_rule": "Ship top_p 0.8 for Mistral at reasoning high only if, in this run alone, top_p 0.8 is ahead with an exact McNemar p < 0.05 AND the 95% interval from resampling whole tasks (20000 draws, seed 1) lies above zero. Otherwise the shipped setting stays. Batch 1's runs are not added in.",
+ "amended": [
+  {
+   "when": "2026-11-12T04:51:15Z",
+   "what": "In 'why' only: 'seven comparisons' corrected to 'the six comparisons' (batch 1 has six besides the repeats; the Holm figure 0.26 was computed over six). Hypothesis, design and decision rule unchanged; no result of this run had been looked at."
+  }
+ ]
+}

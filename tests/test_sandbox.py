@@ -1,5 +1,7 @@
+import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -246,15 +248,18 @@ class RuntimeTests(unittest.TestCase):
             result = bash(f'TMPDIR="{shared}"; elm_private_tmpdir', check=False)
             self.assertNotEqual(0, result.returncode)
 
-    def test_ancestor_node_modules_are_reported(self):
-        with tempfile.TemporaryDirectory() as directory:
-            d = Path(os.path.realpath(directory))
-            install = d / "a/b/install"
-            install.mkdir(parents=True)
-            self.assertEqual("", bash(f'elm_external_module_dirs "{install}"').stdout)
-            (d / "a/node_modules").mkdir()
-            (install / "node_modules").mkdir()          # the install's own: fine
-            self.assertEqual(f"{d}/a/node_modules\n", bash(f'elm_external_module_dirs "{install}"').stdout)
+    def test_node_modules_elsewhere_on_the_machine_stop_nothing(self):
+        # A node_modules above the install (a stray `npm install` in a home
+        # folder) is the guard's to keep out of pi, not a reason to refuse to
+        # install or start: nothing looks for one any more.
+        for rel in ("pi", "bootstrap.sh", "install.sh", "lib/sandbox.sh"):
+            text = (ROOT / rel).read_text()
+            self.assertNotIn("elm_external_module_dirs", text, rel)
+            self.assertNotRegex(text, r"(?<![A-Z_])EXTERNAL_MODULES\b", rel)   # the old check's variable
+
+    def test_the_extension_load_check_runs_under_the_guard(self):
+        warm = (ROOT / "bootstrap.sh").read_text()
+        self.assertIn('"$HERE/.node/bin/node" --import "$HERE/lib/node-guard.mjs" "$HERE/scripts/check-extensions.mjs"', warm)
 
     def test_pi_orig_starts_node_clean_with_the_guard(self):
         text = (ROOT / "pi.orig").read_text()
@@ -310,6 +315,96 @@ class NodeGuardTests(unittest.TestCase):
             out = subprocess.run([str(self.NODE), "--import", str(ROOT / "lib/node-guard.mjs"), "-e", script],
                                  cwd=d, env=env, text=True, capture_output=True, check=True).stdout
             self.assertEqual('["/conda/lib",false,"loaded","loaded"]', out.strip())
+
+
+    def run_guard(self, guard, script, cwd, **env):
+        environment = {**os.environ, **env}
+        if "ELM_PI_ALLOW_EXTERNAL_MODULES" not in env:
+            environment.pop("ELM_PI_ALLOW_EXTERNAL_MODULES", None)
+        return subprocess.run([str(self.NODE), "--import", str(guard), "--input-type=module", "-e", script],
+                              cwd=cwd, env=environment, text=True, capture_output=True)
+
+    def test_jiti_style_evaluation_from_outside_is_refused(self):
+        # jiti evaluates each file it loads with vm.runInThisContext(code, { filename }).
+        with tempfile.TemporaryDirectory() as directory:
+            d = Path(os.path.realpath(directory))
+            outside = d / "node_modules/leak/index.js"
+            outside.parent.mkdir(parents=True)
+            outside.write_text("1")
+            (d / "project").mkdir()
+            (d / "project/ext.js").write_text("1")
+            inside = ROOT / "node_modules/x/index.js"
+            script = (
+                'import vm from "node:vm";'
+                'const out = {};'
+                'for (const [name, options] of Object.entries(JSON.parse(process.argv[1]))) {'
+                '  try { vm.runInThisContext("1", options); out[name] = "ran"; }'
+                '  catch (e) { out[name] = e.message.startsWith("elm-pi: refusing") ? "refused" : e.message; } }'
+                'console.log(JSON.stringify(out));')
+            cases = {"outside_package": {"filename": str(outside)}, "outside_package_as_string": str(outside),
+                     "installs_own_package": {"filename": str(inside)},
+                     "project_file_outside_node_modules": {"filename": str(d / "project/ext.js")},
+                     "no_filename": {}}
+            run = lambda **env: subprocess.run(
+                [str(self.NODE), "--import", str(ROOT / "lib/node-guard.mjs"), "--input-type=module", "-e", script,
+                 json.dumps(cases)], cwd=d, text=True, capture_output=True, check=True,
+                env={**{k: v for k, v in os.environ.items() if k != "ELM_PI_ALLOW_EXTERNAL_MODULES"}, **env}).stdout
+            self.assertEqual({"outside_package": "refused", "outside_package_as_string": "refused",
+                              "installs_own_package": "ran", "project_file_outside_node_modules": "ran",
+                              "no_filename": "ran"}, json.loads(run()))
+            self.assertEqual("ran", json.loads(run(ELM_PI_ALLOW_EXTERNAL_MODULES="1"))["outside_package"])
+
+    def test_an_install_reached_through_a_symlink_loads_its_own_packages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            d = Path(os.path.realpath(directory))
+            (d / "real/inst/lib").mkdir(parents=True)
+            (d / "real/inst/lib/node-guard.mjs").write_text((ROOT / "lib/node-guard.mjs").read_text())
+            own = d / "real/inst/agent/npm/node_modules/p/index.js"
+            own.parent.mkdir(parents=True)
+            own.write_text("1")
+            (d / "link").symlink_to(d / "real")
+            via_link = d / "link/inst/agent/npm/node_modules/p/index.js"
+            script = ('import vm from "node:vm";'
+                      'try { vm.runInThisContext("1", { filename: process.argv[1] }); console.log("ran"); }'
+                      'catch (e) { console.log(e.message); }')
+            out = subprocess.run([str(self.NODE), "--import", str(d / "link/inst/lib/node-guard.mjs"),
+                                  "--input-type=module", "-e", script, str(via_link)],
+                                 cwd=d, text=True, capture_output=True, check=True).stdout.strip()
+            self.assertEqual("ran", out)
+
+    def test_jiti_cannot_take_a_package_from_above_the_install(self):
+        # The case the guard exists for: an extension imports a package the
+        # install lacks, and jiti's own resolver finds it in a node_modules
+        # above the install. Refused under the guard; loaded without it.
+        package = next((p for p in (ROOT / "node_modules/jiti", ROOT / "agent/npm/node_modules/jiti")
+                        if (p / "lib/jiti.mjs").exists()), None)
+        if package is None:
+            self.skipTest("jiti is not installed in this checkout")
+        with tempfile.TemporaryDirectory() as directory:
+            d = Path(os.path.realpath(directory))
+            leak = d / "above/node_modules/leakpkg/index.js"
+            leak.parent.mkdir(parents=True)
+            leak.write_text('module.exports = "leaked";\n')
+            install = d / "above/inst"
+            (install / "lib").mkdir(parents=True)
+            (install / "lib/node-guard.mjs").write_text((ROOT / "lib/node-guard.mjs").read_text())
+            (install / "agent").mkdir()
+            (install / "agent/ext.ts").write_text('import leak from "leakpkg";\nexport default leak;\n')
+            # jiti is the install's own, as pi's is: one from outside would be refused itself.
+            shutil.copytree(package, install / "node_modules/jiti")
+            jiti = install / "node_modules/jiti/lib/jiti.mjs"
+            script = ('const { createJiti } = await import(process.argv[1]);'
+                      'const jiti = createJiti(import.meta.url, { fsCache: false, moduleCache: false });'
+                      'try { console.log(String((await jiti.import(process.argv[2], { default: true })))); }'
+                      'catch (e) { console.log(e.message.startsWith("elm-pi: refusing") ? "refused" : e.message); }')
+            args = [str(self.NODE), "--import", str(install / "lib/node-guard.mjs"), "--input-type=module", "-e",
+                    script, str(jiti), str(install / "agent/ext.ts")]
+            env = {k: v for k, v in os.environ.items() if k != "ELM_PI_ALLOW_EXTERNAL_MODULES"}
+            guarded = subprocess.run(args, cwd=install, env=env, text=True, capture_output=True, check=True)
+            self.assertEqual("refused", guarded.stdout.strip(), guarded.stderr)
+            open_ = subprocess.run(args, cwd=install, env={**env, "ELM_PI_ALLOW_EXTERNAL_MODULES": "1"},
+                                   text=True, capture_output=True, check=True)
+            self.assertEqual("leaked", open_.stdout.strip(), open_.stderr)
 
 
 class NoBareInterpreterTests(unittest.TestCase):

@@ -2,14 +2,14 @@
   "profiles": {
     "frontier": {
       "primary": { "model": "elm/@QWEN_MODEL@", "thinkingLevel": "high" },
-      "fallback": { "model": "elm-shim/@LLAMA_MODEL@", "thinkingLevel": "off" }
+      "fallback": { "model": "elm/@MISTRAL_MODEL@", "thinkingLevel": "high" }
     },
     "balanced": {
       "primary": { "model": "elm/@QWEN_MODEL@", "thinkingLevel": "off" },
-      "fallback": { "model": "elm-shim/@LLAMA_MODEL@", "thinkingLevel": "off" }
+      "fallback": { "model": "elm/@MISTRAL_MODEL@", "thinkingLevel": "off" }
     },
     "fast": {
-      "primary": { "model": "elm-shim/@LLAMA_MODEL@", "thinkingLevel": "off" },
+      "primary": { "model": "elm/@MISTRAL_MODEL@", "thinkingLevel": "high" },
       "fallback": { "model": "elm/@QWEN_MODEL@", "thinkingLevel": "off" }
     }
   },

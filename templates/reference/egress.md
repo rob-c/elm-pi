@@ -1,4 +1,37 @@
-# A 403 from every host is this install, not the internet
+# A 403: this install, or the site?
+
+**First: was this session started with `pi --remote`?** Your system prompt says
+so when it was ("This session was started with `pi --remote`"), and
+`echo $PI_ELM_REMOTE` prints `1`. In such a session the proxy refuses nothing -
+it records each destination as `OPEN` in the egress log - so every 403, 400 or
+error page is the site's own answer. Read what it says (the body, not the status
+line) and do what it asks. test12 (2026-11-13), a `--remote` session, read
+Wikimedia's own 403s as this proxy, told the user "the session doesn't have
+`--remote`", and drew placeholder pictures instead.
+
+Wikimedia's refusals, seen 2026-11-13:
+
+- **403 "Please set a user-agent and respect our robot policy"**: Python's
+  `urllib` (and other libraries' defaults) get this. Send a `User-Agent` that
+  names the program and its use, e.g. `elm-pi-research/1.0 (University of
+  Edinburgh)`; `curl`'s default passes.
+- **400 "Use thumbnail sizes listed on https://w.wiki/GHai"**: a thumbnail at a
+  size Commons does not serve (`/thumb/.../640px-...`), saved by `curl -o` as an
+  HTML page named `.jpg`. Ask for the file by name instead -
+  `https://commons.wikimedia.org/wiki/Special:FilePath/<File name>?width=960` -
+  or take the original's `upload.wikimedia.org` URL from its file page.
+- **404 from `Special:FilePath`**: no file has that name. test13 guessed
+  `African_Elephant_Botswana_2015.jpg`. Take names from Commons' search instead:
+  `https://commons.wikimedia.org/w/api.php?action=query&list=search&srnamespace=6&srsearch=African+elephant&format=json`
+  lists `File:` titles (`File:African Bush Elephant.jpg`), each one that works.
+- **429 Too Many Requests** from `upload.wikimedia.org`: too many requests at
+  once. test14 had five page agents, then the parent, all downloading - most of
+  them guessed names - and every request after that got 429, with or without a
+  `User-Agent`. Fetch every picture in one place, yourself or one agent, before
+  the agents that write pages start: names from the search, one after another.
+  (Not the ELM gateway's `429 rate_limit_exceeded`, below.)
+
+The rest of this page is about a session **without** `--remote`.
 
 Everything pi does leaves through an allowlisting proxy on loopback. On its list
 are the ELM gateway, PyPI (`pypi.org`, `files.pythonhosted.org`), conda-forge

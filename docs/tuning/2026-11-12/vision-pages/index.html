@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Frog World - Discover the Amazing World of Frogs</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="nav-container">
+      <div class="nav-brand">
+        <a href="index.html">🐸 Frog World</a>
+      </div>
+      <button class="nav-toggle" aria-label="Toggle navigation">☰</button>
+      <ul class="nav-menu">
+        <li><a href="index.html" class="active">Home</a></li>
+        <li><a href="about.html">About Frogs</a></li>
+        <li><a href="species.html">Species</a></li>
+        <li><a href="conservation.html">Conservation</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-content">
+      <h1>Welcome to Frog World</h1>
+      <p>Discover the fascinating world of frogs - nature's incredible amphibians found on every continent except Antarctica.</p>
+      <a href="about.html" class="btn btn-primary">Learn More About Frogs</a>
+    </div>
+  </section>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <!-- Featured Section -->
+    <section class="section">
+      <h2 class="section-title">Why Frogs Matter</h2>
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-image" style="background: linear-gradient(135deg, #7cb342, #4a7c23);"></div>
+          <div class="card-content">
+            <h3 class="card-title">Environmental Indicators</h3>
+            <p class="card-description">Frogs are bioindicators, meaning their health reflects the health of their ecosystems. Their sensitive skin makes them vulnerable to pollution and environmental changes.</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-image" style="background: linear-gradient(135deg, #9ccc65, #7cb342);"></div>
+          <div class="card-content">
+            <h3 class="card-title">Pest Control</h3>
+            <p class="card-description">Frogs consume vast quantities of insects, including mosquitoes and agricultural pests, providing natural pest control worth billions of dollars annually.</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-image" style="background: linear-gradient(135deg, #5d4037, #8d6e63);"></div>
+          <div class="card-content">
+            <h3 class="card-title">Medical Research</h3>
+            <p class="card-description">Frog skin contains compounds with potential medical applications, including painkillers and antibiotics. They've contributed to breakthroughs in cloning and developmental biology.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Statistics Section -->
+    <section class="section">
+      <h2 class="section-title">Frog Facts at a Glance</h2>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-number">7,000+</span>
+          <span class="stat-label">Known Species</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-number">350M</span>
+          <span class="stat-label">Years on Earth</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-number">Everywhere</span>
+          <span class="stat-label">Except Antarctica</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-number">40%</span>
+          <span class="stat-label">Species Threatened</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Quick Info Section -->
+    <section class="section">
+      <h2 class="section-title">What Makes Frogs Unique?</h2>
+      <ul class="feature-list">
+        <li><strong>Amphibious Life:</strong> Most frogs live both in water (as tadpoles) and on land (as adults)</li>
+        <li><strong>Remarkable Jumpers:</strong> Some frogs can leap over 20 times their body length</li>
+        <li><strong>Breathing Through Skin:</strong> Frogs can absorb oxygen directly through their moist skin</li>
+        <li><strong>Vocal Champions:</strong> Male frogs croak to attract mates, with some species heard up to a mile away</li>
+        <li><strong>Vision Experts:</strong> Frogs have excellent night vision and can see in color</li>
+      </ul>
+      <div class="text-center mt-lg">
+        <a href="about.html" class="btn btn-secondary">Explore Frog Biology</a>
+        <a href="species.html" class="btn btn-outline mt-sm">View Frog Species</a>
+      </div>
+    </section>
+
+    <!-- Conservation Call-to-Action -->
+    <section class="info-box">
+      <div class="info-box-title">🌍 Conservation Alert</div>
+      <p>Frog populations worldwide are declining due to habitat loss, climate change, pollution, and disease. Learn how you can help protect these vital creatures for future generations.</p>
+      <a href="conservation.html" class="btn btn-primary mt-sm">Take Action</a>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-content">
+      <div class="footer-section">
+        <h3>About Frog World</h3>
+        <p>Dedicated to educating people about the importance of frogs and their conservation. Join us in protecting these amazing amphibians.</p>
+      </div>
+      <div class="footer-section">
+        <h3>Quick Links</h3>
+        <p><a href="index.html">Home</a></p>
+        <p><a href="about.html">About Frogs</a></p>
+        <p><a href="species.html">Species Gallery</a></p>
+        <p><a href="conservation.html">Conservation Efforts</a></p>
+      </div>
+      <div class="footer-section">
+        <h3>Resources</h3>
+        <p><a href="#">Educational Materials</a></p>
+        <p><a href="#">Research Papers</a></p>
+        <p><a href="#">Photo Gallery</a></p>
+        <p><a href="#">Contact Us</a></p>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>&copy; 2024 Frog World. All rights reserved. | Designed for frog enthusiasts everywhere</p>
+    </div>
+  </footer>
+
+  <script>
+    // Mobile menu toggle
+    document.querySelector('.nav-toggle')?.addEventListener('click', function() {
+      document.querySelector('.nav-menu')?.classList.toggle('active');
+    });
+  </script>
+</body>
+</html>

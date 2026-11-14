@@ -5,7 +5,7 @@ description: "Fanning out several qwen/llama children - the built-in parallel wo
 
 # pi-subagents workflow scripts
 
-### Mixing both in one orchestration
+### One `subagent` call: the parallel workflow, or a script
 
 For anything beyond a single child, make **one** `subagent` call. When the
 children are independent, that call is the built-in `parallel` workflow, with
@@ -35,11 +35,40 @@ validate and launch in turn.) The `workflowScript` parameter was removed in
 pi-subagents 0.74.0 and is rejected.
 
 **Two script dialects are installed, and they do not mix.** A pi-subagents
-script (this section, run by `subagent`) is plain statements with top-level
+script (this skill, run by `subagent`) is plain statements with top-level
 `await`: no `import`, no `export`, no `meta`, and it ends with `return`. A
-pi-dynamic-workflows script (the `workflow` tool, next section) must start with
+pi-dynamic-workflows script (the `workflow` tool, `elm-dynamic-workflows`;
+offered unless the session was started with `pi --no-workflows`) must start with
 `export const meta = {...}` and uses `agent()`/`parallel()`, not `runs`. Putting
-either one's header in the other fails validation.
+either one's header in the other fails validation. `workflow-check` is the other
+dialect's checker: its "`export const meta` ... must be the first statement" on
+a `runs` script means you used the wrong checker, not that the script needs a
+header.
+
+### A `[workflows mode armed` note, and no `workflow` tool
+
+`/ultracode` and `/effort` arm every message of 16 characters or more that the
+user types, whether or not the `workflow` tool is loaded; without it, this
+install rewrites the note into one line saying so. Either way, look at your
+tool list. Without `workflow`, the note's `agent()`, `parallel()`,
+`pipeline()`, judges, reviewers and "big tier" name nothing you have: write no
+`export const meta` script and run no `workflow-check`. Real runs here wrote a
+correct `runs.all` script, let `workflow-check` talk them into `export const
+meta`, launched that through `subagent`, failed, and came back to the first
+script 11 to 14 turns later. Map the note instead:
+
+- Independent parts, or "N workers" on N separate things: the `parallel` call
+  above, with nothing to write or check.
+- N workers on one deliverable: N attempts at that one thing, or N roles
+  (build, test, review), then one `qwen` judge or your own synthesis, and one
+  result delivered. "A short program" with five workers is one program.
+- The note's reviewers and judges: a second, small `parallel` call over the
+  results. Its completeness check is your own check against the request.
+- A question, a small edit or talk: answer directly; the note allows it.
+
+Say once that `/ultracode` drives the `workflow` tool only in a session started
+without `--no-workflows` (and without `PI_ELM_WORKFLOWS=0`), and `/ultracode off`
+stops the note.
 
 The script is ordinary JavaScript with top-level `await`: `runs.all([...])` for
 parallel fan-out, `runs.run` for a keyed child, `runs.lanes` for staged work.
@@ -151,6 +180,49 @@ subagent({ action: "status", id: "<run-id>", view: "transcript", lines: 200 })
 
 Read the outputs back, finish the aggregation yourself, and say in the report
 that the children succeeded and the script did not.
+
+### Children that build parts of one thing
+
+A real run here asked for "5 workers" to build a small pipe-flow framework.
+The parent launched eight children at once, one per file, including the main
+module and the demo that call the others. Those two guessed the names they
+needed: `calculateCFLTimestep`, `setPressureGradient` and
+`calculateWomersleyVelocity` did not exist. The solver child wrote stubs over
+two siblings' files. The parent asked one child for an artery blood-flow demo
+nobody had mentioned. The parent then spent about 40 turns making the parts
+fit. So:
+
+- **A number of workers the user names is the most children at once.** Neither
+  the `parallel` workflow nor `runs.all` takes a concurrency setting: launch
+  that many, and put the rest in a second `runs.all` after the first.
+- **Each task keeps to the user's request.** No domain, feature or file they
+  did not ask for: a water-in-a-pipe request does not get an artery demo.
+- **One file per child, named in its task, and "write only that file".** A
+  dependency it lacks goes in its report, not into a stub of its own.
+- **Parts that call each other share an interface, written down first.** Put
+  the exact exported names and signatures into every task that makes or uses
+  them. Or build the parts that are called first, and give the parts that call
+  them the first stage's real exports in a second stage:
+
+```js
+const built = await runs.all([
+  { key: "physics", agent: "qwen", task: "Write only src/physics.js: ... Report its exports with their signatures." },
+  { key: "pipe",    agent: "qwen", task: "Write only src/pipe.js: ... Report its exports with their signatures." },
+]);
+const [main] = await runs.all([
+  { key: "main", agent: "qwen", task: "Write only src/index.js, calling these modules exactly as they export:\n\n" + built.map((b) => b.output).join("\n\n") },
+]);
+return { parts: built.map((b) => b.output), main: main.output };
+```
+
+- **Say how each child checks its file**: run it with a time limit and report
+  the exit code, or report "syntax-checked only". Name the interpreter to use,
+  the project's environment or `python3`, and that the child installs nothing:
+  a missing package goes in its report. Three children here once ran
+  `python3 -m venv .venv` and `pip install` into the same `.venv` at once.
+- **Check the result yourself before you report.** Run what was built, and say
+  per file what it got: ran (with the exit code), imported, or syntax-checked
+  only - never "tested" for the last two.
 
 The routing rule, per child: **whoever has to decide gets Qwen.** Llama is not a
 default and not faster (measured in `elm-delegation`): use it only when Qwen is

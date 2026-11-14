@@ -46,7 +46,8 @@ PY = sys.executable
 CONFIG = json.loads((ROOT / "config/elm-pi.json").read_text())
 # Not the ids in config/elm-pi.json, so a merge that read those instead of
 # agent/model-ids.json (what configure.sh writes) would show.
-MODEL_IDS = {"qwen": "Qwen/Qwen-Test-397B", "llama": "meta-llama/Llama-Test-70B"}
+MODEL_IDS = {"qwen": "Qwen/Qwen-Test-397B", "llama": "meta-llama/Llama-Test-70B",
+             "mistral": "mistralai/Mistral-Test-119B"}
 
 
 def block(text, start, end):
@@ -226,6 +227,16 @@ class PyBatch(unittest.TestCase):
 # One bash for a class, one subshell per case, each with its own install
 # directory; groups of cases run side by side.
 
+
+def batch_command(bash, script, scratch, *args):
+    """bash running script with $0 "batch" and args as $1..., exactly as `bash -c script batch
+    args...` would - except that the script travels in a file. Linux refuses one argument over
+    128 KiB (MAX_ARG_STRLEN; E2BIG, "Argument list too long"), and these batches grew past it;
+    macOS caps only the total. eval keeps -c's $0 and BASH_SOURCE."""
+    path = Path(scratch) / ".batch.sh"
+    path.write_text(script)
+    return [bash, "-c", '_b=$1; shift; eval "unset _b; $(< "$_b")"', "batch", str(path), *map(str, args)]
+
 DUMP = r'''
 _v() { local _n _s _x; for _n in "$@"; do eval "_s=\${$_n+x}"
   if [ -n "$_s" ]; then eval "_x=\${$_n}"; printf '@@%s=%s\n' "$_n" "$_x"; else printf '@@%s\n' "$_n"; fi; done; }
@@ -249,7 +260,7 @@ def run_sh_batch(prelude, bodies, env, tmp, parallel=8):
                      f'_pids="${{_pids:-}} $!:{i}"')
         if (i + 1) % parallel == 0 or i == len(bodies) - 1:
             parts.append('for _p in $_pids; do wait "${_p%%:*}"; echo $? >"$T/.r${_p##*:}.rc"; done; _pids=""')
-    subprocess.run([BASH, "-c", "\n".join(parts), "batch", str(tmp)], env=env, cwd=str(tmp),
+    subprocess.run(batch_command(BASH, "\n".join(parts), tmp, tmp), env=env, cwd=str(tmp),
                    check=True, capture_output=True, text=True, timeout=300)
     return [ShRun(int((tmp / f".r{i}.rc").read_text()), (tmp / f".r{i}.out").read_text(),
                   (tmp / f".r{i}.err").read_text()) for i in range(len(bodies))]
@@ -325,6 +336,7 @@ def render_text(raw, here):
     """A template as the install writes it: model ids from agent/model-ids.json,
     and @AGENT_DIR@/@INSTALL_DIR@ as the permission config's sed fills them."""
     raw = raw.replace("@QWEN_MODEL@", MODEL_IDS["qwen"]).replace("@LLAMA_MODEL@", MODEL_IDS["llama"])
+    raw = raw.replace("@MISTRAL_MODEL@", MODEL_IDS["mistral"])
     return raw.replace("@AGENT_DIR@", f"{here}/agent").replace("@INSTALL_DIR@", str(here))
 
 
@@ -512,7 +524,7 @@ OWNED_CASES += [
     owned_case("an_owned_value_you_only_reordered_matches",
                edits={"settings.json": lambda s: s.__setitem__("retry", OrderedDict(reversed(list(s["retry"].items()))))},
                check=lambda t, r, d: (t.assertIn("    agent/settings.json matches", r[0].out.splitlines()),
-                                      t.assertEqual(["provider", "baseDelayMs", "maxRetries", "enabled"],
+                                      t.assertEqual(list(reversed(list(template_value("settings.json", d)["retry"]))),
                                                     list(live(d, "settings.json")["retry"])))),
     owned_case("an_owned_key_you_changed_keeps_its_place_in_the_file",
                edits={"settings.json": setter(sessionDir="elsewhere")},
@@ -684,11 +696,15 @@ class OwnedMergeTests(PyBatch):
 
 
 # =====================================================================================
-# models.json: Qwen's per-model keys and stray Llama entries
+# models.json: Qwen's and Mistral's per-model keys, Mistral's entry, stray Llama entries
 # =====================================================================================
 
 QWEN_KEYS = ("samplingParams", "samplingParamsByThinkingLevel", "compat")
 TEMPLATE_QWEN = json.loads(TEMPLATE_RAW["models.json"])["providers"]["elm"]["models"][0]
+TEMPLATE_MISTRAL = next(m for m in json.loads(TEMPLATE_RAW["models.json"])["providers"]["elm"]["models"]
+                        if m["id"] == "@MISTRAL_MODEL@")
+# The ids an install's elm provider lists, in the template's order.
+SHIPPED = [MODEL_IDS["qwen"], MODEL_IDS["mistral"]]
 
 
 def models_edit(fn):
@@ -699,6 +715,14 @@ def models_edit(fn):
 
 def elm_models(d):
     return live(d, "models.json")["providers"]["elm"]["models"]
+
+
+def mistral_entries(d):
+    return [m for m in elm_models(d) if m.get("id", "").lower() == MODEL_IDS["mistral"].lower()]
+
+
+def without_mistral(ms):
+    ms[:] = [m for m in ms if m.get("id") != MODEL_IDS["mistral"]]
 
 
 def models_lines(out):
@@ -734,15 +758,15 @@ MODELS_CASES += [
     C("a_direct_llama_entry_is_removed_and_named",
       edits=models_edit(lambda m, ms: ms.append({"id": "meta-llama/Llama-3.3-70B-Instruct"})),
       check=lambda t, r, d: (
-          t.assertEqual([MODEL_IDS["qwen"]], [e["id"] for e in elm_models(d)]),
+          t.assertEqual(SHIPPED, [e["id"] for e in elm_models(d)]),
           t.assertEqual(["agent/models.json: removed elm/meta-llama/Llama-3.3-70B-Instruct - it cannot call tools;",
                          "the shim entry elm-shim/meta-llama/... is the supported one"], models_lines(r[0].out)))),
     C("llama_is_matched_in_any_case",
       edits=models_edit(lambda m, ms: ms.append({"id": "LLAMA-UPPER"})),
-      check=lambda t, r, d: t.assertEqual([MODEL_IDS["qwen"]], [e["id"] for e in elm_models(d)])),
+      check=lambda t, r, d: t.assertEqual(SHIPPED, [e["id"] for e in elm_models(d)])),
     C("two_llama_entries_are_both_removed",
       edits=models_edit(lambda m, ms: ms.extend([{"id": "a-llama"}, {"id": "b-llama"}])),
-      check=lambda t, r, d: (t.assertEqual(1, len(elm_models(d))),
+      check=lambda t, r, d: (t.assertEqual(SHIPPED, [e["id"] for e in elm_models(d)]),
                              t.assertEqual(2, r[0].out.count("removed elm/")))),
     C("a_llama_under_another_provider_is_not_touched",
       edits=models_edit(lambda m, ms: (m["providers"].__setitem__("elm-shim", {"models": [{"id": "meta-llama/x"}]}),
@@ -752,16 +776,16 @@ MODELS_CASES += [
     C("every_qwen_entry_gets_the_three_keys",
       edits=models_edit(lambda m, ms: ms.append({"id": "Qwen/Second-qwen"})),
       check=lambda t, r, d: t.assertEqual({k: TEMPLATE_QWEN[k] for k in QWEN_KEYS},
-                                          {k: elm_models(d)[1].get(k) for k in QWEN_KEYS})),
+                                          {k: elm_models(d)[-1].get(k) for k in QWEN_KEYS})),
     C("another_model_on_elm_is_left_without_the_keys",
       edits=models_edit(lambda m, ms: (ms.append({"id": "mistral/Other"}), ms[0].pop("compat"))),
-      check=lambda t, r, d: t.assertEqual({"id": "mistral/Other"}, elm_models(d)[1])),
+      check=lambda t, r, d: t.assertEqual({"id": "mistral/Other"}, elm_models(d)[-1])),
     C("an_entry_without_an_id_is_kept_as_it_is",
       edits=models_edit(lambda m, ms: (ms.append({"name": "anonymous"}), ms[0].pop("compat"))),
-      check=lambda t, r, d: t.assertEqual({"name": "anonymous"}, elm_models(d)[1])),
+      check=lambda t, r, d: t.assertEqual({"name": "anonymous"}, elm_models(d)[-1])),
     C("an_id_that_names_both_is_removed_as_a_llama",
       edits=models_edit(lambda m, ms: ms.append({"id": "qwen-llama-merge"})),
-      check=lambda t, r, d: t.assertEqual([MODEL_IDS["qwen"]], [e["id"] for e in elm_models(d)])),
+      check=lambda t, r, d: t.assertEqual(SHIPPED, [e["id"] for e in elm_models(d)])),
     C("as_installed_matches_and_is_not_rewritten", edits={"models.json": "as-installed"},
       check=lambda t, r, d: (t.assertIn("    agent/models.json matches", r[0].out.splitlines()),
                              t.assertEqual(render_text(TEMPLATE_RAW["models.json"], d),
@@ -795,8 +819,177 @@ MODELS_CASES += [
       check=lambda t, r, d: t.assertIn("    agent/models.json matches", r[0].out.splitlines())),
     C("a_llama_removed_from_the_list_keeps_the_others_in_order",
       edits=models_edit(lambda m, ms: (ms.insert(0, {"id": "first-other"}), ms.insert(1, {"id": "llama-x"}))),
-      check=lambda t, r, d: t.assertEqual(["first-other", MODEL_IDS["qwen"]], [e["id"] for e in elm_models(d)])),
+      check=lambda t, r, d: t.assertEqual(["first-other", *SHIPPED], [e["id"] for e in elm_models(d)])),
+
+    # Mistral: listed on an install made before ELM served it, and its compat kept.
+    C("an_install_without_mistral_is_given_the_template_entry",
+      edits=models_edit(lambda m, ms: without_mistral(ms)),
+      check=lambda t, r, d: (
+          t.assertEqual([{**TEMPLATE_MISTRAL, "id": MODEL_IDS["mistral"]}], mistral_entries(d)),
+          t.assertEqual(SHIPPED, [e["id"] for e in elm_models(d)]),
+          t.assertEqual([f"agent/models.json: added elm/{MODEL_IDS['mistral']}"], models_lines(r[0].out)))),
+    C("mistral_is_added_once_and_a_second_run_changes_nothing", runs=2,
+      edits=models_edit(lambda m, ms: without_mistral(ms)),
+      check=lambda t, r, d: (t.assertEqual(1, len(mistral_entries(d))),
+                             t.assertIn("    agent/models.json matches", r[1].out.splitlines()),
+                             t.assertEqual(r[0].snap["agent/models.json"], r[1].snap["agent/models.json"]))),
+    C("mistral_is_added_after_your_own_entries",
+      edits=models_edit(lambda m, ms: (without_mistral(ms), ms.append({"id": "mine"}))),
+      check=lambda t, r, d: t.assertEqual([MODEL_IDS["qwen"], "mine", MODEL_IDS["mistral"]],
+                                          [e["id"] for e in elm_models(d)])),
+    C("a_mistral_entry_in_another_case_counts_and_is_not_doubled",
+      edits=models_edit(lambda m, ms: mistral_entries_upper(ms)),
+      check=lambda t, r, d: t.assertEqual([MODEL_IDS["mistral"].upper()],
+                                          [e["id"] for e in mistral_entries(d)])),
+    C("mistral_compat_you_changed_is_reset",
+      edits=models_edit(lambda m, ms: ms[1].__setitem__("compat", {"supportsDeveloperRole": True})),
+      check=lambda t, r, d: (
+          t.assertEqual(TEMPLATE_MISTRAL["compat"], mistral_entries(d)[0]["compat"]),
+          t.assertEqual([f'agent/models.json: compat {{"supportsDeveloperRole": true}} -> '
+                         f'{json.dumps(TEMPLATE_MISTRAL["compat"])}'], models_lines(r[0].out)))),
+    C("mistral_compat_missing_is_added",
+      edits=models_edit(lambda m, ms: ms[1].pop("compat")),
+      check=lambda t, r, d: (
+          t.assertEqual(TEMPLATE_MISTRAL["compat"], mistral_entries(d)[0]["compat"]),
+          t.assertEqual([f'agent/models.json: compat null -> {json.dumps(TEMPLATE_MISTRAL["compat"])}'],
+                        models_lines(r[0].out)))),
+    *[C(f"mistral_{slug(key)}_{how}",
+        edits=models_edit(lambda m, ms, k=key, v=value: (ms[1].pop(k) if v is None else ms[1].__setitem__(k, v))),
+        check=lambda t, r, d, k=key, v=value: (
+            t.assertEqual(TEMPLATE_MISTRAL[k], mistral_entries(d)[0][k]),
+            t.assertEqual([f"agent/models.json: {k} {json.dumps(v)} -> {json.dumps(TEMPLATE_MISTRAL[k])}"],
+                          models_lines(r[0].out))))
+      for key in ("samplingParams", "samplingParamsByThinkingLevel")
+      for how, value in (("missing_is_added", None), ("you_changed_is_reset", {"temperature": 1.0}))],
+    C("mistral_samples_cool_with_reasoning_off_and_at_0_7_with_it_on",
+      edits={"models.json": "as-installed"},
+      check=lambda t, r, d: (t.assertEqual({"temperature": 0.15}, mistral_entries(d)[0]["samplingParams"]),
+                             t.assertEqual({"high": {"temperature": 0.7}},
+                                           mistral_entries(d)[0]["samplingParamsByThinkingLevel"]))),
+    C("mistral_name_and_limits_you_changed_are_kept",
+      edits=models_edit(lambda m, ms: ms[1].update(name="My Mistral", maxTokens=1000, contextWindow=2000)),
+      check=lambda t, r, d: (
+          t.assertEqual(("My Mistral", 1000, 2000),
+                        tuple(mistral_entries(d)[0][k] for k in ("name", "maxTokens", "contextWindow"))),
+          t.assertIn("    agent/models.json matches", r[0].out.splitlines()))),
+    C("mistral_keys_are_not_given_to_another_mistral",
+      edits=models_edit(lambda m, ms: ms.append({"id": "mistralai/Another-Mistral"})),
+      check=lambda t, r, d: t.assertEqual({"id": "mistralai/Another-Mistral"}, elm_models(d)[-1])),
+    C("a_qwen_alone_on_elm_is_given_mistral_without_touching_the_qwen",
+      edits=models_edit(lambda m, ms: (without_mistral(ms), ms[0].__setitem__("maxTokens", 7))),
+      check=lambda t, r, d: (t.assertEqual(7, elm_models(d)[0]["maxTokens"]),
+                             t.assertEqual(SHIPPED, [e["id"] for e in elm_models(d)]))),
 ]
+
+
+def template_max_tokens(**by_token):
+    """The template with these maxTokens, by entry id token: qwen=..., mistral=..."""
+    def edit(m):
+        for e in m["providers"]["elm"]["models"]:
+            for name, value in by_token.items():
+                if e["id"] == f"@{name.upper()}_MODEL@":
+                    e["maxTokens"] = value
+    return {"models.json": edit}
+
+
+def live_max_tokens(**by_name):
+    """agent/models.json with these maxTokens, by model name: qwen=..., mistral=..., or an id."""
+    def edit(m, ms):
+        for e in ms:
+            for name, value in by_name.items():
+                if e.get("id") == MODEL_IDS.get(name, name):
+                    e["maxTokens"] = value
+    return models_edit(edit)
+
+
+def max_tokens(d):
+    return [e.get("maxTokens") for e in elm_models(d)]
+
+
+# maxTokens: only the old shipped 32768 moves, and only to a template value that differs.
+MODELS_CASES += [
+    C("the_old_shipped_max_tokens_becomes_the_templates",
+      template_edits=template_max_tokens(qwen=81920, mistral=81920), edits=live_max_tokens(qwen=32768, mistral=32768),
+      check=lambda t, r, d: (
+          t.assertEqual([81920, 81920], max_tokens(d)),
+          t.assertEqual([f"agent/models.json: maxTokens of elm/{MODEL_IDS['qwen']} 32768 -> 81920",
+                         f"agent/models.json: maxTokens of elm/{MODEL_IDS['mistral']} 32768 -> 81920"],
+                        models_lines(r[0].out)))),
+    C("a_max_tokens_you_tuned_is_kept",
+      template_edits=template_max_tokens(qwen=81920, mistral=81920), edits=live_max_tokens(qwen=50000, mistral=1000),
+      check=lambda t, r, d: (t.assertEqual([50000, 1000], max_tokens(d)),
+                             t.assertIn("    agent/models.json matches", r[0].out.splitlines()))),
+    C("the_old_value_stays_while_the_template_has_it_too",
+      template_edits=template_max_tokens(qwen=32768, mistral=32768), edits=live_max_tokens(qwen=32768, mistral=32768),
+      check=lambda t, r, d: (t.assertEqual([32768, 32768], max_tokens(d)),
+                             t.assertIn("    agent/models.json matches", r[0].out.splitlines()))),
+    C("a_template_entry_without_max_tokens_moves_nothing",
+      template_edits={"models.json": lambda m: m["providers"]["elm"]["models"][0].pop("maxTokens")},
+      edits=live_max_tokens(qwen=32768),
+      check=lambda t, r, d: t.assertEqual(32768, elm_models(d)[0]["maxTokens"])),
+    C("an_entry_the_template_does_not_have_keeps_the_old_value",
+      template_edits=template_max_tokens(qwen=81920, mistral=81920),
+      edits=models_edit(lambda m, ms: ms.append({"id": "mine", "maxTokens": 32768})),
+      check=lambda t, r, d: t.assertEqual({"id": "mine", "maxTokens": 32768}, elm_models(d)[-1])),
+    C("the_id_is_matched_in_any_case",
+      template_edits=template_max_tokens(qwen=81920),
+      edits=models_edit(lambda m, ms: ms[0].update(id=MODEL_IDS["qwen"].upper(), maxTokens=32768)),
+      check=lambda t, r, d: t.assertEqual(81920, elm_models(d)[0]["maxTokens"])),
+    C("max_tokens_moved_once_then_a_second_run_changes_nothing", runs=2,
+      template_edits=template_max_tokens(qwen=81920), edits=live_max_tokens(qwen=32768),
+      check=lambda t, r, d: (t.assertIn("    agent/models.json matches", r[1].out.splitlines()),
+                             t.assertEqual(r[0].snap["agent/models.json"], r[1].snap["agent/models.json"]))),
+    C("max_tokens_and_mistral_together_in_one_rewrite",
+      template_edits=template_max_tokens(qwen=81920, mistral=81920),
+      edits=models_edit(lambda m, ms: (without_mistral(ms), ms[0].__setitem__("maxTokens", 32768))),
+      check=lambda t, r, d: (t.assertEqual([81920, 81920], max_tokens(d)),
+                             t.assertEqual(SHIPPED, [e["id"] for e in elm_models(d)]))),
+]
+
+
+def settings_edit(fn):
+    def edit(live):
+        fn(live.setdefault("modelThinkingLevels", {}))
+    return edit
+
+
+def levels(d):
+    return live(d, "settings.json").get("modelThinkingLevels")
+
+
+MISTRAL_KEY = f"elm/{MODEL_IDS['mistral']}"
+
+# Mistral's thinking level: added where an install has none, never overridden.
+MODELS_CASES += [
+    C("an_install_without_a_mistral_level_gets_high",
+      edits={"models.json": "as-installed", "settings.json": settings_edit(lambda lv: lv.pop(MISTRAL_KEY))},
+      check=lambda t, r, d: (t.assertEqual("high", levels(d)[MISTRAL_KEY]),
+                             t.assertIn(f"    agent/settings.json: modelThinkingLevels {MISTRAL_KEY} -> high",
+                                        r[0].out.splitlines()))),
+    C("a_mistral_level_you_set_is_kept",
+      edits={"models.json": "as-installed", "settings.json": settings_edit(lambda lv: lv.__setitem__(MISTRAL_KEY, "off"))},
+      check=lambda t, r, d: (t.assertEqual("off", levels(d)[MISTRAL_KEY]),
+                             t.assertNotIn("modelThinkingLevels", r[0].out))),
+    C("a_mistral_level_under_another_case_counts",
+      edits={"models.json": "as-installed",
+             "settings.json": settings_edit(lambda lv: (lv.pop(MISTRAL_KEY), lv.__setitem__(MISTRAL_KEY.upper(), "off")))},
+      check=lambda t, r, d: t.assertEqual({MISTRAL_KEY.upper(): "off"},
+                                          {k: v for k, v in levels(d).items() if "mistral" in k.lower()})),
+    C("the_qwen_level_is_left_as_it_is",
+      edits={"models.json": "as-installed",
+             "settings.json": settings_edit(lambda lv: (lv.pop(MISTRAL_KEY), lv.__setitem__(f"elm/{MODEL_IDS['qwen']}", "high")))},
+      check=lambda t, r, d: t.assertEqual("high", levels(d)[f"elm/{MODEL_IDS['qwen']}"])),
+    C("the_mistral_level_is_added_once", runs=2,
+      edits={"models.json": "as-installed", "settings.json": settings_edit(lambda lv: lv.pop(MISTRAL_KEY))},
+      check=lambda t, r, d: (t.assertIn("modelThinkingLevels", r[0].out),
+                             t.assertNotIn("modelThinkingLevels", r[1].out))),
+]
+
+
+def mistral_entries_upper(ms):
+    for m in ms:
+        if m.get("id") == MODEL_IDS["mistral"]:
+            m["id"] = m["id"].upper()
 
 
 @generate
@@ -809,7 +1002,7 @@ class ModelsMergeTests(PyBatch):
 
     @classmethod
     def prepare(cls, case, d):
-        write_owned_tree(d, case.kw.get("edits"))
+        write_owned_tree(d, case.kw.get("edits"), case.kw.get("template_edits"))
 
 
 # =====================================================================================
@@ -1571,8 +1764,10 @@ WANT_TOOL = re.search(r"^  want_tool\(\) \{.*\}$", BOOTSTRAP, re.M).group(0)
 CURL_STUB = r'''
 curl() {
   local out="" url="" a
+  echo "$*" >> "$HERE/curl.args"
   while [ $# -gt 0 ]; do
-    case "$1" in -o) out="$2"; shift 2; continue ;; --retry|-m|-H|-d) shift 2; continue ;; -*) shift; continue ;; esac
+    case "$1" in -o) out="$2"; shift 2; continue ;; --retry|--retry-max-time|-m|-H|-d) shift 2; continue ;;
+                 -*) shift; continue ;; esac
     url="$1"; shift
   done
   echo "$url" >> "$HERE/curl.log"
@@ -1580,6 +1775,8 @@ curl() {
   [ -f "$f" ] || return 22
   if [ -n "$out" ]; then ln "$f" "$out" 2>/dev/null || cp "$f" "$out"; else cat "$f"; fi
 }
+# What lib/sandbox.sh's elm_curl_retry sets before bootstrap downloads anything.
+ELM_CURL_RETRY=(--retry 5 --retry-connrefused --retry-max-time 120 --retry-all-errors)
 '''
 
 
@@ -1751,12 +1948,28 @@ TOOL_CASES = [
       asset=tgz({"uv-dir/uv": tool_script("uv", "1.2.3"), "uv-dir/uvx": "x"}, xz=True), sums="auto",
       check=lambda t, r, d: (t.assertEqual(tool_script("uv", "1.2.3").encode(), _installed(d, "uv")),
                              t.assertIsNone(_installed(d, "uvx")))),
+    # Minimal Linux installs have neither xz (GNU tar needs it for .tar.xz) nor unzip (GNU tar
+    # cannot read a zip): Python's tarfile and zipfile unpack them instead.
+    T("an_xz_tarball_that_tar_cannot_open_is_unpacked_by_python", pre="tar() { return 2; }",
+      args=("uv", "1.2.3", "uv.tar.xz", "https://h/dl/uv.tar.xz", ""),
+      asset=tgz({"uv-dir/uv": tool_script("uv", "1.2.3"), "uv-dir/uvx": "x"}, xz=True), sums="auto",
+      check=lambda t, r, d: (t.assertEqual(tool_script("uv", "1.2.3").encode(), _installed(d, "uv")),
+                             t.assertIsNone(_installed(d, "uvx")))),
+    T("a_zip_with_no_unzip_and_a_tar_that_cannot_read_it_is_unpacked_by_python",
+      pre="unzip() { return 127; }; tar() { return 2; }",
+      args=("ast-grep", "1.2.3", "app.zip", "https://h/dl/app.zip", ""),
+      asset=zipped({"ast-grep": tool_script("ast-grep", "1.2.3"), "sg": tool_script("sg", "1.2.3")}), sums="auto",
+      check=lambda t, r, d: (t.assertEqual(tool_script("ast-grep", "1.2.3").encode(), _installed(d, "ast-grep")),
+                             t.assertIsNone(_installed(d, "sg")))),
     # The ast-grep zip also has `sg`, a real command on Linux: never installed.
     T("a_zip_is_unpacked_and_only_the_named_binary_installed",
       args=("ast-grep", "1.2.3", "app.zip", "https://h/dl/app.zip", ""),
       asset=zipped({"ast-grep": tool_script("ast-grep", "1.2.3"), "sg": tool_script("sg", "1.2.3")}), sums="auto",
       check=lambda t, r, d: (t.assertEqual(tool_script("ast-grep", "1.2.3").encode(), _installed(d, "ast-grep")),
                              t.assertIsNone(_installed(d, "sg")))),
+    T("a_tool_download_retries_any_failure", sums="auto",
+      check=lambda t, r, d: t.assertTrue(all("--retry 5" in a and "--retry-all-errors" in a
+                                             for a in (d / "curl.args").read_text().splitlines()))),
     T("a_downloaded_binary_that_does_not_run_is_removed",
       asset=tool_script("x", "1.2.3", rc=1).encode(), sums="auto",
       check=lambda t, r, d: (t.assertEqual(0, r.rc), t.assertIsNone(_installed(d)),
@@ -1809,6 +2022,8 @@ class InstallToolTests(ShBatch):
         kw = case.kw
         return "\n".join([
             "set -euo pipefail", f"cd {q(d)}", 'HERE="$PWD"', f"SHARED={q(cls.shared_dir)}", STUBS, SHA_BLOCK, CURL_STUB,
+            # bootstrap.sh has it from lib/sandbox.sh: the archive fallback when tar and unzip cannot
+            f'elm_py() {{ {q(sys.executable)} -E -S "$@"; }}',
             f"TOOLSET={q(kw['toolset'])}", WANT_TOOL, 'TOOL_CACHE="$HERE/cache"', 'TOOLS_TMP="$(mktemp -d "$HERE/tt.XXXXXX")"',
             f"FORCE={kw.get('force', 0)}", kw["pre"], INSTALL_TOOL,
             "install_tool " + " ".join(q(a) for a in kw["args"]), 'echo "@@DONE"'])
@@ -1834,6 +2049,10 @@ NODE_CASES = [
     N("a_verified_node_is_unpacked_into_dot_node",
       check=lambda t, r, d: (t.assertEqual(0, r.rc, r.out), t.assertIn("    installed v9.8.7", r.out.splitlines()),
                              t.assertTrue((d / ".node/lib/node_modules/npm/bin/npm-cli.js").exists()))),
+    # Both downloads ride out a bad network: ELM_CURL_RETRY, from lib/sandbox.sh.
+    N("the_node_downloads_retry_any_failure",
+      check=lambda t, r, d: t.assertEqual([True, True], ["--retry 5" in a and "--retry-all-errors" in a
+                                                          for a in (d / "curl.args").read_text().splitlines()])),
     N("node_comes_from_nodejs_org_with_its_shasums",
       check=lambda t, r, d: t.assertEqual(["https://nodejs.org/dist/v9.8.7/node-v9.8.7-darwin-arm64.tar.gz",
                                            "https://nodejs.org/dist/v9.8.7/SHASUMS256.txt"], _curls(d))),
@@ -2139,7 +2358,7 @@ PYTHON_CASES = [
                                         r.out.splitlines()))),
     Y("not_with_python_removes_an_agent_python", with_python=0, pre="mkdir -p agent/python/env/lib && touch agent/python/env/lib/x",
       check=lambda t, r, d: (t.assertFalse((d / "agent/python").exists()),
-                             t.assertIn("    removed agent/python (not --with-python): the agent uses the python3 on PATH",
+                             t.assertIn("    removed agent/python (--no-python): the agent uses the python3 on PATH",
                                         r.out.splitlines()))),
     Y("not_with_python_and_no_agent_python_says_nothing", with_python=0,
       check=lambda t, r, d: t.assertEqual("", r.out)),
@@ -2263,7 +2482,7 @@ EXCLUDED_BLOCK = block(BOOTSTRAP, "if [ -d agent/npm/node_modules ]; then\n  _xt
 EXCLUDED_CASES = [
     C("every_excluded_tool_still_registered", sources={"a/index.ts": 'name: "t_one"\n', "b/x.js": '"t_two"'},
       check=lambda t, r, d: t.assertEqual(
-          "    other excluded tools: all 2 still registered, left out by default (pi --workflows brings back the workflow tools)\n",
+          "    other excluded tools: all 2 still registered, left out by default (the workflow tools only with pi --no-workflows)\n",
           r.out)),
     C("a_renamed_tool_is_warned_about_by_name", sources={"a/index.ts": '"t_one"'},
       check=lambda t, r, d: t.assertIn("WARN excluded tools that no installed package registers: t_two - a renamed tool",

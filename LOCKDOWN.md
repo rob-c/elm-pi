@@ -72,7 +72,7 @@ guard; project-local extensions in a repository's `.pi/` stay off unless
 
 ### 3. Catalogue strip (`agent/extensions/elm-only.ts`)
 
-The load-bearing one. pi 1.5 ships 42 built-in providers. Registering a provider with
+The load-bearing one. pi 1.5 ships 43 built-in providers. Registering a provider with
 an empty `models` array **replaces** its catalogue, so the extension strips every
 non-allowed provider to zero models — once at extension load (covers
 `--list-models` and other pre-session paths), then again at session start (covers
@@ -90,9 +90,10 @@ The local Llama shim appears as `elm-shim` when its loopback service is
 available; it is still backed by an ELM-hosted model.
 
 ```
-provider  model                              context  max-out  thinking  images
-elm       Qwen/Qwen3.5-397B-A17B-FP8         262.1K   32.8K    yes       yes
-elm-shim  meta-llama/Llama-3.3-70B-Instruct  128K     8.2K     no        no
+provider  model                                context  max-out  thinking  images
+elm       mistralai/Mistral-Small-4-119B-2603  262.1K   81.9K    yes       yes
+elm       Qwen/Qwen3.5-397B-A17B-FP8           262.1K   81.9K    yes       yes
+elm-shim  meta-llama/Llama-3.3-70B-Instruct    128K     8.2K     no        no
 ```
 
 This is what makes `/login` pointless: a credential with no catalogue entry is
@@ -139,6 +140,17 @@ behind a warning. A pi release that moves this code will therefore stop
 behaviour: you find out from a failed update, not from a published transcript.
 Re-derive the anchors in `patch-pi.py` when that happens, or install with
 `./bootstrap.sh --no-patch` if you want the commands back.
+
+The same patch takes pi's own subcommands out - `pi auth`, `pi mcp`,
+`pi config`, `pi list`, `pi install`/`remove`/`uninstall` and `pi update` -
+which manage provider credentials, MCP servers, package resources and pi's own
+updates: all of them things this install manages itself. pi refuses them before
+it dispatches any, with exit 2 and a pointer here, and `pi --help` no longer
+lists them. The launcher refuses them first, each saying what to use instead;
+the patch is for the unwrapped `pi.orig` and anything else that reaches pi past
+the launcher. `pi auth login` mattered most: it signs in to another provider
+from the shell, and until the launcher caught it, it arrived at the model as a
+prompt instead.
 
 The launcher also sets `PI_RADIUS_GATEWAY=http://127.0.0.1:1`. That is a
 supported pi environment variable rather than a patch, so it survives someone
@@ -192,12 +204,20 @@ helper app in `~/Applications` and generate a code-signing certificate in the
 login keychain; the launcher points it at `agent/helpers/` instead and has it
 signed ad hoc, so nothing outside the install changes. macOS asks once for
 Accessibility and Screen Recording for that helper, and both can be revoked in
-System Settings > Privacy & Security.
+System Settings > Privacy & Security. Each install's helper is signed afresh,
+so a new install asks again at its first `--remote`. `pi --remote
+--no-computer-use` (or `PI_ELM_COMPUTER_USE=0`) gives the web without the
+screen.
 
 Dynamic Workflows (`@quintinshaw/pi-dynamic-workflows`) **is** loaded by the
-default package set, knowingly, though its `workflow` tools are offered only in
-a session started with `pi --workflows`: its global model-policy hook can be overridden
-by an individual workflow script. Its guard, `workflow-model-scope.ts`, is a
+default package set, knowingly, and since 2026-11-13 its `workflow` tools are
+offered by default (`pi --no-workflows` leaves them out). Its agents run in pi's
+own process and load the policy - ELM only, the permission gate, protected paths,
+the command guard, cc-safety-net - and the per-agent guards, named in
+`agent/workflows/settings.json`; in manual they can only read, since a question
+the gate would put to you is refused for them. Its global model-policy hook can be overridden
+by code that calls the package directly (an extension, or its SDK) - not by a workflow
+script, whose `agent()` options in 3.15.1 do not include it. Its guard, `workflow-model-scope.ts`, is a
 required extension and refuses models outside the ELM providers, but that is
 weaker than strict `pi-subagents` model scope. INSTALL.md, "Dynamic Workflows,
 and the one control it lacks", has the measurements.
@@ -263,7 +283,7 @@ not be happening can be stopped at source rather than merely blocked.
 
 **PyPI is on the list** - `pypi.org` and `files.pythonhosted.org`,
 `proxyAllow` in `config/elm-pi.json` - so the agent can install Python packages
-into its own environment (`agent/python`, built with uv when the install asks for it: `pi setup --python`) without
+into its own environment (`agent/python`, built with uv unless the install was made with `--no-python`) without
 `--remote`. What that costs, said plainly: every process the agent runs can
 reach those two hosts, subdomains included. Downloads are public and read-only,
 and uploading needs a PyPI token (`~/.pypirc` is on the agent's denied paths),
@@ -294,7 +314,14 @@ payload stays encrypted end to end.
 - **A campus proxy already in the environment is chained to**, not routed
   around.
 - Sub-agents, the Llama shim and every command the agent runs inherit the
-  setting, so `curl` in the `bash` tool is filtered too.
+  setting, so `curl` in the `bash` tool is filtered too. The shim outlives the
+  session that starts it, so each Llama request names the requesting session's
+  own proxy and the shim uses that; a request from a session behind the proxy is
+  never sent direct, even through a shim started without one. One such shim was
+  being left by bootstrap.sh's checks, which run with no proxy, and later
+  sessions' Llama traffic went straight to ELM through it; now only a session
+  behind the proxy starts a shim, and it replaces this install's older shim, one
+  that does not take the caller's proxy, rather than reuse it.
 
 Escape hatches, as everywhere else here:
 
@@ -361,7 +388,10 @@ calling Homebrew by its full path, past the wrapper, is denied too. Read-only
 removals through apt, dnf, yum, zypper, pacman, apk, snap, flatpak, MacPorts,
 `dpkg` and `rpm` are denied outright, their aliases and long options too
 (`zypper rm`, `pacman --sync`, `rpm --install`): they need an administrator,
-and the agent gives the user the command instead.
+and the agent gives the user the command instead. Installing into the system's
+Python is denied as well - `--break-system-packages` in any command,
+`uv pip --system`, and `PIP_BREAK_SYSTEM_PACKAGES`, `UV_BREAK_SYSTEM_PACKAGES`
+or `UV_SYSTEM_PYTHON` set in it.
 
 Each denial tells the model why, so it stops rather than retrying around it.
 The gate matches each command of a chain (`cd x && ssh ...`) and of a
@@ -391,6 +421,60 @@ names, not enforcement: a copied or renamed binary gets past them, and so do
 macOS has no equivalent without root or a Network Extension, so on a managed
 Mac the answer remains `pf` and an administrator.
 
+## Permission modes
+
+Every new session starts in manual, where nothing but reading runs without a
+yes; `/mode auto` can make auto the default instead (**Change default mode**,
+saved in `agent/permission-mode`), and `/mode yolo` answers every ask yes for
+the rest of that session only. `pi --manual`, `--auto` and `--yolo` pick the
+mode for one run (INSTALL.md, Permission modes). They are about asking, not
+about this document's policy: in every mode the ELM-only layers, the egress
+proxy, the gate's denies, `command-guard.ts` and `protected-paths.ts` are
+unchanged, and yolo answers yes only where the policy would have asked.
+
+The permission gate applies the mode, so that a sub-agent's asks keep coming to
+the session you are watching, as they already did. The gate cannot do it as
+shipped: its own yolo setting is one switch for every session of the install,
+and it has none in the other direction. `patch-pi.py --gate` makes it read the
+process's `PI_ELM_PERMISSION_MODE` on every decision - in manual, each allow in
+the composed policy becomes an ask, except reading inside the project and the
+tools in `permissionModes.manualNoPrompt`; in yolo, the gate's own yolo is on
+for that process. Like the pi patch it is anchored and fatal: a gate release
+that moves the code stops the install, and the launcher refuses `--manual` and
+`--yolo` on a gate that is not patched rather than running them as auto.
+
+Five rules keep the mode from being loosened from inside a session:
+
+- **Yolo is never saved and never handed on.** Nothing writes it as a default,
+  a default that says yolo is read as manual, and a yolo session's sub-agents
+  run as auto and send their asks to it. So nothing started later - the next
+  session, a resumed one, anything the agent starts from its own shell - is
+  yolo unless you ask for it again.
+- **The default is yours to change.** The gate's path rules deny
+  `agent/permission-mode` to the agent's tools, reading and writing, in every
+  mode yolo included; `/mode` writes it, from pi itself.
+- **The environment only tightens.** A `PI_ELM_PERMISSION_MODE` the launcher
+  finds set in a run started from a shell can make the run stricter, never
+  looser, and an unknown value counts as manual. The tools manual leaves alone
+  are always this install's list, never the caller's.
+- **`pi --yolo` asks.** It is the one flag that loosens a run, and the gate's
+  `bash` rules ask for it however it is spelled (`command-guard.ts` refuses the
+  odd spellings), so the agent cannot start a yolo copy of itself without you.
+- **Sub-agents work in auto only on your yes.** In manual, a sub-agent launch
+  asks, and the ask says that allowing it lets the agents it starts work in auto
+  (`permissionModes.approvedAgents`, `"auto"` as shipped). Only the process
+  pi-subagents starts for that run switches, by `permission-mode.ts`: it is told
+  apart by `PI_SUBAGENT_CHILD=1` and `PI_SUBAGENT_RUNNER_PID` equal to its own
+  pid, which pi-subagents sets in it. The setting is this install's, never the
+  caller's, and the launcher clears `PI_SUBAGENT_RUNNER_PID`, so no `pi` started
+  from a shell can pass for such a process. What auto asks about still comes to
+  you, and your own session stays manual. Workflow agents are not covered: they
+  cannot ask, so in manual what would ask is refused for them.
+
+What it is not: a sandbox. In auto and yolo the `bash` tool runs most commands
+unasked, and a command that edits this install's own files - the gate's config
+included - is one of them. Manual is the mode in which nothing does.
+
 ## Verified behaviour
 
 | Attempt | Result |
@@ -403,6 +487,13 @@ Mac the answer remains `pf` and an administrator.
 | `PI_ELM_UNLOCK=1 PI_ELM_ALLOWED_PROVIDERS="elm,elm-shim,anthropic"` | Anthropic returns — the intended escape hatch |
 | `pi --list-models` | ELM only |
 | `/share`, `/bug` | absent from autocomplete; both refuse, and their upload paths throw |
+| `pi auth login <provider>`, `pi mcp ...`, `pi config`, `pi list`, `pi update --models` | refused by the launcher (exit 2), saying what to use instead; `pi.orig` refuses them too |
+| `pi --manual`: `ls`, an edit, `python`, a new sub-agent | each asks first, as decided by the patched gate's own code (`tests/test_permission_modes.py`); reading in the project does not |
+| `pi --manual`, a sub-agent launch allowed once, its agent writing a file (live, RPC mode, 2026-11-13) | the launch's ask carries the note; the write is not asked. With `approvedAgents` set to `"manual"`: no note, and the write comes to you as its own ask |
+| `PI_ELM_PERMISSION_MODE=yolo pi` | runs in the install's mode, with a note that the environment cannot loosen it |
+| a new session, or `pi --continue` after a yolo one | starts in the default, manual unless auto was made the default; never yolo |
+| agent writing `agent/permission-mode` with a file tool or a shell redirect | denied by the gate, in every mode |
+| agent running `pi --yolo -p ...` in `bash` | asks first, in auto as in manual |
 | asking the model to list its tools | none of them web |
 | the same with `PI_ELM_WEB=1` | the web tools return |
 | `pi -e ./ssh.ts --ssh host` | refused by layer 2 (exit 2) |

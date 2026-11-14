@@ -10,6 +10,7 @@ failure names the file, link or package that broke.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -530,7 +531,10 @@ class ScriptSyntaxTests(unittest.TestCase):
         self.assertIn('[ "$SOURCE_ONLY" = "1" ] || elm_py -m unittest discover -s tests -v\n', check)
         self.assertIn('if [ "$SOURCE_ONLY" = "0" ] && command -v shellcheck', check)
         self.assertIn("./scripts/check.sh --source-only", (ROOT / "install.sh").read_text())
+        # This interpreter, named: a checkout has no .python, and on a machine whose own python3 is
+        # older than 3.8 (AlmaLinux 8: 3.6) check.sh would otherwise find none and stop there.
         run = subprocess.run(["bash", "scripts/check.sh", "--source-only"], cwd=ROOT,
+                             env={**os.environ, "ELM_PI_PYTHON": sys.executable},
                              capture_output=True, text=True, timeout=120)
         self.assertEqual(0, run.returncode, run.stderr)
         self.assertNotIn("Ran ", run.stdout + run.stderr)

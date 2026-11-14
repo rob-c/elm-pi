@@ -49,7 +49,8 @@ Nothing outside the project or this install changes.
 
 - **A Python package**: into the project's environment, or this install's
   (`$ELM_PI_AGENT_PYTHON` set): `pip install <package>` - see
-  `scientific-python`.
+  `scientific-python`. "externally-managed-environment" is the system's Python
+  saying no: never `--break-system-packages` (refused).
 - **Anything on conda-forge**, with pixi - no sudo, everything in
   `agent/pixi`:
   - once, without installing: `pixi exec --spec <package> <command> ...`

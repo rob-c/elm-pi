@@ -16,11 +16,11 @@
 #
 # fd 10.4 and later are built against a macOS SDK newer than the Intel Macs in
 # the estate, so x86_64-apple-darwin stays on 10.3.0 - the same pin pi uses.
-# ast-grep publishes no musl build, so its Linux assets are the glibc ones.
+# ast-grep's Linux assets are the glibc ones (no musl build before 0.51.2).
 50d30f13fe3d5914b14c4fff5abcbd4d0cdab4b855970a6956f4f006c17117a3  fd/10.3.0/fd-v10.3.0-x86_64-apple-darwin.tar.gz
-b67e1836c468e42e411984b56e52fa7abec08c2bd22c867398e7cc134aac5e12  fd/10.5.0/fd-v10.5.0-aarch64-apple-darwin.tar.gz
-761c72dc8e120d85b22292063be8a796e2eeb20eb3e4f38b8fa2343ccf3514a7  fd/10.5.0/fd-v10.5.0-x86_64-unknown-linux-musl.tar.gz
-d76c4317f7d5dba69f8a2a15856c90c777e7f0dd4e85f0de8c76de6992c374d4  fd/10.5.0/fd-v10.5.0-aarch64-unknown-linux-musl.tar.gz
+81bf98a16d3d7230e4a9123fcede243d71ea31a577113476ed43f1cdf4773162  fd/10.5.2/fd-v10.5.2-aarch64-apple-darwin.tar.gz
+7e2d07fa2b8807642aaec67b7e2972a9fbe4db26fcb340a7372392db42b26694  fd/10.5.2/fd-v10.5.2-x86_64-unknown-linux-musl.tar.gz
+63ea52cb31586e6d98efa2f06d73d542f16c7d0c4af0f07b579aaf9714cf907a  fd/10.5.2/fd-v10.5.2-aarch64-unknown-linux-musl.tar.gz
 af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1  rg/15.2.0/ripgrep-15.2.0-x86_64-apple-darwin.tar.gz
 3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4  rg/15.2.0/ripgrep-15.2.0-aarch64-apple-darwin.tar.gz
 33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c  rg/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz
@@ -31,36 +31,37 @@ e94b266e3c26690550006abe63152b782280f4e14374accdf04cbde844f00bc0  jq/1.8.2/jq-ma
 b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f  jq/1.8.2/jq-linux-amd64
 8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309  jq/1.8.2/jq-linux-arm64
 
-caa513cb04f3804b34d4752f0e0d7904fecb9e7cf1d34081289f83259319a7f6  yq/4.53.6/yq_darwin_amd64
-cceb0b8d71ea5294334121f8429f33f92b920e7217d904a2f9f35443968ac424  yq/4.53.6/yq_darwin_arm64
-c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385  yq/4.53.6/yq_linux_amd64
-88a1016bc1d657375a35864e4f44b6f333df8ff97b559f51bba0adcb2169df09  yq/4.53.6/yq_linux_arm64
+96d5105ffd693d6845c54fbd825b2d1bbdb8619e0a2ce6af95e5654e841e0984  yq/4.54.3/yq_darwin_amd64
+a2aebb93b5bdcb61bb76f630e42a0ef6a3ee10842a6516cd7b9e4080786ec593  yq/4.54.3/yq_darwin_arm64
+129534601871538efe0ba4c5e62a34fb1d5f469bcb975c4fddeb467d82974973  yq/4.54.3/yq_linux_amd64
+89f69310b61b68d1245065a1241d1fc843f7a36cd6103ffd77ad987613bd1b67  yq/4.54.3/yq_linux_arm64
 
 3c89db4edcab7cf1c27bff178882e0f6f27f7afdf54e859fa041fca10febe4c6  shellcheck/0.11.0/shellcheck-v0.11.0.darwin.x86_64.tar.xz
 56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79  shellcheck/0.11.0/shellcheck-v0.11.0.darwin.aarch64.tar.xz
 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  shellcheck/0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
 12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588  shellcheck/0.11.0/shellcheck-v0.11.0.linux.aarch64.tar.xz
 
-b2ffd26f42810340326a9e8a084bdc3647a8795c1a3f21fc06bd7bef3c7c5b2c  ast-grep/0.45.3/app-x86_64-apple-darwin.zip
-6d2279dea5bea2ad79c66ea93f5fe54ba926e398a8a26de76c56db68fe59eac6  ast-grep/0.45.3/app-aarch64-apple-darwin.zip
-f8ac830881339d1edee6b2652f54798c0f4da5a827f2db38a08ee31117783ce8  ast-grep/0.45.3/app-x86_64-unknown-linux-gnu.zip
-b39cfbc58da4b869a88b8a4bc57bd5deb0d24541e704cf7c257da7b53ec81c8f  ast-grep/0.45.3/app-aarch64-unknown-linux-gnu.zip
-0c4346de7abdb49495b393b9ec809fe387aa43e586be20fecb972216c1e71732  uv/0.12.24/uv-aarch64-apple-darwin.tar.gz
-4fa82e37cb94767661f532b001e470b67a186c7260e305bd84ddb78fd545c0b6  uv/0.12.24/uv-x86_64-apple-darwin.tar.gz
-7f9ab4726d743b6a92e310477a7840c8a8a7b3938cb3c4657d541342fca75011  uv/0.12.24/uv-aarch64-unknown-linux-musl.tar.gz
-48170bd200a5430298c18f3b264485a1f3a8605f01088277daf6e37633edf0f5  uv/0.12.24/uv-x86_64-unknown-linux-musl.tar.gz
+ef347c331d97cb6a043809091bd96bdd64de6a8354f01da66764496885230591  ast-grep/0.51.2/app-x86_64-apple-darwin.zip
+ea4f4082d25e5f8e0450add6fd488dd008a373c90483cc2031759c8431f1dcfb  ast-grep/0.51.2/app-aarch64-apple-darwin.zip
+40604c21c38d4c7581c56bdddeef277c56bf3c0113620aa96e78ae87e82366df  ast-grep/0.51.2/app-x86_64-unknown-linux-gnu.zip
+c3ab2bd43959db28621dc1551c13ea5fe5db4c1fc7b18086dade6b65042c78d0  ast-grep/0.51.2/app-aarch64-unknown-linux-gnu.zip
+81b811b57e4624df7ed3aac148e0359100d9962f3d9dce00aec533dc2e086731  uv/0.13.7/uv-aarch64-apple-darwin.tar.gz
+20c47e4c1f630b8abaff8c291fa9b9aa300fef92c4fbff95adf198b55287cda7  uv/0.13.7/uv-x86_64-apple-darwin.tar.gz
+2d3ec076a0c4c0e8250bb6418c44080828b544f1a3be0b6e46adf9fb6923de45  uv/0.13.7/uv-aarch64-unknown-linux-musl.tar.gz
+287491da03f2a785c70fa75b13e1f849918c2f2b5415fe84876b8214eeb792f9  uv/0.13.7/uv-x86_64-unknown-linux-musl.tar.gz
 441b486b0c4d89a7465fc958dc6f3bbd0339e270230e5f81a520b04d202a9838  mlr/6.22.0/miller-6.22.0-darwin-amd64.tar.gz
 b99af86bf902c4fd269c28ec4142111dc27815b3ae63801baceaa001d09b9fd7  mlr/6.22.0/miller-6.22.0-darwin-arm64.tar.gz
 0551f8696e8f42dae1c67c782bbe04e0589e718268722fa98561e2566e4623b8  mlr/6.22.0/miller-6.22.0-linux-amd64.tar.gz
 86dbf9078cf4cd96fef7a8306b3786a441cdf7f8526324a233e38c37c4bfe742  mlr/6.22.0/miller-6.22.0-linux-arm64.tar.gz
-0135923e443863db251a26bd78eabc6efb4b59d67b8cdc5469e3e1da26bc0ce2  resvg/0.48.1/resvg-macos-x86_64.zip
-06440eb5aa14a28cbfc7e40ae39e1ffa71adc051b89fbaa913b4f1d9b905d09f  resvg/0.48.1/resvg-macos-aarch64.zip
-fa8c26495a187e592c501db15bf9e8a9fdc051d4b2b336b39703d5b59f912b9d  resvg/0.48.1/resvg-linux-x86_64.tar.gz
-a0e5dc45a2ced8987a4df3c597d96528c87089ea3481ed4bb7c27404699540f1  pixi/0.82.0/pixi-x86_64-apple-darwin.tar.gz
-3b48bd27de4db31381dc1d5b3d069c98852c0e923aefa30dae0452a088c0810e  pixi/0.82.0/pixi-aarch64-apple-darwin.tar.gz
-d305406a7630aab6484419833f9204b2fe9ea40632da8bb536496f123ca86e7f  pixi/0.82.0/pixi-x86_64-unknown-linux-musl.tar.gz
-b18dadba196c0c77781533184ec3e7757422c0ae9bed0047ff7ca1c688c0f62b  pixi/0.82.0/pixi-aarch64-unknown-linux-musl.tar.gz
-88ee16f88dba9d440e06375f46898ec85baf578042ad086764d5a33558bb6e17  ruff/0.17.1/ruff-x86_64-apple-darwin.tar.gz
-1c8e6e36538eaa0b996378a20c226403c4ca6369ac24884751b024d3a9530b86  ruff/0.17.1/ruff-aarch64-apple-darwin.tar.gz
-2d9878b5e6a3d0dedadbfc01a64bfe54e72f560adbfd235937cd29e1fc9238e3  ruff/0.17.1/ruff-x86_64-unknown-linux-musl.tar.gz
-255404ccf2f7950ff6aad8858321a6f416fe2a840ae4e37dfb4c21cb8774f325  ruff/0.17.1/ruff-aarch64-unknown-linux-musl.tar.gz
+7c92cba55348f0254707c8d2c61e71651296981f8ccfadf8477782e91db5e171  resvg/0.49.0/resvg-macos-x86_64.zip
+847acb5210c7c6244b5e8f07dd62fa1ce596108cce8193628ebfd5750504b259  resvg/0.49.0/resvg-macos-aarch64.zip
+216637e75e909e53e3098b0875cd5f7da2fdc8b4359771b4a29b539afff9d3f5  resvg/0.49.0/resvg-linux-x86_64.tar.gz
+00356cb6984836d7638fe10597a01ec4776b0c356e164538f165eca067f0d982  resvg/0.49.0/resvg-linux-aarch64.tar.gz
+a633a4f8276955b73248397c17ce77380eb7133dc96c54bc271239b7dc9b8837  pixi/0.84.2/pixi-x86_64-apple-darwin.tar.gz
+039d4b48c7e17bc62a36faa2af1b13d0d187f5dd6e8fea17e0587302438df6e6  pixi/0.84.2/pixi-aarch64-apple-darwin.tar.gz
+6d2a576bde0a7b26533a068fec0aea6e4ee21c36668efc1dc73fce90110906ae  pixi/0.84.2/pixi-x86_64-unknown-linux-musl.tar.gz
+0957b6352d077bb3ffcce913f90b1e6cfbc6b98888a45d59ee2910e8c4811110  pixi/0.84.2/pixi-aarch64-unknown-linux-musl.tar.gz
+0475a156ae8d73ba3386c90207804a72b3d7002ceb9dbca38dabc5d84aa95c9b  ruff/0.17.4/ruff-x86_64-apple-darwin.tar.gz
+6ef8b3a7fd5294f5e8384ceb29784a6f5657da0853824312b1d2cef53aef17af  ruff/0.17.4/ruff-aarch64-apple-darwin.tar.gz
+d1d6ec9ce1ce0c01e23532a157a677077ba1f82f7cd2cde6f0bd75e65f85df93  ruff/0.17.4/ruff-x86_64-unknown-linux-musl.tar.gz
+71491cf93242d1bde15dcc628fd105f27c54738bef6b94050b9363ba6795f97e  ruff/0.17.4/ruff-aarch64-unknown-linux-musl.tar.gz

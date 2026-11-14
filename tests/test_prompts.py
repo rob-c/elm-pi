@@ -58,6 +58,18 @@ class ChildContextTests(unittest.TestCase):
             meta = frontmatter(text(name))
             self.assertNotIn("inheritGlobalContext", meta, name)
             self.assertIn("pin_instruction", meta["excludeTools"], name)
+            # The workflow tools reached every child although the parent had excluded them (test3):
+            # ~6.9k characters of definitions on every child request.
+            for tool in ("workflow", "workflow_control"):
+                self.assertIn(tool, meta["excludeTools"].split(", "), f"{name}: {tool}")
+
+    def test_a_qwen_child_leaves_the_parents_runs_and_files_alone(self):
+        # test4: two children polled the parent's run 394 and 705 times; one wrote stubs over siblings' files
+        qwen = text("agents/qwen.md")
+        self.assertIn("The parent's runs are not yours.", qwen)
+        self.assertIn("never call, poll or wait on it", qwen)
+        self.assertIn("Write only the files your task names.", qwen)
+        self.assertIn("never a file you only saw in the", qwen)
 
     def test_children_carry_the_essential_rules(self):
         for name in ("agents/qwen.md", "agents/llama.md"):

@@ -39,12 +39,14 @@
       "jupytext",
       "nbformat",
       "nbconvert",
-      "ipykernel"
+      "ipykernel",
+      "pytest"
     ]
   },
   "models": {
     "qwen": "Qwen/Qwen3.5-397B-A17B-FP8",
-    "llama": "meta-llama/Llama-3.3-70B-Instruct"
+    "llama": "meta-llama/Llama-3.3-70B-Instruct",
+    "mistral": "mistralai/Mistral-Small-4-119B-2603"
   },
   "allowedProviders": [
     "elm",
@@ -82,6 +84,7 @@
     "qwen-token-plan",
     "qwen-token-plan-cn",
     "qwen-token-plan-individual",
+    "qwen-token-plan-individual-cn",
     "radius",
     "together",
     "typesafe",
@@ -159,7 +162,7 @@
     "web_enable"
   ],
   "excludedTools": {
-    "_comment": "Tools not sent to the model, beside the web tools: every tool's definition goes with every request, so one rarely used costs its length on all of them. 'always': never offered (notebook edits with simple substitutes: write_cell sets a cell's type, nbconvert clears outputs, delete and insert move). 'workflows': offered only in a session started with `pi --workflows` (or PI_ELM_WORKFLOWS=1). pi ignores an exclusion for a tool that does not exist, so a renamed tool must be renamed here too.",
+    "_comment": "Tools not sent to the model, beside the web tools: every tool's definition goes with every request, so one rarely used costs its length on all of them. 'always': never offered (notebook edits with simple substitutes: write_cell sets a cell's type, nbconvert clears outputs, delete and insert move). 'workflows': offered in every session except one started with `pi --no-workflows` (or PI_ELM_WORKFLOWS=0). pi ignores an exclusion for a tool that does not exist, so a renamed tool must be renamed here too.",
     "always": [
       "notebook_merge",
       "notebook_change_cell_type",
@@ -172,10 +175,35 @@
       "workflow_control"
     ]
   },
+  "permissionModes": {
+    "_comment": "How much the agent may do without asking. 'manual': nothing runs without your yes - every allow is turned into an ask, except the tools in manualNoPrompt, which only read files inside the project, talk to you, or keep the session's own notes. 'auto': the permission gate's rules as written - most commands and every edit inside the project run, the ones its bash rules mark ask (git push, brew install, pi update...) ask first. 'yolo': every ask is answered yes, for the rest of one session only; a deny is still a deny. 'default' is the mode every new session starts in, manual or auto - never yolo. /mode auto or /mode manual in a session can make that choice the install's default instead (saved in agent/permission-mode); pi --manual/--auto/--yolo picks the mode for one run without changing it. The mode is applied by the patch patch-pi.py --gate makes to pi-permission-system.",
+    "default": "manual",
+    "_approvedAgents": "What the sub-agents a launch starts run in, when the session is manual. 'auto': allowing the launch - it asks, with a note saying this - lets its agents run commands and edit files in the project without asking; what auto asks about (git push, installs, ...) still comes to you. 'manual': every one of their calls comes to you as well, and so does the start of each child of a parallel or chain run (pi-subagents' subagent_launch), which with 'auto' is part of the launch you allowed. Workflow agents (pi --workflows) are not covered: they cannot ask, so in manual what would ask is refused.",
+    "approvedAgents": "auto",
+    "manualNoPrompt": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "outline",
+      "view",
+      "notebook_read_cell",
+      "notebook_read_cell_output",
+      "notebook_summary",
+      "ask_user_question",
+      "todo",
+      "pin_instruction",
+      "unpin_instruction",
+      "bg_wait",
+      "contact_supervisor",
+      "tool_search"
+    ]
+  },
   "requiredExtensions": [
     "elm-only.ts",
     "protected-paths.ts",
     "command-guard.ts",
+    "permission-mode.ts",
     "todo.ts",
     "elm-shim.ts",
     "workflow-model-scope.ts",
@@ -185,7 +213,18 @@
     "view-outputs.ts",
     "install-notes.ts",
     "command-output.ts",
-    "remote-research.ts"
+    "remote-research.ts",
+    "claim-guard.ts",
+    "repeat-guard.ts",
+    "ultracode-note.ts",
+    "wait-guard.ts",
+    "image-mentions.ts",
+    "owner-guard.ts",
+    "server-reaper.ts",
+    "report-guard.ts",
+    "date-note.ts",
+    "workflow-script.ts",
+    "notebook-outputs.ts"
   ],
   "untrustedFolders": {
     "_comment": "Folders that are never a project: pi will not start a session in one (PI_FORCE=1 overrides) and project trust is never granted to one or inherited from one. 'exact' folders are containers - the folder itself, not what is under it; 'tree' folders hold credentials or the system, so everything under them counts. Every ancestor of home is added automatically. ~ is home. See LOCKDOWN.md.",

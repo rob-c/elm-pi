@@ -1,0 +1,79 @@
+{
+ "qwen-t0.2": {
+  "model": "qwen",
+  "label": "Qwen, thinking off",
+  "temperature": 0.2,
+  "shipped": false,
+  "settings": "temperature 0.2, top_p 0.8, top_k 20, min_p 0, presence_penalty 1.5"
+ },
+ "qwen-t0.4": {
+  "model": "qwen",
+  "label": "Qwen, thinking off",
+  "temperature": 0.4,
+  "shipped": false,
+  "settings": "temperature 0.4, top_p 0.8, top_k 20, min_p 0, presence_penalty 1.5"
+ },
+ "qwen-t0.7": {
+  "model": "qwen",
+  "label": "Qwen, thinking off",
+  "temperature": 0.7,
+  "shipped": true,
+  "settings": "temperature 0.7, top_p 0.8, top_k 20, min_p 0, presence_penalty 1.5"
+ },
+ "qwen-t1.0": {
+  "model": "qwen",
+  "label": "Qwen, thinking off",
+  "temperature": 1.0,
+  "shipped": false,
+  "settings": "temperature 1.0, top_p 0.8, top_k 20, min_p 0, presence_penalty 1.5"
+ },
+ "mistral-off-t0.0": {
+  "model": "mistral",
+  "label": "Mistral, reasoning off",
+  "temperature": 0.0,
+  "shipped": false,
+  "settings": "--thinking off, temperature 0.0, claim guard on"
+ },
+ "mistral-off-t0.15": {
+  "model": "mistral",
+  "label": "Mistral, reasoning off",
+  "temperature": 0.15,
+  "shipped": true,
+  "settings": "--thinking off, temperature 0.15, claim guard on"
+ },
+ "mistral-off-t0.4": {
+  "model": "mistral",
+  "label": "Mistral, reasoning off",
+  "temperature": 0.4,
+  "shipped": false,
+  "settings": "--thinking off, temperature 0.4, claim guard on"
+ },
+ "mistral-off-t0.7": {
+  "model": "mistral",
+  "label": "Mistral, reasoning off",
+  "temperature": 0.7,
+  "shipped": false,
+  "settings": "--thinking off, temperature 0.7, claim guard on"
+ },
+ "llama-shim-t0.0": {
+  "model": "llama",
+  "label": "Llama, through the shim",
+  "temperature": 0.0,
+  "shipped": true,
+  "settings": "SHIM_TEMPERATURE 0.0 (the temperature tool requests reach ELM at), top_p 0.9"
+ },
+ "llama-shim-t0.3": {
+  "model": "llama",
+  "label": "Llama, through the shim",
+  "temperature": 0.3,
+  "shipped": false,
+  "settings": "SHIM_TEMPERATURE 0.3 (the temperature tool requests reach ELM at), top_p 0.9"
+ },
+ "llama-shim-t0.6": {
+  "model": "llama",
+  "label": "Llama, through the shim",
+  "temperature": 0.6,
+  "shipped": false,
+  "settings": "SHIM_TEMPERATURE 0.6 (the temperature tool requests reach ELM at), top_p 0.9"
+ }
+}

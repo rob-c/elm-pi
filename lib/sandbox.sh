@@ -230,6 +230,57 @@ EOF
   return 1
 }
 
+# Install-time downloads ride out a bad network: a reset connection, a DNS
+# lookup that fails once, a refused connect, a 5xx. Sets two arrays:
+#   ELM_CURL_RETRY            any failure is retried - for public files, where
+#                             a failure is almost always the network
+#   ELM_CURL_RETRY_TRANSIENT  timeouts, refused connects, 408/429/5xx only - for
+#                             the gateway with the key, where a 401 is final
+# curl's plain --retry covers only the transient list; --retry-all-errors (curl
+# 7.71) adds the rest, and AlmaLinux 8's curl (7.61) lacks it, so it is used
+# only where curl has it. Waits are curl's own 1, 2, 4, 8, 16s, and
+# --retry-max-time keeps a dead mirror from holding the install for long.
+# The first is set by calling elm_curl_retry, which asks curl what it supports;
+# the second needs no asking.
+ELM_CURL_RETRY_TRANSIENT=(--retry 5 --retry-connrefused --retry-max-time 120)
+elm_curl_retry() {
+  ELM_CURL_RETRY=("${ELM_CURL_RETRY_TRANSIENT[@]}")
+  if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+    ELM_CURL_RETRY+=(--retry-all-errors)
+  fi
+}
+
+# Every program the install downloads for Linux - Node, the standalone Python,
+# the tools built for glibc - names the system's glibc loader as its
+# interpreter, at a fixed path. NixOS has nothing there unless nix-ld is on, and
+# a musl system (Alpine) has its own loader instead. There each download fails
+# as "cannot execute: required file not found", which bootstrap went on to
+# report as "npm is not isolated to this install: npm does not run". Said up
+# front instead. Sets ELM_LOADER_ERROR and returns 1 when the loader is missing.
+elm_check_loader() {
+  local loader
+  ELM_LOADER_ERROR=""
+  [ "$(uname -s)" = "Linux" ] || return 0
+  case "$(uname -m)" in
+    x86_64|amd64)  loader=/lib64/ld-linux-x86-64.so.2 ;;
+    aarch64|arm64) loader=/lib/ld-linux-aarch64.so.1 ;;
+    *) return 0 ;;
+  esac
+  [ -e "$loader" ] && return 0
+  if [ -e /etc/NIXOS ] || [ -d /nix/store ]; then
+    ELM_LOADER_ERROR="this system has no $loader, so the Node, Python and tools elm-pi downloads cannot run.
+    On NixOS, nix-ld provides it. Add
+      programs.nix-ld.enable = true;
+    to /etc/nixos/configuration.nix, run  sudo nixos-rebuild switch,  log out and back in
+    (that sets NIX_LD), then run the install again."
+  else
+    ELM_LOADER_ERROR="this system has no $loader: elm-pi needs a glibc-based Linux (Debian, Ubuntu,
+    Fedora, RHEL, Alma, Rocky, Arch, SUSE...). The Node and tools it downloads cannot run on a
+    musl system such as Alpine."
+  fi
+  return 1
+}
+
 # A standalone CPython (astral-sh/python-build-standalone, install_only), for
 # machines with no usable Python of their own: macOS 11 without the Command Line
 # Tools, an old RHEL login node with 3.6 and conda. Pinned like Node, verified
@@ -261,7 +312,8 @@ elm_install_standalone_python() {   # $1 = install dir; prints progress, returns
   asset="${spec%% *}"; sha="${spec##* }"
   tmp="$(mktemp -d)"
   echo "    downloading $asset (~20MB)"
-  if ! curl -q -fsSL -o "$tmp/$asset" \
+  elm_curl_retry
+  if ! curl -q -fsSL "${ELM_CURL_RETRY[@]}" -o "$tmp/$asset" \
        "https://github.com/astral-sh/python-build-standalone/releases/download/$ELM_STANDALONE_PY_RELEASE/${asset//+/%2B}"; then
     rm -rf "$tmp"; echo "    download failed"; return 1
   fi
@@ -444,22 +496,6 @@ elm_private_tmpdir() {
     return 1
   fi
   TMPDIR="$dir"; export TMPDIR
-}
-
-# node_modules directories in the install's ancestors, one per line. Node and
-# jiti both search every ancestor of the importing file, so any of these can
-# supply a package to pi. lib/node-guard.mjs stops Node's own loader using
-# them; jiti resolves on its own and only this check covers it.
-elm_external_module_dirs() {   # $1 = install dir
-  local start dir
-  for start in "$1" "$(cd "$1" && pwd -P)"; do
-    dir="$start"
-    while [ -n "$dir" ] && [ "$dir" != "/" ]; do
-      dir="${dir%/*}"
-      if [ -e "${dir:-}/node_modules" ]; then printf '%s\n' "${dir:-}/node_modules"; fi
-    done
-  done | awk '!seen[$0]++'
-  return 0
 }
 
 # Makes every code tree in the install writable by its owner only (owner and

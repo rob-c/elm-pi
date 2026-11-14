@@ -84,8 +84,13 @@ _pi_flag pytest --color=yes
 # what diff says must not change. Any argument that may mean -r or name a
 # directory counts; a wrong guess costs a sed. LC_ALL=C: sed must pass any
 # bytes through, a binary's included.
+#
+# The probe runs inside $(...). Run as a command of this function, it broke
+# `diff <(a) <(b)` under bash 3.2 (macOS's /bin/bash, which pi's bash tool
+# uses): bash 3.2 closes a function's <(...) pipes once the function itself
+# runs a program, so the real diff got "/dev/fd/63: Bad file descriptor".
 _pi_has diff && diff() {
-	if _pi_here && command diff --color=always /dev/null /dev/null >/dev/null 2>&1; then
+	if _pi_here && [ -n "$(command diff --color=always /dev/null /dev/null >/dev/null 2>&1 && echo y)" ]; then
 		local arg dirs=""
 		for arg in "$@"; do
 			case "$arg" in

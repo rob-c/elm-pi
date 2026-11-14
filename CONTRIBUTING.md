@@ -26,9 +26,45 @@ and macOS.
   `templates/settings.json` `packages`: the ones pi loads.
 - `config/versions.json`: the versions of both trees this repo last tested.
 - `templates/`: generated agent code and initial configuration. Model strings use
-  `@QWEN_MODEL@` and `@LLAMA_MODEL@`; `scripts/elm_config.py` renders them.
+  `@QWEN_MODEL@`, `@MISTRAL_MODEL@` and `@LLAMA_MODEL@`; `scripts/elm_config.py`
+  renders them.
 
 Do not edit generated files under `agent/` as the durable version of a change.
+
+## Developing elm-pi with elm-pi
+
+elm-pi can work on itself, in a clone - never in the install it runs on, which
+its guards refuse to every write (protected-paths.ts for the tools,
+command-guard.ts for the shell). A session started in a clone reads the
+repository's own `AGENTS.md`, which gives it these steps:
+
+```bash
+scripts/dev-setup.sh                  # once: this clone becomes a working install, offline
+scripts/new-extension <name> "<what it does>"   # extension, test, config entry, INSTALL.md row
+scripts/check-extension <name>        # loads it with pi's own loader; registered, documented, tested?
+```
+
+`scripts/dev-setup.sh` copies Node, pi and the extension packages from the
+install the shell runs under (`--from DIR` for another) as APFS clones or
+reflinks, then runs `bootstrap.sh` in a clean environment, which finds every
+tree at its expected version and only renders `agent/` - no network, which an
+elm-pi session's egress proxy would refuse. Run again, it re-renders: that is
+how an edited template reaches the clone's `agent/` for a live trial
+(`<clone>/pi --auto -p ...` from a new folder outside the clone, made with
+`mktemp -d`: the clone's `.pi/` is gitignored, and a tool that honours
+.gitignore finds nothing there).
+
+An install carries `typescript` and `typebox` (about 36 MB) for one reason:
+`check-extension` type-checks an extension in a clone that has no network, and
+dev-setup copies them over with the rest. A type check is what catches an import
+left out of a tool's `renderCall`, which no load, test or `pi -p` run reaches;
+`check-extension` also calls each tool's `renderCall` and `renderResult` once.
+
+`scripts/check-extension` runs on the clone's own Node and pi after dev-setup,
+else the running install's; `ELM_PI_PI_ROOT`, which its wrapper sets, is the
+folder whose `node_modules` holds the pi it loads with. A new extension's test
+uses `tests/extension_harness.py`: a few lines of JavaScript run against the
+extension with a recording stand-in for pi.
 
 ## Updating npm dependencies
 
@@ -78,6 +114,14 @@ cp agent/installed-versions.json config/versions.json
 Runtime installs use `npm install --ignore-scripts`, and no package script is
 re-enabled: the set has no native dependency to rebuild.
 
+Two of the packages are patched at install: pi's bundle (`/share`, `/bug` and
+pi's own subcommands) and `@gotgenes/pi-permission-system`, which applies the
+permission modes (`patch-pi.py --gate`). Both patches are anchored to the
+release they were written against and fail the install, on purpose, when a new
+release moves the code. Moving either one forward means re-deriving its anchors
+in `patch-pi.py`; `tests/test_permission_modes.py` then checks, against the
+installed gate, that each mode still decides what it should.
+
 What this trades away, deliberately: transitive dependencies are not pinned, so
 a build is still not exactly reproducible, a bad upstream release can reach an
 install on its next `pi update` - though one that breaks the config is rolled
@@ -97,3 +141,25 @@ updates every runtime consumer through `scripts/elm_config.py`.
 When pi adds or renames a provider, `tests/test_project.py` fails and names it;
 add its id to `builtinProviders` and its credential environment variables to
 `providerCredentials`, as described in `LOCKDOWN.md`.
+
+## Changing a model setting
+
+Sampling, thinking levels, output limits, compat flags and task routes are
+measured choices, not defaults: each is in `docs/tuning/decisions.json` with the
+run it came from. To change one:
+
+1. Measure it. `docs/tuning/harness/` has the A/B runner (`ab6.py`: arms in their
+   own installs, run side by side on the same tasks), the task sets and their
+   checks (`ab.py`, `ab2.py`, `hard.py`), and the compaction, suggestion and
+   gateway probes. Check a new task against the untouched project (it must fail)
+   and a hand-written solution (it must pass) before any model runs it.
+2. Keep the results in `docs/tuning/<date>/` and add their table to
+   `docs/tuning/harness/tables.py` and `docs/tuning/README.md`.
+3. Change the template, record the decision in `docs/tuning/decisions.json`,
+   and give bootstrap.sh the migration for existing installs if the key is one
+   it reapplies.
+
+`tests/test_tuning_evidence.py` fails when a README table no longer matches its
+results or a recorded decision is not what the templates ship;
+`tests/test_model_settings.py` and `tests/test_model_requests.py` check what each
+model is configured with and what pi actually sends it.

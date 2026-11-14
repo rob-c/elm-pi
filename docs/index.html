@@ -295,7 +295,7 @@
       <button class="copy" type="button" data-copy="cmd">Copy</button>
 <pre id="cmd">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
     </div>
-    <p class="also">Or with every optional extra &mdash; the agent&rsquo;s own Python and offline PyPI search, about 2.4&nbsp;GB rather than 1&nbsp;GB:</p>
+    <p class="also">About 2&nbsp;GB, the agent&rsquo;s own scientific Python included. Or with offline PyPI search as well, about 2.4&nbsp;GB:</p>
     <div class="plate alt">
       <button class="copy" type="button" data-copy="cmd-all">Copy</button>
 <pre id="cmd-all">ELM_PI_WITH_ALL=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
@@ -393,6 +393,7 @@
   <pre class="block">pi                           # interactive, in whatever directory you're working in
 pi -p "explain this repo"    # one-shot
 pi --fast -p "..."           # one-shot, much quicker to start
+pi --auto -p "run the tests"  # one-shot that may run commands and edit
 pi update                    # latest elm-pi, pi and extensions
 cat paper.tex | pi -p "find the undefined references"</pre>
   <p>
@@ -412,12 +413,13 @@ cat paper.tex | pi -p "find the undefined references"</pre>
 <section>
   <h2>What you get</h2>
   <table>
-    <tr><td><strong>Model</strong></td><td><code>Qwen/Qwen3.5-397B-A17B-FP8</code> &mdash; 262K context, tool calling, vision</td></tr>
+    <tr><td><strong>Model</strong></td><td><code>Qwen/Qwen3.5-397B-A17B-FP8</code> &mdash; 262K context, tool calling, vision. Mistral Small&nbsp;4 119B (<code>pi --mistral</code>) is the other university-hosted model with all three</td></tr>
     <tr><td><strong>Sub-agents</strong></td><td>64-child fan-out budget, Qwen by default, with Llama&nbsp;3.3 via a local tool-call shim as a fallback</td></tr>
     <tr><td><strong>Editing</strong></td><td>anchor-based, which survives long files better than line-number patches</td></tr>
     <tr><td><strong>Memory</strong></td><td>per-project <code>AGENTS.md</code>; there is no memory tool</td></tr>
     <tr><td><strong>Software</strong></td><td>when a task needs something the machine lacks, the agent finds it and installs it the isolated way, without asking: Python packages from PyPI into its own or the project&rsquo;s environment, anything on conda-forge with pixi into <code>agent/pixi</code>, a large toolchain in a container with no network. Homebrew asks you each time; <code>apt</code> and <code>dnf</code> are refused and you get the command to run. Every install is reported &mdash; what, where it lives, how to remove it &mdash; and logged in <code>agent/installs.log</code></td></tr>
     <tr><td><strong>Web</strong></td><td>DuckDuckGo, then Exa; off by default until <code>pi --remote</code>. Without it, the only hosts reachable besides ELM are PyPI, conda-forge and the container registries, for installing software</td></tr>
+    <tr><td><strong>Permissions</strong></td><td>three modes. Every session starts in <code>manual</code>, where nothing but reading runs without your yes; <code>auto</code> lets most work run and asks before the risky commands, and the <code>/mode</code> menu can make it the default; <code>yolo</code> answers every ask yes, for one session only. Sub-agents ask through the session that started them</td></tr>
     <tr><td><strong>Sessions</strong></td><td>per-project, private to your account (directory mode 700; existing files tightened to mode 600)</td></tr>
   </table>
   <p>
@@ -470,7 +472,7 @@ cat paper.tex | pi -p "find the undefined references"</pre>
     <button class="copy" type="button" data-copy="cmd-end">Copy</button>
 <pre id="cmd-end">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>
   </div>
-  <p>With every optional extra &mdash; the agent&rsquo;s own Python and offline PyPI search, about 2.4&nbsp;GB rather than 1&nbsp;GB:</p>
+  <p>With offline PyPI search as well as the agent&rsquo;s own Python, about 2.4&nbsp;GB rather than 2&nbsp;GB:</p>
   <div class="plate">
     <button class="copy" type="button" data-copy="cmd-all-end">Copy</button>
 <pre id="cmd-all-end">ELM_PI_WITH_ALL=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rob-c/elm-pi/main/install.sh)"</pre>

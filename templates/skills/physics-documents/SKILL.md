@@ -30,6 +30,15 @@ description: "Slides, notes, reports and papers in LaTeX/Beamer or Markdown - ou
 - Build with `latexmk -pdf main.tex` (or `pdflatex` twice) and fix every error
   and undefined reference before reporting; give the page/slide count. No TeX
   on the machine: build in a container (the `containers` skill).
+- **A length asked for is a requirement.** "3 pages" means the PDF has three:
+  compare the built count with it and cut - a title page, table of contents
+  and `\newpage` are the first to go - then build again. One session delivered
+  six pages for three and called it natural expansion (2026-11-14).
+- **Not built is not finished.** If no build ran - no TeX, no container engine,
+  an error you could not fix - the report's first line says the document has
+  not been compiled and why, then what the user needs (start Docker Desktop,
+  install TeX) and the one command that builds it. Never "complete", "ready"
+  or a slide count you have not seen in a PDF.
 
 ## References
 

@@ -952,7 +952,7 @@ def _open_case(name, allow, hosts, seed):
                 order.append(key)
         text = Path(log).read_text(encoding="utf-8") if os.path.exists(log) else ""
         got = [line[21:] for line in text.splitlines()]
-        self.assertEqual(["OPEN     %s no allowlist in this install (--allow '*')" % h for h in order], got)
+        self.assertEqual(["OPEN     %s recorded, not gated: an open run (pi --remote, --allow '*')" % h for h in order], got)
     return test
 
 
@@ -1257,7 +1257,7 @@ def _open_lines_case(hosts, seed):
                 if key not in order:
                     order.append(key)
         self.assertEqual(sent, len(tunnels))
-        self.assertEqual(["OPEN     %s no allowlist in this install (--allow '*')" % h for h in order],
+        self.assertEqual(["OPEN     %s recorded, not gated: an open run (pi --remote, --allow '*')" % h for h in order],
                          self.log_lines(proxy))
     return test
 

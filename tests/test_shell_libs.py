@@ -43,6 +43,16 @@ def block(text, start, end):
     return text[i:text.index(end, i)]
 
 
+
+def batch_command(bash, script, scratch, *args):
+    """bash running script with $0 "batch" and args as $1..., exactly as `bash -c script batch
+    args...` would - except that the script travels in a file. Linux refuses one argument over
+    128 KiB (MAX_ARG_STRLEN; E2BIG, "Argument list too long"), and these batches grew past it;
+    macOS caps only the total. eval keeps -c's $0 and BASH_SOURCE."""
+    path = Path(scratch) / ".batch.sh"
+    path.write_text(script)
+    return [bash, "-c", '_b=$1; shift; eval "unset _b; $(< "$_b")"', "batch", str(path), *map(str, args)]
+
 DUMP = r'''
 _v() { local _n _s _x; for _n in "$@"; do eval "_s=\${$_n+x}"
   if [ -n "$_s" ]; then eval "_x=\${$_n}"; printf '@@%s=%s\n' "$_n" "$_x"; else printf '@@%s\n' "$_n"; fi; done; }
@@ -71,7 +81,7 @@ def run_batch(prelude, bodies, env, tmp):
     parts = ['T="$1"', DUMP, prelude]
     for i, body in enumerate(bodies):
         parts.append(f'(\n{body}\n) >"$T/.r{i}.out" 2>"$T/.r{i}.err" </dev/null\necho $? >"$T/.r{i}.rc"')
-    subprocess.run([BASH, "-c", "\n".join(parts), "batch", str(tmp)], env=env, cwd=str(tmp),
+    subprocess.run(batch_command(BASH, "\n".join(parts), tmp, tmp), env=env, cwd=str(tmp),
                    check=True, capture_output=True, text=True, timeout=300)
     return [Result(int((tmp / f".r{i}.rc").read_text()), (tmp / f".r{i}.out").read_text(),
                    (tmp / f".r{i}.err").read_text()) for i in range(len(bodies))]
@@ -341,7 +351,9 @@ NAMED = ("ENV", "GZIP", "UNZIP", "UNZIPOPT", "GREP_OPTIONS", "CURL_HOME", "LD_PR
 # Lookalikes: a prefix matches at the start only, and the _ is part of it.
 UNSCRUBBED = ("MY_PYTHON", "XNODE_OPTIONS", "NODEJS_HOME", "GITHUB_TOKEN", "GITLAB_TOKEN", "PIPENV_VENV_IN_PROJECT",
               "VIRTUALENVWRAPPER_PYTHON", "node_options", "Npm_Config_Cache", "BASH_ENV_FILE", "ENVIRONMENT",
-              "LD_RUN_PATH", "DYLD_LIBRARY_PATH", "AWS_PROFILE", "HTTPS_PROXY", "SSH_AUTH_SOCK")
+              "LD_RUN_PATH", "DYLD_LIBRARY_PATH", "AWS_PROFILE", "HTTPS_PROXY", "SSH_AUTH_SOCK",
+              # NixOS's nix-ld: without them no downloaded program starts there (INSTALL.md)
+              "NIX_LD", "NIX_LD_LIBRARY_PATH")
 
 SCRUB_CASES = (
     *(gone(v) for v in PREFIXED),
@@ -435,7 +447,35 @@ def asset(name, system, machine, triple):
                           'OUT="$(elm_standalone_python_asset)" || OUT="NONE"', asset=want)
 
 
+def loader(name, system, machine, path):
+    """elm_check_loader for a faked uname. The loader paths are real ones, so what to expect
+    is read off this machine: OK where the loader exists, otherwise an error that names it,
+    and that names nix-ld where Nix is installed."""
+    missing = path is not None and not Path(path).exists()
+    nix = Path("/etc/NIXOS").exists() or Path("/nix/store").is_dir()
+    return C(name, script=f'uname() {{ case "$1" in -s) echo {system} ;; -m) echo {machine} ;; esac; }}\n'
+                          'elm_check_loader && OUT=0 || OUT=$?\n'
+                          f'case "$ELM_LOADER_ERROR" in *"{path}"*) NAMED=yes ;; *) NAMED=no ;; esac\n'
+                          'case "$ELM_LOADER_ERROR" in *programs.nix-ld.enable*) NIXLD=yes ;; *) NIXLD=no ;; esac',
+             vars={"OUT": "1" if missing else "0", "NAMED": "yes" if missing else "no",
+                   "NIXLD": "yes" if missing and nix else "no"})
+
+
 SANDBOX_CASES = (
+    loader("loader_check_passes_on_macos", "Darwin", "arm64", None),
+    loader("loader_check_ignores_a_cpu_it_has_no_downloads_for", "Linux", "i686", None),
+    loader("loader_check_on_linux_x86_64_looks_in_lib64", "Linux", "x86_64", "/lib64/ld-linux-x86-64.so.2"),
+    loader("loader_check_on_linux_aarch64_looks_in_lib", "Linux", "aarch64", "/lib/ld-linux-aarch64.so.1"),
+    # --retry-all-errors only where this curl has it (AlmaLinux 8's 7.61 does not).
+    C("curl_retry_adds_all_errors_where_curl_has_it",
+      script='curl() { printf "     --retry-all-errors  Retry all errors\\n"; }; elm_curl_retry; OUT="${ELM_CURL_RETRY[*]}"',
+      vars={"OUT": "--retry 5 --retry-connrefused --retry-max-time 120 --retry-all-errors"}),
+    C("curl_retry_without_all_errors_on_an_old_curl",
+      script='curl() { printf "     --retry <num>  Retry request if transient problems occur\\n"; }; elm_curl_retry; '
+             'OUT="${ELM_CURL_RETRY[*]}"',
+      vars={"OUT": "--retry 5 --retry-connrefused --retry-max-time 120"}),
+    C("curl_retry_for_the_gateway_never_retries_every_error",
+      script='OUT="${ELM_CURL_RETRY_TRANSIENT[*]}"', vars={"OUT": "--retry 5 --retry-connrefused --retry-max-time 120"}),
     C("clean_path_drops_fnm_versions", script='OUT="$(elm_clean_path "/h/.fnm/node-versions/v20/bin:/usr/bin")"',
       vars={"OUT": "/usr/bin"}),
     C("clean_path_drops_fnm_multishells", script='OUT="$(elm_clean_path "/tmp/fnm_multishells/1_2/bin:/bin")"',
@@ -791,15 +831,20 @@ class InstallerOptionTests(BatchTest):
 # --- install.sh: what a new install says it needs ------------------------------------------
 
 DISK_CASES = (
+    C("a_new_install_keeps_two_gigabytes", [], out_has=["downloads and keeps about 2.0 GB", "the agent's Python (~1.0 GB)"],
+      out_lacks="more while it runs"),
     C("with_python_keeps_two_gigabytes", ["--with-python"], out_has="downloads and keeps about 2.0 GB",
       out_lacks="more while it runs"),
+    C("the_last_word_on_python_counts", ["--no-python", "--with-python"], out_has="about 2.0 GB"),
     C("with_the_index_keeps_more_and_needs_room_to_build", ["--with-pypi-index"],
       out_has=["downloads and keeps about 2.4 GB", "the agent's Python (~1.0 GB)", "about 1.0 GB more while it runs"]),
-    C("taking_python_back_adds_nothing", ["--no-python"], out_has="downloads and keeps about 1.0 GB"),
+    C("leaving_python_out_keeps_one_gigabyte", ["--no-python"], out_has="downloads and keeps about 1.0 GB",
+      out_lacks="the agent's Python"),
     C("a_git_install_is_not_new", [], git=True, out_lacks="disk space", noted=None),
-    C("exactly_enough_room", [], free=1000 * 1024, out_lacks="DIE"),
-    C("one_kilobyte_short", [], free=1000 * 1024 - 1, rc=1,
-      out_has="DIE only 1.0 GB free on this filesystem, and the install needs about 1.0 GB."),
+    C("exactly_enough_room", [], free=2000 * 1024, out_lacks="DIE"),
+    C("one_kilobyte_short", [], free=2000 * 1024 - 1, rc=1,
+      out_has="DIE only 2.0 GB free on this filesystem, and the install needs about 2.0 GB."),
+    C("room_enough_without_python", ["--no-python"], free=1000 * 1024, out_lacks="DIE"),
     C("not_enough_room_for_python", ["--with-python"], free=1500 * 1024, rc=1,
       out_has=["DIE only 1.5 GB free", "needs about 2.0 GB"]),
     C("not_enough_room_to_build_the_index", ["--with-pypi-index"], free=3000 * 1024, rc=1,
@@ -853,7 +898,10 @@ def rec(flags="", tools="", branch="", repo=""):
 WITH = ("WITH_SHIM", "WITH_PACKAGES", "AUTH_LOCK", "WITH_TOOLS", "WITH_PATCH", "WITH_PYTHON", "WITH_PYPI_INDEX")
 
 BOOT_CASES = (
-    C("defaults_record_nothing", [], record=rec(), vars=dict.fromkeys(WITH[:5], "1")),
+    C("defaults_record_nothing", [], record=rec(), vars={**dict.fromkeys(WITH[:6], "1"), "WITH_PYPI_INDEX": "0"}),
+    C("no_python_is_recorded", ["--no-python"], record=rec("--no-python"), vars={"WITH_PYTHON": "0", "WITH_PYPI_INDEX": "0"}),
+    C("with_python_replaces_a_recorded_no_python", ["--with-python"], saved="flags=--no-python --no-shim\n",
+      record=rec("--with-python --no-shim"), vars={"WITH_PYTHON": "1", "WITH_SHIM": "0"}),
     C("no_packages_alone", ["--no-packages"], record=rec("--no-packages"), vars={"WITH_PACKAGES": "0"}),
     C("no_auth_lock_alone", ["--no-auth-lock"], record=rec("--no-auth-lock"), vars={"AUTH_LOCK": "0"}),
     C("no_tools_alone", ["--no-tools"], record=rec("--no-tools"), vars={"WITH_TOOLS": "0"}),
@@ -897,10 +945,10 @@ BOOT_CASES = (
     C("without_settings_nothing_is_inferred", [], files={"agent/extensions/other.ts": ""}, record=rec()),
     C("an_old_install_with_packages_listed", [], files={"agent/settings.json": '{"packages": ["npm:x"]}'},
       record=rec()),
-    C("reset_does_not_infer_the_agents_python", ["--reset-options"], python_env=True, record=rec(),
-      vars={"WITH_PYTHON": "0"}),
-    C("an_existing_python_joins_a_recorded_index", [], python_env=True, saved="flags=--with-pypi-index\n",
-      record=rec("--with-pypi-index --with-python"), vars={"WITH_PYTHON": "1", "WITH_PYPI_INDEX": "1"}),
+    C("reset_keeps_the_default_python", ["--reset-options"], python_env=True, saved="flags=--no-python\n",
+      record=rec(), vars={"WITH_PYTHON": "1"}),
+    C("a_recorded_index_keeps_its_python", [], python_env=True, saved="flags=--with-pypi-index\n",
+      record=rec("--with-pypi-index"), vars={"WITH_PYTHON": "1", "WITH_PYPI_INDEX": "1"}),
     C("taking_back_an_index_that_was_never_recorded", ["--no-pypi-index"], record=rec(),
       vars={"WITH_PYPI_INDEX": "0"}),
     C("with_all_and_a_recorded_flag", ["--with-all"], saved="flags=--no-shim\n",
@@ -917,7 +965,7 @@ class BootstrapOptionTests(BatchTest):
     CASES = BOOT_CASES
     DEFAULTS = block(BOOTSTRAP, "WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1", 'TMP=""; TOOLS_TMP=""')
     PARSE = block(BOOTSTRAP, '\nfor arg in "$@"; do\n  case "$arg" in\n    --no-shim', "\n\nsay()  {")
-    OPTIONS = block(BOOTSTRAP, "# --- the options this install was made with", "# Before anything runs pi:")
+    OPTIONS = block(BOOTSTRAP, "# --- the options this install was made with", "# Not NODE_VERSION:")
 
     @classmethod
     def prepare(cls):

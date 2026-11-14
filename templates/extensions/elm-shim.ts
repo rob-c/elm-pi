@@ -79,11 +79,35 @@ function replaceStaleShim(): boolean {
   }
 }
 
+/**
+ * This session's egress proxy, when it has one: the launcher's, on loopback.
+ * Sent with every Llama request so the shim reaches ELM through it - the one
+ * proxy certain to be alive for as long as the request is (see shim.py).
+ */
+export function sessionProxy(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const value = (env.HTTPS_PROXY || env.https_proxy || "").trim();
+  return /^http:\/\/(127\.0\.0\.1|localhost):\d{1,5}\/?$/.test(value) ? value : undefined;
+}
+
 async function ensureShim(): Promise<boolean> {
-  // A shim of the current vintage resolves its own proxy per request, so one
-  // that is already listening is reusable whichever session started it.
-  if (await health()) return true;
-  if (await listening(PORT) && !replaceStaleShim()) return false;
+  // A shim that takes the caller's proxy is reusable whichever session started
+  // it: each request names its own. An older one ignores that, so a session
+  // behind the proxy replaces it if it is this install's - one started by
+  // bootstrap.sh's checks had no proxy at all and sent every later session's
+  // Llama traffic straight to ELM. Someone else's is used as it is.
+  const current = await health();
+  if (current && (current.callerProxy === true || !sessionProxy())) return true;
+  if (current && !replaceStaleShim()) return true;
+  // Only a session behind the egress proxy starts one. bootstrap.sh's extension
+  // check, its `pi --list-models` and its guard probe (ELM_PI_NO_PROXY=1) all
+  // load this file with no proxy, and each left a shim running with none in its
+  // environment; every later session reused it, and its Llama traffic went
+  // straight to ELM, past the proxy and its log. A session run unproxied on
+  // purpose still uses a shim that is running; it does not leave one behind.
+  // (Not PI_OFFLINE: the launcher sets that for every session - it only stops
+  // pi's start-up network checks - and using it left no session with Llama.)
+  if (!sessionProxy()) return false;
+  if (!current && (await listening(PORT)) && !replaceStaleShim()) return false;
   for (let i = 0; i < 15 && (await listening(PORT)); i++) {
     await new Promise((r) => setTimeout(r, 200));  // wait up to ~3s for the port
   }
@@ -115,7 +139,9 @@ export default async function (pi: ExtensionAPI) {
     return;
   }
 
+  const proxy = sessionProxy();
   pi.registerProvider("elm-shim", {
+    ...(proxy ? { headers: { "X-Elm-Pi-Proxy": proxy } } : {}),
     name: "ELM (tool-shim)",
     baseUrl: `http://${HOST}:${PORT}`,
     apiKey: "$ELM_API_KEY",
@@ -135,8 +161,18 @@ export default async function (pi: ExtensionAPI) {
         // six times. 8192 finishes inside the window at the slow end.
         maxTokens: 8192,
         // Meta publishes no sampling advice in the model card; these are the
-        // values in Llama-3.3-70B-Instruct's own generation_config.json.
+        // values in Llama-3.3-70B-Instruct's own generation_config.json. They
+        // reach only requests without tools: shim.py sends every tool request at
+        // SHIM_TEMPERATURE (0), measured 6/6 on the read-then-edit loop against
+        // about half at the default. docs/tuning has the comparison.
         samplingParams: { temperature: 0.6, top_p: 0.9 },
+        // pi takes an endpoint it does not know to support long prompt caching,
+        // and with PI_CACHE_RETENTION=long in the user's shell it added
+        // prompt_cache_key and prompt_cache_retention to every request, which the
+        // shim passes on to ELM. The gateway accepts them (2026-11-11), but every
+        // setting here was measured without them, so they are not sent - as for
+        // Qwen and Mistral in models.json.
+        compat: { supportsLongCacheRetention: false },
       } as any,
     ],
   });

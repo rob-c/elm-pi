@@ -12,11 +12,22 @@
  * `bare = false` to `bare = true` in a repository's `.git/config` through
  * `replace`, with this extension loaded.
  *
+ * The elm-pi install this session runs on is protected as a whole: its guards
+ * (agent/extensions), its launcher and its configuration are what hold the
+ * session to ELM and to its permission mode, so a session must not edit them -
+ * a change would apply from the next session on, unreviewed. elm-pi is developed
+ * in a separate clone (its AGENTS.md and scripts/dev-setup.sh), and an install
+ * changes through `pi update`. Left open: `.pi` folders, where pi keeps a session's
+ * own files when one is started inside the install, and agent/tmp, the TMPDIR the
+ * launcher gives every session (mktemp's folders, a command's temporary files).
+ *
  * Names are compared case-insensitively. macOS's default filesystem is
  * case-insensitive, so a write to `.GIT/config` lands in `.git/config`; on a
  * case-sensitive filesystem the cost is only refusing an oddly named file.
  */
 
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /** Every tool in this install that can change a file. copy and move are
@@ -72,7 +83,45 @@ function blockedReason(rawPath: string): string | undefined {
 	return undefined;
 }
 
+/** The elm-pi install this session runs on: the folder above its agent dir, when it has the launcher. */
+export function installDir(env: NodeJS.ProcessEnv = process.env): string | undefined {
+	const agent = env.PI_CODING_AGENT_DIR;
+	if (!agent) return undefined;
+	const root = dirname(resolve(agent));
+	if (!existsSync(resolve(root, "pi")) || !existsSync(resolve(root, "bootstrap.sh"))) return undefined;
+	try {
+		return realpathSync(root);
+	} catch {
+		return root;
+	}
+}
+
+/** Why a path inside the running install may not be written, or undefined. */
+export function installReason(path: string, cwd: string, install: string | undefined): string | undefined {
+	if (!install) return undefined;
+	let target = isAbsolute(path) ? path : resolve(cwd, path.replace(/^~(?=\/)/, process.env.HOME ?? "~"));
+	// The nearest existing folder decides: a new file has no real path of its own yet.
+	let probe = target;
+	while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe);
+	try {
+		target = resolve(realpathSync(probe), relative(probe, target));
+	} catch {
+		// keep it as resolved
+	}
+	const rel = relative(install, target);
+	if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return undefined;
+	if (rel.split(/[\\/]/).some((segment) => segment.toLowerCase() === ".pi")) return undefined;
+	// agent/tmp is the launcher's TMPDIR: what mktemp and every temporary file of the session's commands use.
+	if (/^agent[\\/]tmp(?:[\\/]|$)/i.test(rel)) return undefined;
+	return (
+		`it is part of the elm-pi install this session runs on (${install}) - its guards, launcher and configuration. ` +
+		"Develop elm-pi in a separate clone instead (git clone it, then scripts/dev-setup.sh there; its AGENTS.md says how); " +
+		"this install changes only through `pi update`."
+	);
+}
+
 export default function (pi: ExtensionAPI) {
+	const install = installDir();
 	pi.on("tool_call", async (event, ctx) => {
 		if (!WRITING_TOOLS.has(event.toolName)) return undefined;
 
@@ -95,7 +144,7 @@ export default function (pi: ExtensionAPI) {
 			};
 		}
 
-		const reason = blockedReason(path);
+		const reason = blockedReason(path) ?? installReason(path, ctx.cwd, install);
 		if (!reason) return undefined;
 
 		if (ctx.hasUI) {

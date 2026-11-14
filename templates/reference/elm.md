@@ -7,7 +7,8 @@ large language models that Information Services (ISG) provides through EDINA
 for the University's staff and students. ELM offers commercial models (such
 as OpenAI's) and open-weights models it hosts itself. This install uses only
 the self-hosted ones, through ELM's OpenAI-compatible API: `elm/@QWEN_MODEL@`
-by default, and `elm-shim/@LLAMA_MODEL@` in a `--llama` run.
+by default, `elm/@MISTRAL_MODEL@` when the user picks it (Mistral Small 4, with
+tool calling, images and reasoning), and `elm-shim/@LLAMA_MODEL@` in a `--llama` run.
 
 - Web interface: https://elm.edina.ac.uk/elm (University login; API keys are
   issued from within it)

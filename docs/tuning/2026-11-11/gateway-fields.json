@@ -1,0 +1,98 @@
+{
+ "what": "One 5-token request per model with each field pi or a package may add, 2026-11-11 (harness/tier.py)",
+ "rows": [
+  {
+   "model": "Qwen3.5-397B-A17B-FP",
+   "extra_fields": {},
+   "status": 200,
+   "reply": "'OK'"
+  },
+  {
+   "model": "Qwen3.5-397B-A17B-FP",
+   "extra_fields": {
+    "service_tier": "priority"
+   },
+   "status": 200,
+   "reply": "'OK'"
+  },
+  {
+   "model": "Qwen3.5-397B-A17B-FP",
+   "extra_fields": {
+    "prompt_cache_key": "abc",
+    "prompt_cache_retention": "24h"
+   },
+   "status": 200,
+   "reply": "'OK'"
+  },
+  {
+   "model": "Qwen3.5-397B-A17B-FP",
+   "extra_fields": {
+    "store": false
+   },
+   "status": 200,
+   "reply": "'OK'"
+  },
+  {
+   "model": "Mistral-Small-4-119B",
+   "extra_fields": {},
+   "status": 200,
+   "reply": "'OK'"
+  },
+  {
+   "model": "Mistral-Small-4-119B",
+   "extra_fields": {
+    "service_tier": "priority"
+   },
+   "status": 200,
+   "reply": "'OK'"
+  },
+  {
+   "model": "Mistral-Small-4-119B",
+   "extra_fields": {
+    "prompt_cache_key": "abc",
+    "prompt_cache_retention": "24h"
+   },
+   "status": 200,
+   "reply": "'OK'"
+  },
+  {
+   "model": "Mistral-Small-4-119B",
+   "extra_fields": {
+    "store": false
+   },
+   "status": 200,
+   "reply": "'OK'"
+  },
+  {
+   "model": "Llama-3.3-70B-Instru",
+   "extra_fields": {},
+   "status": 200,
+   "reply": "'OK'"
+  },
+  {
+   "model": "Llama-3.3-70B-Instru",
+   "extra_fields": {
+    "service_tier": "priority"
+   },
+   "status": 200,
+   "reply": "'OK'"
+  },
+  {
+   "model": "Llama-3.3-70B-Instru",
+   "extra_fields": {
+    "prompt_cache_key": "abc",
+    "prompt_cache_retention": "24h"
+   },
+   "status": 200,
+   "reply": "'OK'"
+  },
+  {
+   "model": "Llama-3.3-70B-Instru",
+   "extra_fields": {
+    "store": false
+   },
+   "status": 200,
+   "reply": "'OK'"
+  }
+ ]
+}

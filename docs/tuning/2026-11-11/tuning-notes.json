@@ -1,0 +1,7 @@
+{
+ "run": "2026-11-11T19:15:52Z to about 20:09Z, harness/ab6.py with harness/hard.py, three runs of every arm and task",
+ "installs": "three copies of one bootstrapped install (A as shipped, B and C with the settings in tuning-arms.json), each bootstrapped in place; every arm ran each task at the same moment as the others",
+ "checks": "run under a Python with numpy, so no re-scoring was needed",
+ "llama": "shim/shim.py sends every request with tools at SHIM_TEMPERATURE (0), so pi's Llama temperature never reached the gateway in an agent task: the three Llama arms are one setting run three times, and their spread (35-41 of 75) is the run-to-run noise at this size. The three installs' shims share port 8811, so the arms may also have shared one shim process; its code is the same in all three.",
+ "tokens": "input and output tokens per run are recorded; median input per task was 68K-91K"
+}

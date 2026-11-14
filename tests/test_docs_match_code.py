@@ -118,7 +118,7 @@ PROMPT_FLAT = {name: flat(text) for name, text in PROMPTS.items()}
 AGENTS_MD = PROMPTS["AGENTS.md"]
 APPEND = PROMPT_FLAT["APPEND_SYSTEM.md"]
 
-NUMBER_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "nine": 9, "eleven": 11,
+NUMBER_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "nine": 9, "ten": 10, "eleven": 11,
                 "twelve": 12, "thirteen": 13, "fifteen": 15, "sixteen": 16}
 
 
@@ -309,14 +309,14 @@ class LauncherBehaviourClaimTests(unittest.TestCase):
     """Behaviour the docs describe, read off the launcher."""
 
     def test_with_all_also_offers_the_workflow_tools(self):
-        # AGENTS.md: the `workflow` tool exists in a session started with
-        # `pi --workflows` (or `--with-all`)
-        self.assertIn("(or `--with-all`)", flat(AGENTS_MD))
         self.assertIn("--with-all) WITH_ALL=1; WORKFLOWS=1 ;;", LAUNCHER)
 
-    def test_pi_elm_workflows_turns_the_workflow_tools_on(self):
-        self.assertIn("`PI_ELM_WORKFLOWS=1`", PROMPT_FLAT["skills/elm-dynamic-workflows/SKILL.md"])
-        self.assertIn('WORKFLOWS="${PI_ELM_WORKFLOWS:-0}"', LAUNCHER)
+    def test_the_workflow_tools_are_offered_unless_the_run_says_no(self):
+        # AGENTS.md and the skill: offered unless `pi --no-workflows` / PI_ELM_WORKFLOWS=0
+        self.assertIn("No `workflow` tool (`pi --no-workflows`)?", flat(AGENTS_MD))
+        self.assertIn("`pi --no-workflows` or `PI_ELM_WORKFLOWS=0`", PROMPT_FLAT["skills/elm-dynamic-workflows/SKILL.md"])
+        self.assertIn('WORKFLOWS="${PI_ELM_WORKFLOWS:-1}"', LAUNCHER)
+        self.assertIn("--no-workflows) WORKFLOWS=0 ;;", LAUNCHER)
 
     def test_pi_install_and_remove_are_refused(self):
         self.assertIn("`pi install` and `pi remove` are refused", FLAT["README.md"])
@@ -355,9 +355,10 @@ class LauncherBehaviourClaimTests(unittest.TestCase):
         self.assertIn("the launcher writes `.pi/.gitignore` containing `*`", FLAT["INSTALL.md"])
         self.assertIn("printf '*\\n' > .pi/.gitignore", LAUNCHER)
 
-    def test_fast_adds_todo_the_skill_router_and_remote_research(self):
-        self.assertIn("plus `todo`, the skill router and, with `--remote`, the research instruction", FLAT["INSTALL.md"])
-        self.assertIn("for e in todo skill-router remote-research; do", LAUNCHER)
+    def test_fast_adds_todo_the_skill_router_mode_and_remote_research(self):
+        self.assertIn("plus `todo`, the skill router, `/mode` and, with `--remote`, the research instruction",
+                      FLAT["INSTALL.md"])
+        self.assertIn("for e in todo skill-router remote-research permission-mode claim-guard repeat-guard server-reaper report-guard date-note; do", LAUNCHER)
 
     def test_remote_opens_the_proxy_with_a_star(self):
         self.assertIn("Open mode is a single `*` in the allowlist", FLAT["LOCKDOWN.md"])
@@ -369,7 +370,7 @@ class LauncherBehaviourClaimTests(unittest.TestCase):
 
     def test_computer_use_never_loads_in_a_child(self):
         self.assertIn("never for a sub-agent child", FLAT["LOCKDOWN.md"])
-        self.assertIn('[ "$REMOTE" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] && [ -f "$CU_EXT" ]', LAUNCHER)
+        self.assertIn('[ "$REMOTE" = "1" ] && [ "$COMPUTER_USE" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] && [ -f "$CU_EXT" ]', LAUNCHER)
 
     def test_computer_use_helper_lives_in_agent_helpers(self):
         self.assertIn("the launcher points it at `agent/helpers/` instead and has it signed ad hoc",
@@ -405,7 +406,7 @@ class LauncherBehaviourClaimTests(unittest.TestCase):
 
     def test_with_all_records_python_and_the_index(self):
         self.assertIn("(recorded as those two)", FLAT["INSTALL.md"])
-        block = between(BOOTSTRAP, "    --with-all)", "done ;;")
+        block = between(BOOTSTRAP, "    --with-all)", '--no-python" ;;')
         self.assertIn("--with-python --with-pypi-index", block)
 
     def test_pypi_index_implies_python(self):
@@ -440,7 +441,8 @@ CODE = "\n".join(_strip_for_reads(read(f)) for f in CODE_FILES)
 
 def reads(name, code=CODE):
     n = re.escape(name)
-    return re.search(rf"\$\{{?{n}\b|process\.env\.{n}\b|process\.env\[[\"']{n}|environ(?:\.get)?\(\s*[\"']{n}"
+    # `env.NAME`: an extension reading through an `env` parameter that defaults to process.env
+    return re.search(rf"\$\{{?{n}\b|process\.env\.{n}\b|\benv\.{n}\b|process\.env\[[\"']{n}|environ(?:\.get)?\(\s*[\"']{n}"
                      rf"|environ\[[\"']{n}|getenv\([\"']{n}", code) is not None
 
 
@@ -448,8 +450,11 @@ ENV_NAME = re.compile(r"\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b")
 DOC_ENV = sorted({n for text in [*DOCS.values(), *PROMPTS.values()] for n in ENV_NAME.findall(text)})
 
 # What a documented name is, when it is not a knob this install reads.
-NOT_ENV = {"KEY_ISSUED", "MODEL_SPAWN_REJECTED", "APPEND_SYSTEM", "AGENT_DIR", "INSTALL_DIR", "QWEN_MODEL", "LLAMA_MODEL",
-           "N_A", "ID_LIKE"}
+NOT_ENV = {"KEY_ISSUED", "TOOL_CALLS", "MODEL_SPAWN_REJECTED", "APPEND_SYSTEM", "AGENT_DIR", "INSTALL_DIR", "QWEN_MODEL", "LLAMA_MODEL", "MISTRAL_MODEL",
+           "N_A", "ID_LIKE",
+           "EAI_AGAIN",   # an error code (a DNS lookup that failed for now), named in INSTALL.md's retry list
+           "VERIFICATION_REPORT",   # VERIFICATION_REPORT.md, the report file test11's workflow wrote unasked
+           "TCP_USER_TIMEOUT", "TCP_RXT_CONNDROPTIME"}   # socket options the egress proxy sets
 # The launcher sets these for pi, its packages or the agent; the docs say so.
 EXPORTED = {"PI_OFFLINE", "PI_SUBAGENT_PI_BINARY", "PI_ELM_CHILD", "PI_RADIUS_GATEWAY", "ELM_PI_AGENT_PYTHON",
             "PIXI_HOME", "PI_CODING_AGENT_DIR", "HTTPS_PROXY"}
@@ -461,7 +466,13 @@ REMOVED_ENV = {"PI_CACHE_RETENTION", "NODE_COMPILE_CACHE"}
 CREDENTIALS = {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "COPILOT_GITHUB_TOKEN",
                "GITHUB_TOKEN"}
 ENGINE_ENV = {"DOCKER_HOST", "CONTAINER_HOST", "DOCKER_CONTEXT", "CONTAINER_CONNECTION"}
-DOC_KNOBS = [n for n in DOC_ENV if n not in NOT_ENV | EXPORTED | PI_OWN | REMOVED_ENV | CREDENTIALS | ENGINE_ENV]
+# pip's and uv's switches into the system's Python: refused when a command sets them (command-guard).
+SYSTEM_PYTHON_ENV = {"PIP_BREAK_SYSTEM_PACKAGES", "UV_BREAK_SYSTEM_PACKAGES", "UV_SYSTEM_PYTHON"}
+# Set by the system for every program, and passed through untouched: NixOS's nix-ld
+# (tests/test_shell_libs.py checks the scrub keeps them).
+SYSTEM_ENV = {"NIX_LD"}
+DOC_KNOBS = [n for n in DOC_ENV
+             if n not in NOT_ENV | EXPORTED | PI_OWN | REMOVED_ENV | CREDENTIALS | ENGINE_ENV | SYSTEM_PYTHON_ENV | SYSTEM_ENV]
 
 # Where a reader learns a knob exists: the docs, a usage text, or the message
 # the code prints when the knob is the way out.
@@ -476,7 +487,9 @@ INTERNAL_ENV = {"ELM_PI_WITH_ALL_SET_UP", "ELM_PI_DISK_NOTED", "ELM_PI_USER_PATH
                 # run, and by ./pi for elm-shim.ts
                 "ELM_PI_INSTALL_DIR", "ELM_SHIM_PATH",
                 # agent/runtime.env, written from config/elm-pi.json
-                "ELM_QWEN_MODEL_ID", "ELM_LLAMA_MODEL_ID"}
+                "ELM_QWEN_MODEL_ID", "ELM_LLAMA_MODEL_ID", "ELM_MISTRAL_MODEL_ID",
+                # the default ./pi worked out, for permission-mode.ts to show and update
+                "PI_ELM_PERMISSION_DEFAULT"}
 CODE_KNOBS = sorted(({n for f in ["pi", "install.sh", "bootstrap.sh", "configure.sh", "lib/sandbox.sh",
                                  "lib/state.sh", "lib/policy.sh"]
                      for n in re.findall(r"\$\{((?:ELM_PI|PI_ELM)_[A-Z0-9_]+):?[-=]", read(f))}
@@ -649,8 +662,9 @@ NUMBER_CLAIMS = [
     ("readme_retry_tolerance", "README.md", "gives ~{N}s of tolerance", sum(BACKOFF)),
     ("install_md_base_delay", "INSTALL.md", "So `baseDelayMs` is **{N}**", RETRY["baseDelayMs"]),
     ("install_md_max_retries", "INSTALL.md", "`maxRetries` **{N}**", RETRY["maxRetries"]),
-    ("install_md_backoff_series", "INSTALL.md", "`maxRetries` **6**: {L}s - a short refusal", BACKOFF),
-    ("install_md_storm_tolerance", "INSTALL.md", "a long storm still gets ~{N}s", sum(BACKOFF)),
+    ("install_md_backoff_series", "INSTALL.md", "`maxRetries` **10**: {L}s - ~", BACKOFF),
+    ("install_md_storm_tolerance", "INSTALL.md", "s - ~{N}s, about", sum(BACKOFF)),
+    ("install_md_max_agent_delay", "INSTALL.md", "`maxAgentDelayMs` **{N}**", RETRY["maxAgentDelayMs"]),
     ("install_md_provider_retries_stay_zero", "INSTALL.md", "`retry.provider.maxRetries` stays at **{N}**",
      RETRY["provider"]["maxRetries"]),
     ("readme_compaction_threshold", "README.md", "compaction owned by `pi-auto-compact` at {N}% of the context window",
@@ -826,14 +840,20 @@ SHIM_MODEL = {
     "reasoning": re.search(r"reasoning: (true|false)", ELM_SHIM_TS).group(1) == "true",
     "input": re.search(r"input: \[([^\]]*)\]", ELM_SHIM_TS).group(1),
 }
+
+
+def _row(model):
+    return {"context": _k(model["contextWindow"]), "max-out": _k(model["maxTokens"]),
+            "thinking": "yes" if model["reasoning"] else "no",
+            "images": "yes" if "image" in model["input"] else "no"}
+
+
+MISTRAL = next(m for m in MODELS["providers"]["elm"]["models"] if m["id"] == "@MISTRAL_MODEL@")
+# (provider, model id) -> the cells pi prints for it
 LIST_ROWS = {
-    "elm": (CONFIG["models"]["qwen"], {"context": _k(QWEN["contextWindow"]), "max-out": _k(QWEN["maxTokens"]),
-                                       "thinking": "yes" if QWEN["reasoning"] else "no",
-                                       "images": "yes" if "image" in QWEN["input"] else "no"}),
-    "elm-shim": (CONFIG["models"]["llama"], {"context": _k(SHIM_MODEL["contextWindow"]),
-                                             "max-out": _k(SHIM_MODEL["maxTokens"]),
-                                             "thinking": "yes" if SHIM_MODEL["reasoning"] else "no",
-                                             "images": "yes" if "image" in SHIM_MODEL["input"] else "no"}),
+    ("elm", CONFIG["models"]["qwen"]): _row(QWEN),
+    ("elm", CONFIG["models"]["mistral"]): _row(MISTRAL),
+    ("elm-shim", CONFIG["models"]["llama"]): _row(SHIM_MODEL),
 }
 COLUMNS = ["context", "max-out", "thinking", "images"]
 
@@ -842,15 +862,16 @@ class ListModelsTableTests(unittest.TestCase):
     pass
 
 
-def _list_cell(self, doc, provider, column):
-    model, cells = LIST_ROWS[provider]
+def _list_cell(self, doc, provider, model, column):
+    cells = LIST_ROWS[(provider, model)]
     row = re.search(rf"^{re.escape(provider)}\s+{re.escape(model)}\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$", DOCS[doc], re.M)
     self.assertIsNotNone(row, f"{doc}: no --list-models row for {provider} {model}")
     self.assertEqual(cells[column], row.group(COLUMNS.index(column) + 1), f"{doc}: {provider} {column}")
 
 
-generate(ListModelsTableTests, [(f"{slug(d)}_{slug(p)}_{slug(c)}", d, p, c)
-                                for d in ("INSTALL.md", "LOCKDOWN.md") for p in LIST_ROWS for c in COLUMNS], _list_cell)
+generate(ListModelsTableTests, [(f"{slug(d)}_{slug(p)}_{slug(m.split('/')[0])}_{slug(c)}", d, p, m, c)
+                                for d in ("INSTALL.md", "LOCKDOWN.md") for p, m in LIST_ROWS for c in COLUMNS],
+         _list_cell)
 
 
 # --- model ids -----------------------------------------------------------------------
@@ -865,14 +886,18 @@ class ModelIdTests(unittest.TestCase):
         self.assertIn("262K context, tool calling, vision", FLAT["README.md"])
         self.assertIn("image", QWEN["input"])
 
-    def test_only_qwen_sees_images(self):
-        # AGENTS.md: "Only `qwen` sees images"
-        self.assertIn("Only `qwen` sees images", flat(AGENTS_MD))
+    def test_images_go_to_qwen(self):
+        # AGENTS.md: "Images go to `qwen`". Mistral sees images too, but compared pages worst
+        # (INSTALL.md, "Images: Qwen against Mistral"); Llama sees none.
+        self.assertIn("Images go to `qwen`", flat(AGENTS_MD))
+        self.assertIn("Images: Qwen against Mistral", FLAT["INSTALL.md"])
         self.assertNotIn("image", SHIM_MODEL["input"])
         self.assertIn("view", re.search(r"^excludeTools: (.*)$", PROMPTS["agents/llama.md"], re.M).group(1).split(", "))
 
-    def test_served_models_are_the_two_allowed_providers(self):
-        self.assertIn("Only `elm/@QWEN_MODEL@` and `elm-shim/@LLAMA_MODEL@` are served", flat(AGENTS_MD))
+    def test_served_models_are_on_the_two_allowed_providers(self):
+        self.assertIn("Only `elm/@QWEN_MODEL@`, `elm/@MISTRAL_MODEL@` and `elm-shim/@LLAMA_MODEL@` are served",
+                      flat(AGENTS_MD))
+        self.assertEqual(["@QWEN_MODEL@", "@MISTRAL_MODEL@"], [m["id"] for m in MODELS["providers"]["elm"]["models"]])
         self.assertEqual(["elm", "elm-shim"], CONFIG["allowedProviders"])
         self.assertEqual(["elm"], list(MODELS["providers"]))
         self.assertIn('pi.registerProvider("elm-shim"', ELM_SHIM_TS)
@@ -1006,6 +1031,10 @@ generate(ExtensionDocTests,
 generate(ExtensionDocTests,
          [(f"command_guard_checks_{slug(n)}", n) for n in sorted(ENGINE_ENV)],
          lambda self, n: (self.assertIn(f"`{n}`", LOCKDOWN), self.assertIn(f'"{n}"', COMMAND_GUARD)))
+generate(ExtensionDocTests,
+         [(f"command_guard_checks_{slug(n)}", n) for n in sorted(SYSTEM_PYTHON_ENV)],
+         lambda self, n: (self.assertIn(f"`{n}`", LOCKDOWN),
+                          self.assertRegex(between(COMMAND_GUARD, "const SYSTEM_PYTHON = ", ";\n"), rf"\b{n}\b")))
 
 
 class ShellWrapperTests(unittest.TestCase):
@@ -1117,12 +1146,14 @@ class ToolCacheTests(unittest.TestCase):
         self.assertIn("after a SHA-256 check against `SHASUMS256.txt`", FLAT["INSTALL.md"])
         self.assertIn("SHASUMS256.txt", BOOTSTRAP)
 
-    def test_resvg_has_no_arm_linux_build_before_0_49(self):
-        # INSTALL.md: "64-bit ARM Linux has no 0.48 build"
-        self.assertIn("64-bit ARM Linux has no 0.48 build", FLAT["INSTALL.md"])
+    def test_resvg_has_an_arm_linux_build_from_0_49(self):
+        # resvg publishes no 64-bit ARM Linux build before 0.49 (bootstrap.sh). The pin
+        # is past that, so INSTALL.md names no gap and the asset is checksummed; pinned
+        # back below it, this fails until INSTALL.md says ARM Linux falls back again.
+        self.assertNotIn("64-bit ARM Linux has no", FLAT["INSTALL.md"])
         version = re.search(r'RESVG_VERSION="\$\{RESVG_VERSION:-([0-9.]+)\}"', BOOTSTRAP).group(1)
-        self.assertTrue(version.startswith("0.48"))
-        self.assertNotIn(f"resvg/{version}/resvg-linux-aarch64", read("templates/tools.sha256"))
+        self.assertGreaterEqual(tuple(int(part) for part in version.split(".")), (0, 49))
+        self.assertIn(f"resvg/{version}/resvg-linux-aarch64", read("templates/tools.sha256"))
 
 
 # --- python ----------------------------------------------------------------------------
@@ -1165,6 +1196,9 @@ DOC_PACKAGE_NAMES = sorted({m for text in [*DOCS.values(), *PROMPTS.values()]
                             for m in re.findall(r"`(@[a-z0-9-]+/[a-z0-9.-]+|pi-[a-z0-9-]+)`", text)})
 # INSTALL.md and README.md: dropped, and said to be gone.
 REMOVED_PACKAGES = {"pi-hermes-memory", "pi-zentui", "pi-powerline-footer"}
+# Named as the source of a fact, and never installed: EDINA's ELM provider package,
+# whose model limits INSTALL.md compares this install's with.
+CITED_PACKAGES = {"pi-elm-models"}
 
 
 def short(name):
@@ -1192,7 +1226,9 @@ class PackageDocTests(unittest.TestCase):
 
 
 def _named_package(self, name):
-    if name in REMOVED_PACKAGES:
+    if name in CITED_PACKAGES:
+        self.assertNotIn(name, {short(p) for p in PACKAGES}, f"{name} is cited, not installed, but is installed")
+    elif name in REMOVED_PACKAGES:
         self.assertNotIn(name, {short(p) for p in PACKAGES}, f"{name} is said to be removed but is installed")
     else:
         self.assertIn(name if name.startswith("@") else name, {*PACKAGES, *map(short, PACKAGES)},
@@ -1209,18 +1245,23 @@ generate(PackageDocTests, [(f"install_md_package_row_{slug(n)}_is_installed_and_
 # Where each tool the docs and prompts name comes from.
 LOCAL_TOOL_FILES = {"pin_instruction": "pinned-instructions.ts", "unpin_instruction": "pinned-instructions.ts",
                     "todo": "todo.ts", "view": "view-outputs.ts"}
+# And every tool a local extension registers, read from its source: a new extension's tool, named in its
+# INSTALL.md row, needs no entry above (scripts/new-extension, AGENTS.md).
+for _path in sorted(TEMPLATES.glob("extensions/*.ts")):
+    for _m in re.finditer(r"registerTool\(\s*\{[^{}]*?\bname:\s*[\"']([\w-]+)[\"']", _path.read_text()):
+        LOCAL_TOOL_FILES.setdefault(_m.group(1), _path.name)
 TOOL_HOME = {
-    **{t: "pi-subagents" for t in ("subagent", "bg_wait", "subagent_supervisor", "contact_supervisor")},
+    **{t: "pi-subagents" for t in ("subagent", "bg_wait", "subagent_supervisor", "contact_supervisor", "subagent_launch")},
     **{t: "pi-hashline-edit-pro" for t in ("read", "grep", "replace", "replace_match", "insert", "undo_last_change")},
     **{t: "pi-web-access" for t in CONFIG["webTools"]},
     **{t: "pi-python" for t in ("python", "python_set_interpreter")},
-    **{t: "@quintinshaw/pi-dynamic-workflows" for t in ("workflow", "workflow_control")},
+    **{t: "@quintinshaw/pi-dynamic-workflows" for t in ("workflow", "workflow_control", "store_put", "store_get")},
     **{t: "@tmustier/pi-ralph-wiggum" for t in ("ralph_start", "ralph_done")},
     "ask_user_question": "@juicesharp/rpiv-ask-user-question",
 }
 NOTEBOOK = "@xl0/pi-lovely-notebook"
 # Backticked a_b tokens that are not tools.
-NOT_TOOLS = {"node_modules", "tool_calls", "add_executable", "cmake_minimum_required", "target_compile_options",
+NOT_TOOLS = {"node_modules", "tool_calls", "max_tokens", "max_completion_tokens", "ignore_eos", "reasoning_effort", "add_executable", "cmake_minimum_required", "target_compile_options",
              "target_link_libraries"}
 REMOVED_TOOLS = {"memory_add", "memory_replace", "memory_remove", "memory_search"}
 UNDERSCORE_TOKENS = sorted({t for text in [*DOCS.values(), *PROMPTS.values()]
@@ -1228,7 +1269,8 @@ UNDERSCORE_TOKENS = sorted({t for text in [*DOCS.values(), *PROMPTS.values()]
 SINGLE_WORD_TOOLS = ["subagent", "workflow", "view", "todo", "python", "replace", "insert", "read", "grep"]
 
 
-REGISTRATION = re.compile(r"""(?:\bname|_NAME)\s*[:=]\s*["']([\w:-]+)["']""")
+# `name: "x"`, or a constant holding it: *_NAME = "x", *_TOOL = "x" (pi-subagents' subagent_launch)
+REGISTRATION = re.compile(r"""(?:\bname|_NAME|_TOOL)\s*[:=]\s*["']([\w:-]+)["']""")
 _REGISTERED = {}
 
 
@@ -1314,14 +1356,11 @@ generate(ToolNameTests,
 
 
 class AgentDefinitionTests(unittest.TestCase):
-    def test_qwen_forks_as_agents_md_and_the_skill_say(self):
-        self.assertIn("A `qwen` child starts with a copy of this conversation", flat(AGENTS_MD))
-        self.assertIn("(`defaultContext: fork`)", PROMPT_FLAT["skills/elm-delegation/SKILL.md"])
-        self.assertEqual("fork", AGENT_DEFS["qwen"]["defaultContext"])
-
-    def test_llama_starts_fresh_as_agents_md_and_the_skill_say(self):
-        self.assertIn("a `llama` child starts empty", flat(AGENTS_MD))
-        self.assertIn("a `llama` child starts with nothing (`fresh`)", PROMPT_FLAT["skills/elm-delegation/SKILL.md"])
+    def test_every_child_starts_fresh_as_agents_md_and_the_skill_say(self):
+        """Forked qwen children re-sent the parent's conversation on every turn: about half their input (2026-11-13)."""
+        self.assertIn("A child starts empty: what it must act on", flat(AGENTS_MD))
+        self.assertIn("(`defaultContext: fresh`, for `qwen` and `llama` alike)", PROMPT_FLAT["skills/elm-delegation/SKILL.md"])
+        self.assertEqual("fresh", AGENT_DEFS["qwen"]["defaultContext"])
         self.assertEqual("fresh", AGENT_DEFS["llama"]["defaultContext"])
 
     def test_child_models_are_the_configured_providers(self):
@@ -1776,6 +1815,9 @@ def _family(pattern):
     word = pattern.split()[0]
     if word == "*/brew":
         return "brew"
+    if len(word) > 2 and word.startswith("*") and word.endswith("*"):   # a flag or variable anywhere in a command
+        word = word.strip("*")
+        return word if word.isupper() else f"--{word}"
     return {"apt-get": "apt", "aptitude": "apt", "port": "MacPorts"}.get(word, word)
 
 

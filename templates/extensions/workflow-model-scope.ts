@@ -18,8 +18,10 @@
  *
  * Known limit, and it matters. The package documents the precedence as per-run
  * `AgentRunOptions.preSpawnModel` > instance `WorkflowAgentOptions.preSpawnModel`
- * > this process resolver. A workflow script that sets its own per-run resolver
- * therefore outranks this one. pi-subagents' `strict` scope has no such hole, so
+ * > this process resolver. Code that sets its own per-run resolver therefore outranks this
+ * one - an extension or the SDK; not a workflow script, whose `agent()` options in 3.15.1 are a
+ * fixed set (label, model, tier, thinking, schema, timeout, retries, thread, phase, agent type,
+ * isolation, cwd) without it. pi-subagents' `strict` scope has no such hole, so
  * this is a weaker guarantee than the one it stands in for, not an equal one.
  */
 
@@ -52,7 +54,7 @@ type Decision =
 	| { action: "reject"; reason: string };
 
 /**
- * The two model ids this gateway actually serves, rendered in by
+ * The model ids this gateway actually serves, rendered in by
  * scripts/elm_config.py and overridable by the same environment variables
  * elm-shim.ts reads.
  *
@@ -67,17 +69,19 @@ const ELM_MODEL_IDS = new Set(
 	[
 		process.env.ELM_QWEN_MODEL_ID ?? "@QWEN_MODEL@",
 		process.env.ELM_LLAMA_MODEL_ID ?? "@LLAMA_MODEL@",
+		process.env.ELM_MISTRAL_MODEL_ID ?? "@MISTRAL_MODEL@",
 	].map((id) => id.trim().toLowerCase()),
 );
 
-/** The id has to belong to the provider too: elm serves only Qwen, and Llama is
- * reachable only through the elm-shim provider, which adds tool calling. The two
- * crossed pairs passed when ids and providers were checked separately -
+/** The id has to belong to the provider too: elm serves Qwen and Mistral, and
+ * Llama is reachable only through the elm-shim provider, which adds tool calling.
+ * The crossed pairs passed when ids and providers were checked separately -
  * elm/<llama> goes to ELM's Llama without a tool parser and fails with 400. */
 const SERVED_SPECS = new Set(
 	[
 		`elm/${process.env.ELM_QWEN_MODEL_ID ?? "@QWEN_MODEL@"}`,
 		`elm-shim/${process.env.ELM_LLAMA_MODEL_ID ?? "@LLAMA_MODEL@"}`,
+		`elm/${process.env.ELM_MISTRAL_MODEL_ID ?? "@MISTRAL_MODEL@"}`,
 	].map((spec) => spec.trim().toLowerCase()),
 );
 

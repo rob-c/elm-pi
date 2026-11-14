@@ -9,7 +9,8 @@
   "shellCommandPrefix": ". \"$PI_CODING_AGENT_DIR/shell/colour.sh\" 2>/dev/null",
   "tuiMode": "regular",
   "modelThinkingLevels": {
-    "elm/@QWEN_MODEL@": "off"
+    "elm/@QWEN_MODEL@": "off",
+    "elm/@MISTRAL_MODEL@": "high"
   },
   "packages": [
     "npm:pi-subagents",
@@ -36,10 +37,12 @@
     "-builtin:mcp",
     "-builtin:llama.cpp"
   ],
+  "httpIdleTimeoutMs": 120000,
   "retry": {
     "enabled": true,
-    "maxRetries": 6,
+    "maxRetries": 10,
     "baseDelayMs": 1000,
+    "maxAgentDelayMs": 512000,
     "provider": {
       "maxRetries": 0,
       "maxRetryDelayMs": 60000

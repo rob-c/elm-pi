@@ -55,6 +55,7 @@ def routes(prompts):
 class RoutingTableTests(unittest.TestCase):
     # Everyday software requests a reviewer saw misroute, and their neighbours.
     SOFTWARE = [
+        "what extensions does elm-pi load?",   # a question about elm-pi, not work on it
         "add integration tests for the parser and report what fails",
         "improve its efficiency",
         "make the magic number a named constant",
@@ -76,6 +77,8 @@ class RoutingTableTests(unittest.TestCase):
         "yes, go ahead",
         "export the users table to csv",
         "add a slide-in animation to the panel",
+        "explain where the plugin fits in with the module system",
+        "the cache fits into memory",
     ]
 
     PHYSICS = {
@@ -87,6 +90,7 @@ class RoutingTableTests(unittest.TestCase):
         "integrate this ODE numerically": "numerical-methods",
         "simulate the orbit of the moon with RK4": "numerical-methods",
         "make beamer slides for the lecture": "physics-documents",
+        "build a beamer presentation on kaon decay and where CP violation fits in with this": "physics-documents",
         "plot the histogram with matplotlib": "histogram-analysis",
         "compute the derivative of the potential": "derivation-checks",
         "derive the formula for the period": "derivation-checks",
@@ -98,6 +102,11 @@ class RoutingTableTests(unittest.TestCase):
         "pdflatex is not installed, use docker": "containers",
         "ModuleNotFoundError: No module named netCDF4": "installing-software",
         "gdalinfo: command not found": "installing-software",
+        # the treadmill (2026-11-13): asked for an elm-pi plugin, a session wrote the files by hand
+        "Could you add a plugin to elm-pi that shows the tool-call count in the footer?": "developing-elm-pi",
+        "write a new extension for elm-pi that adds a /uptime command": "developing-elm-pi",
+        "I'd like a plugin for elm-pi: a find_todos tool. Build it in this repository.": "developing-elm-pi",
+        "Can elm-pi get a new json_check tool? Please implement it here.": "developing-elm-pi",
     }
 
     def test_software_requests_route_nothing(self):
@@ -107,6 +116,11 @@ class RoutingTableTests(unittest.TestCase):
     def test_physics_requests_still_route(self):
         for prompt, routed in routes(list(self.PHYSICS)).items():
             self.assertIn(self.PHYSICS[prompt], routed, prompt)
+
+    def test_the_fits_in_idiom_beside_decay_is_not_data_fitting(self):
+        # A real session: a Beamer deck on kaon decay got data-fitting in full.
+        prompt = "build a beamer presentation on kaon decay and where CP violation fits in with this"
+        self.assertEqual(["physics-documents"], routes([prompt])[prompt])
 
     def test_histogram_with_matplotlib_routes_both(self):
         routed = routes(["plot the histogram with matplotlib"])["plot the histogram with matplotlib"]
@@ -126,6 +140,80 @@ class RoutingTableTests(unittest.TestCase):
         self.assertEqual([], routes([wrapped])[wrapped])
         physics = "Task: fit this decay curve and give the half-life"
         self.assertEqual(["data-fitting"], routes([physics])[physics])
+
+    # What pi-dynamic-workflows appends to a message after /ultracode, abridged.
+    ARMED = ("\n\n---\n[workflows mode armed. Decide first: ... handle it by calling the `workflow` tool: write a "
+             "script\nthat fans the task out across subagents via agent()/parallel()/pipeline().]\n\nEffort: ULTRA. "
+             "Be exhaustive - fan out widely (more reviewers/judges ...)")
+
+    def test_workers_by_name_route_the_delegation_rules(self):
+        # test4: "use 5 workers in parallel" routed nothing, and the model found the rules at the gate
+        for prompt in ("I want to use 5 workers in parallel to make a small framework to visualize water flowing "
+                       "down a pipe", "use several subagents for this", "fan the work out to three sub-agents",
+                       "split it across 4 parallel workers", "use 5 agents make me a website about frogs"):
+            with self.subTest(prompt=prompt):
+                self.assertIn("elm-delegation", routes([prompt])[prompt])
+
+    def test_python3_routes_like_python(self):
+        # test3: "animates 3d objects in Python3" routed nothing
+        prompt = "make me a short program which animates 3d objects in Python3"
+        self.assertIn("scientific-python", routes([prompt])[prompt])
+
+    def test_the_ultracode_note_does_not_route_on_its_own_words(self):
+        # it says "subagents", "parallel" and "workflow" whatever was asked
+        prompt = "rename the helper in utils.ts" + self.ARMED
+        self.assertEqual([], routes([prompt])[prompt])
+
+    def test_an_armed_message_gets_the_orchestration_skill_for_its_tools(self):
+        cases = [["fix the parser" + self.ARMED, ["read", "subagent"]], ["fix the parser" + self.ARMED, ["workflow"]],
+                 ["fix the parser", ["workflow"]], ["fix the parser" + self.ARMED, ["read", "bash"]]]
+        run = subprocess.run(
+            [NODE, "--no-warnings", "--input-type=module", "-e",
+             "const r = await import(process.argv[1]); const cases = JSON.parse(process.argv[2]);"
+             "console.log(JSON.stringify(cases.map(([p, t]) => r.orchestrationSkill(p, t) ?? null)));",
+             str(ROUTER), json.dumps(cases)], capture_output=True, text=True, timeout=60, cwd=ROOT)
+        self.assertEqual(0, run.returncode, run.stderr)
+        # a sub-agent (no subagent tool) gets neither
+        self.assertEqual(["elm-subagent-workflows", "elm-dynamic-workflows", None, None], json.loads(run.stdout))
+
+    def test_the_built_in_parallel_workflow_needs_only_the_delegation_skill(self):
+        # test6: a correct parallel call was bounced until the script skill was read
+        cases = [["subagent", {"workflow": "parallel", "args": {"tasks": [{"agent": "qwen", "task": "a"}]}}],
+                 ["subagent", {"workflow": ".pi/tmp/flow.js"}], ["subagent", {"agent": "qwen", "task": "a"}],
+                 ["subagent", {"action": "status", "id": "x"}], ["workflow", {"script": "x"}]]
+        run = subprocess.run(
+            [NODE, "--no-warnings", "--input-type=module", "-e",
+             "const r = await import(process.argv[1]); const cases = JSON.parse(process.argv[2]);"
+             "console.log(JSON.stringify(cases.map(([t, i]) => r.requiredSkill(t, i) ?? null)));",
+             str(ROUTER), json.dumps(cases)], capture_output=True, text=True, timeout=60, cwd=ROOT)
+        self.assertEqual(0, run.returncode, run.stderr)
+        self.assertEqual(["elm-delegation", "elm-subagent-workflows", "elm-delegation", None, "elm-dynamic-workflows"],
+                         json.loads(run.stdout))
+
+    # pi-subagents' preamble to a forked child's task, verbatim from test5
+    PREAMBLE = ("Task: You are a delegated subagent running from a fork of the parent session. Treat the inherited "
+                "conversation as reference-only context, not a live thread to continue. Do not continue or answer "
+                "prior messages as if they are waiting for a reply. Your sole job is to execute the task below and "
+                "return a focused result for that task using your tools.\n\nTask:\n")
+
+    def test_a_child_gets_no_orchestration_skill(self):
+        # test5: the preamble's "subagent" routed elm-delegation into all five children
+        cases = [[self.PREAMBLE + "Create the main index.html page for a frog website.", ["read", "bash"]],
+                 [self.PREAMBLE + "use 5 workers to split this up", ["read", "bash"]],
+                 [self.PREAMBLE + "fit this decay curve and give the half-life", ["read", "bash"]],
+                 ["use 5 agents make me a website about frogs", ["read", "subagent"]],
+                 ["use 5 agents make me a website about frogs", ["read", "bash"]]]
+        run = subprocess.run(
+            [NODE, "--no-warnings", "--input-type=module", "-e",
+             "const r = await import(process.argv[1]); const cases = JSON.parse(process.argv[2]);"
+             "console.log(JSON.stringify(cases.map(([p, t]) => r.sessionRoutes(p, t, ''))));",
+             str(ROUTER), json.dumps(cases)], capture_output=True, text=True, timeout=60, cwd=ROOT)
+        self.assertEqual(0, run.returncode, run.stderr)
+        self.assertEqual([[], [], ["data-fitting"], ["elm-delegation"], []], json.loads(run.stdout))
+
+    def test_the_child_preamble_is_not_the_request(self):
+        prompt = self.PREAMBLE + "Create the main index.html page for a frog website."
+        self.assertEqual([], routes([prompt])[prompt])
 
     def test_a_skill_command_does_not_route_on_the_skill_text(self):
         body = (ROOT / "templates/skills/data-fitting/SKILL.md").read_text()
@@ -148,6 +236,9 @@ class MechanismTests(unittest.TestCase):
         # Read back from the compaction-aware context, not a module-level set.
         self.assertIn("skillsIn(ctx.sessionManager.buildContextEntries())", self.SOURCE)
         self.assertIn("!present.has(name)", self.SOURCE)
+
+    def test_an_armed_message_routes_its_orchestration_skill_first(self):
+        self.assertIn("sessionRoutes(event.prompt, pi.getActiveTools?.() ?? [], process.env.PATH)", self.SOURCE)
 
     def test_only_user_prompts_route(self):
         self.assertLess(self.SOURCE.index('event.messageType !== "user"'), self.SOURCE.index("event.prompt"))

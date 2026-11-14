@@ -521,6 +521,21 @@ BASH = [
     ("parallel -S h1,h2 echo ::: a b", deny("parallel *-S*"), "parallel itself runs commands on other machines"),
     ("parallel --sshlogin h1 echo ::: a", deny("parallel *--sshlogin*"), ""),
     ("parallel -j 4 gzip ::: a.log b.log", ask("<indirection-bash-wrapper>"), "the gate asks for what parallel runs, as for xargs"),
+    # auto21 (2026-11-14): Homebrew's Python refused `pip3 install`, and the model added
+    # --break-system-packages: 92 packages went into the Python everything else on the machine uses.
+    ("pip3 install --break-system-packages --quiet nbconvert jupyter", deny("*break-system-packages*"), "auto21"),
+    ("python3 -m pip install numpy --break-system-packages", deny("*break-system-packages*"), ""),
+    ("/opt/homebrew/bin/pip3 install --break-system-packages scipy", deny("*break-system-packages*"), ""),
+    ("pip config set global.break-system-packages true", deny("*break-system-packages*"), "the same, made permanent"),
+    ("PIP_BREAK_SYSTEM_PACKAGES=1 pip install scipy", deny("PIP_BREAK_SYSTEM_PACKAGES"),
+     "command-guard: the gate reads past the assignment"),
+    ("export PIP_BREAK_SYSTEM_PACKAGES=1", deny("*PIP_BREAK_SYSTEM_PACKAGES*"), ""),
+    ("env UV_SYSTEM_PYTHON=1 uv pip install scipy", deny("*UV_SYSTEM_PYTHON*"), "env's own words are matched"),
+    ("UV_SYSTEM_PYTHON=true uv pip install scipy", deny("UV_SYSTEM_PYTHON"), "command-guard"),
+    ("uv pip install --system scipy", deny("uv pip *--system*"), "uv's spelling: the interpreter on PATH"),
+    ("uv pip install --break-system-packages scipy", deny("*break-system-packages*"), ""),
+    ("uv pip install --python .venv/bin/python scipy", allow(), "a project's environment is fine"),
+    ("pip install scipy", allow(), "where it goes is pip's to refuse (PEP 668) or the environment's"),
 ]
 
 
@@ -528,6 +543,8 @@ BASH = [
 # path rules over a command's path tokens; "none" means no path rule objected.
 BASH_PATH = [
     ("cat .env", deny("*.env")),
+    # Nor from the shell: /mode is how the default changes.
+    ("echo auto > {agent}/permission-mode", deny("{agent}/permission-mode")),
     ("cp .env /tmp/env.bak", deny("*.env")),
     ("echo KEY=1 >> .env", deny("*.env")),
     ("source config/.env.local", deny("*.env.*")),
@@ -605,6 +622,11 @@ PATHS = [
     ("read", "analysis/results.csv", allow()),
     # A link in the project to a credential is judged by where it points.
     ("read", "aws-link", deny("~/.aws/*")),
+    # The mode new sessions start in is the user's to change, with /mode; the
+    # agent's tools may not write it, nor read it.
+    ("write", "{agent}/permission-mode", deny("{agent}/permission-mode")),
+    ("edit", "{agent}/permission-mode", deny("{agent}/permission-mode")),
+    ("read", "{agent}/permission-mode", deny("{agent}/permission-mode")),
 ]
 
 
@@ -681,8 +703,8 @@ def results():
         fill = lambda p: p.replace("{install}", str(install)).replace("{agent}", str(agent))
         cases = {
             "bash": [c for c, _, _ in BASH],
-            "bashPath": [c for c, _ in BASH_PATH],
-            "path": [[t, p] for t, p, _ in PATHS],
+            "bashPath": [fill(c) for c, _ in BASH_PATH],
+            "path": [[t, fill(p)] for t, p, _ in PATHS],
             "external": [[t, fill(p)] for t, p, _ in EXTERNAL],
             "infra": [[t, fill(p)] for t, p, _ in INFRA],
             "tools": TOOLS,
@@ -821,10 +843,11 @@ def build():
             note)
     for i, (command, (decision, pattern)) in enumerate(BASH_PATH):
         add(BashPathTests, f"test_{i:03d}_{slug(command)}",
-            lambda self, c=command, d=decision, p=pattern: self.check(self.out["bashPath"][c], d, p))
+            lambda self, c=command, d=decision, p=pattern: self.check(self.out["bashPath"][self.fill(c)], d, p))
     for i, (tool, path, (decision, pattern)) in enumerate(PATHS):
         add(PathRuleTests, f"test_{i:03d}_{tool}_{slug(path)}",
-            lambda self, k=f"{tool} {path}", d=decision, p=pattern: self.check(self.out["path"][k], d, p))
+            lambda self, t=tool, p=path, d=decision, pat=pattern:
+                self.check(self.out["path"][f"{t} {self.fill(p)}"], d, pat))
     for i, (tool, path, (decision, pattern)) in enumerate(EXTERNAL):
         add(ExternalDirectoryTests, f"test_{i:03d}_{tool}_{slug(path)}",
             lambda self, t=tool, p=path, d=decision, pat=pattern:

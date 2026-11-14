@@ -43,13 +43,20 @@ class ColourShellTests(unittest.TestCase):
     def run_bash(self, command, **env):
         script = f"{SETTINGS['shellCommandPrefix']}\n{command}"
         environ = {k: v for k, v in os.environ.items() if k != "NO_COLOR"}
-        environ.update({"PI_CODING_AGENT_DIR": str(self.agent), **env})
+        # pi's bash inherits the terminal's TERM. GNU ls with no LS_COLORS colours only for a TERM
+        # its colour database knows, --color=always included, and a test run may have none or "dumb".
+        environ.update({"PI_CODING_AGENT_DIR": str(self.agent), "TERM": "xterm-256color", **env})
         return subprocess.run(["bash", "-c", script], cwd=self.repo, capture_output=True, text=True, env=environ)
 
     def test_output_straight_to_pi_is_coloured(self):
         for command in ["git diff", "git log -1", "git status", "ls", "grep -n slope fit.py",
                         "diff <(echo a) <(echo b)"]:
             with self.subTest(command=command):
+                # The wrappers leave a missing tool alone, and a diff without --color (macOS's,
+                # minimal images have none) plain - nothing to colour there.
+                if command.startswith("diff") and subprocess.run(
+                        "diff --color=always /dev/null /dev/null", shell=True, capture_output=True).returncode:
+                    self.skipTest("this diff has no --color")
                 self.assertIn(ESC, self.run_bash(command).stdout)
 
     def test_pipes_files_and_substitutions_stay_plain(self):

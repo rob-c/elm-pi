@@ -47,7 +47,8 @@ printf 'Authorization: Bearer %s\n' "$ELM_API_KEY" > "$AUTH_HEADER"
 trap 'rm -f "$RAW" "$AUTH_HEADER"' EXIT
 
 echo "Querying $BASE/models ..."
-curl -q -fsS -m 30 -H "@$AUTH_HEADER" "$BASE/models" > "$RAW"
+# ELM_CURL_RETRY_TRANSIENT (lib/sandbox.sh): a 401 is final, a dropped connection is not.
+curl -q -fsS -m 30 "${ELM_CURL_RETRY_TRANSIENT[@]}" -H "@$AUTH_HEADER" "$BASE/models" > "$RAW"
 
 MODEL_ID=$(MATCH="$MATCH" elm_py - "$RAW" <<'PY'
 import json,os,sys
@@ -81,7 +82,7 @@ echo "Model id: $MODEL_ID"
 
 echo
 echo "Smoke test ..."
-curl -q -fsS -m 120 -H "@$AUTH_HEADER" -H "Content-Type: application/json" \
+curl -q -fsS -m 120 "${ELM_CURL_RETRY_TRANSIENT[@]}" -H "@$AUTH_HEADER" -H "Content-Type: application/json" \
   "$BASE/chat/completions" \
   -d "$(elm_py -c 'import json,sys;print(json.dumps({"model":sys.argv[1],"messages":[{"role":"user","content":"Reply with exactly: OK"}],"max_tokens":256,"reasoning_effort":"none"}))' "$MODEL_ID")" \
   | elm_py -c '
@@ -115,7 +116,7 @@ entries=elm.setdefault("models",[])
 idx=next((i for i,e in enumerate(entries) if match.lower() in e.get("id","").lower()), None)
 if idx is None:
     entries.insert(0,{"id":model,"name":model+" (ELM, university-hosted)","reasoning":True,
-                      "input":["text"],"contextWindow":262144,"maxTokens":32768,
+                      "input":["text"],"contextWindow":262144,"maxTokens":81920,
                       "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}})
     idx=0
 else:

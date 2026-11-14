@@ -31,9 +31,9 @@
  * runs off this machine.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 type Rule = string | { action?: string; reason?: string };
@@ -767,7 +767,7 @@ function decideSpelling(command: string, rules: [string, Rule][]): Denial | unde
 			if (action(rule) === "ask") hiddenAsk ??= { pattern, spelling, reason: askReason(spelling) };
 		}
 	}
-	const container = containerDenial(command, runs);
+	const container = containerDenial(command, runs) ?? systemPythonDenial(command);
 	if (container) return container;
 	// An ask matches the command as written, so `git  push` or `'git' push`
 	// would run unasked. When nothing in the text as written is asked about
@@ -783,6 +783,26 @@ function decideSpelling(command: string, rules: [string, Rule][]): Denial | unde
 
 const OFF_MACHINE = "A container engine pointed at another machine runs every container there, past the egress proxy. Not available here; see LOCKDOWN.md.";
 const NO_NETWORK = "Containers run here only with no network: give `--network=none` among the run's own options, before the image. See LOCKDOWN.md.";
+
+/**
+ * pip's and uv's switches for installing into the system's Python, set as variables. The gate matches a
+ * command past its leading assignments, so `PIP_BREAK_SYSTEM_PACKAGES=1 pip install x` reads as
+ * `pip install x` there; the flags themselves are its rules (`*break-system-packages*`). auto21
+ * (2026-11-14) put 92 packages into Homebrew's Python with the flag.
+ */
+const SYSTEM_PYTHON = /^(?:PIP_BREAK_SYSTEM_PACKAGES|UV_BREAK_SYSTEM_PACKAGES|UV_SYSTEM_PYTHON)=/;
+const INTO_SYSTEM_PYTHON =
+	"Installing into the system's Python changes software everything else on this machine uses, and it is not " +
+	"undone with the project. Install into the project's environment or this install's (`pi setup --python`); " +
+	"see the scientific-python skill.";
+
+function systemPythonDenial(command: string): Denial | undefined {
+	for (const words of commandsOf(command)) {
+		const setting = words.find((word) => SYSTEM_PYTHON.test(word));
+		if (setting) return { pattern: setting.split("=")[0], reason: INTO_SYSTEM_PYTHON, spelling: words.join(" ") };
+	}
+	return undefined;
+}
 
 /** A container run that would get a network, or an engine set to run elsewhere. */
 function containerDenial(command: string, runs: string[][]): Denial | undefined {
@@ -871,14 +891,130 @@ export function remoteEngineInEnvironment(command: string, env: NodeJS.ProcessEn
 	return engine ? { pattern: target, reason: OFF_MACHINE, spelling: engine.join(" ") } : undefined;
 }
 
+/**
+ * A web server open to the network. `python3 -m http.server` listens on every
+ * interface unless told otherwise, so anyone on the network can read the folder
+ * it serves - in test5 (2026-11-12) a sub-agent left one serving ~/sandbox/test5,
+ * and test4's parent one serving ~/sandbox/test4, still running an hour later:
+ * its `pkill -f "python3 -m http.server"` missed it, macOS's framework Python
+ * runs as `Python`. Refused unless it is bound to this machine, and the reason
+ * says how to stop it.
+ */
+export const OPEN_SERVER =
+	"`http.server` listens on every network interface unless it is bound, so anyone on the network could read this " +
+	"folder. Bind it to this machine: `python3 -m http.server --bind 127.0.0.1 8000 & echo $!`, and stop it by that " +
+	"PID (`kill <PID>`) when you are done - `pkill -f \"python3 -m http.server\"` misses macOS's Python, which runs as " +
+	"`Python`.";
+
+export function openServer(command: string): Denial | undefined {
+	const server = /\b(python[\d.]*|py)\s+(?:-[A-Za-z]+\s+)*-m\s+http\.server\b[^;&|\n]*/.exec(command);
+	if (!server) return undefined;
+	if (/(?:--bind(?:\s+|=)|\s-b\s+)(?:127\.0\.0\.1|localhost|::1)\b/.test(server[0])) return undefined;
+	return { pattern: "http.server", reason: OPEN_SERVER, spelling: server[0].trim() };
+}
+
+/** The elm-pi install this session runs on (the folder above its agent dir, with the launcher in it). */
+export function runningInstall(env: NodeJS.ProcessEnv = process.env): string | undefined {
+	const agent = env.PI_CODING_AGENT_DIR;
+	if (!agent) return undefined;
+	const root = dirname(resolve(agent));
+	if (!existsSync(join(root, "pi")) || !existsSync(join(root, "bootstrap.sh"))) return undefined;
+	try {
+		return realpathSync(root);
+	} catch {
+		return root;
+	}
+}
+
+/** Commands that change every file they name; and those that change only their last (the destination). */
+const CHANGES_ALL = new Set(["rm", "rmdir", "unlink", "touch", "mkdir", "chmod", "chown", "chgrp", "truncate", "tee", "mv", "shred", "patch"]);
+const CHANGES_LAST = new Set(["cp", "rsync", "ln", "install", "ditto"]);
+const IN_PLACE = new Set(["sed", "gsed", "perl"]);
+const GIT_CHANGES = new Set(["checkout", "reset", "apply", "am", "stash", "clean", "commit", "merge", "rebase", "pull", "restore", "rm", "mv", "switch", "cherry-pick", "revert"]);
+
+/**
+ * A bash command that would change the running install - its guards, launcher or configuration. The
+ * writing tools are refused there by protected-paths.ts; this is the same rule for the shell, read from
+ * the command's words: what rm, mv, touch, sed -i and the like name, the destination of cp, rsync and
+ * ln (copying out of the install is fine), redirections, and git commands that change the install's tree.
+ * `cd` is followed through the command; `.pi` folders stay open, as for the tools.
+ */
+export function installWrite(command: string, cwd: string, install: string | undefined, env: NodeJS.ProcessEnv = process.env): Denial | undefined {
+	if (!install) return undefined;
+	let dir = cwd;
+	const expand = (word: string) =>
+		word
+			.replace(/^["']|["']$/g, "")
+			.replace(/^~(?=\/|$)/, env.HOME ?? homedir())
+			.replace(/\$\{?HOME\}?/g, env.HOME ?? homedir())
+			.replace(/\$\{?PI_CODING_AGENT_DIR\}?/g, env.PI_CODING_AGENT_DIR ?? "");
+	const inside = (word: string): boolean => {
+		const raw = expand(word);
+		if (!raw || raw.startsWith("-")) return false;
+		let target = isAbsolute(raw) ? raw : resolve(dir, raw);
+		let probe = target;
+		while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe);
+		try {
+			target = resolve(realpathSync(probe), relative(probe, target));
+		} catch {
+			// as resolved
+		}
+		const rel = relative(install, target);
+		if (rel.startsWith("..") || isAbsolute(rel)) return false;
+		// agent/tmp is the launcher's TMPDIR, as in protected-paths.ts
+		if (/^agent\/tmp(?:\/|$)/i.test(rel)) return false;
+		return !rel.split("/").some((s) => s.toLowerCase() === ".pi");
+	};
+	const deny = (spelling: string): Denial => ({
+		pattern: "the running install",
+		reason:
+			`It would change the elm-pi install this session runs on (${install}) - its guards, launcher and configuration. ` +
+			"Develop elm-pi in a separate clone (git clone it, then scripts/dev-setup.sh there; its AGENTS.md says how); " +
+			"this install changes only through `pi update`.",
+		spelling,
+	});
+	for (const m of command.matchAll(/(?:^|[^<>&0-9])>{1,2}\|?\s*([^\s;&|()<>]+)/g)) if (inside(m[1])) return deny(`> ${m[1]}`);
+	const runs: string[][] = [];
+	for (const words of commandsOf(command)) collectRuns(words, runs, 0);
+	for (const run of runs) {
+		const name = basename(run[0]);
+		const args = run.slice(1);
+		const files = args.filter((a) => !a.startsWith("-"));
+		if (name === "cd") {
+			const to = files[0] ? expand(files[0]) : (env.HOME ?? homedir());
+			dir = isAbsolute(to) ? to : resolve(dir, to);
+			continue;
+		}
+		let named: string[] = [];
+		if (CHANGES_ALL.has(name)) named = name === "chmod" || name === "chown" || name === "chgrp" ? files.slice(1) : files;
+		else if (CHANGES_LAST.has(name)) named = files.length > 1 ? files.slice(-1) : [];
+		else if (IN_PLACE.has(name) && args.some((a) => /^-[A-Za-z]*i|^--in-place/.test(a))) named = files;
+		else if (name === "dd") named = args.filter((a) => a.startsWith("of=")).map((a) => a.slice(3));
+		else if (name === "git") {
+			const at = args.indexOf("-C");
+			const where = at >= 0 ? args[at + 1] : ".";
+			const sub = args.find((a, i) => !a.startsWith("-") && !(at >= 0 && i === at + 1));
+			if (sub && GIT_CHANGES.has(sub) && inside(where)) return deny(run.join(" "));
+		}
+		const hit = named.find(inside);
+		if (hit) return deny(run.join(" "));
+	}
+	return undefined;
+}
+
 export default function (pi: ExtensionAPI) {
+	const install = runningInstall();
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName !== "bash") return undefined;
 		const input = (event.input ?? {}) as Record<string, unknown>;
 		if (typeof input.command !== "string") return undefined;
 		let denial: Denial | undefined;
 		try {
-			denial = deniedSpelling(input.command, bashRules()) ?? remoteEngineInEnvironment(input.command);
+			denial =
+				deniedSpelling(input.command, bashRules()) ??
+				remoteEngineInEnvironment(input.command) ??
+				openServer(input.command) ??
+				installWrite(input.command, ctx.cwd, install);
 		} catch {
 			// A command that breaks the guard's reading is one it cannot vouch for.
 			denial = { pattern: "command-guard", reason: "The command guard could not read it. Write it more plainly.", spelling: input.command };

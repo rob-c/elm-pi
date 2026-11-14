@@ -1,0 +1,38 @@
+{
+ "qwen-A": {
+  "settings": "temperature 0.7, top_p 0.8, top_k 20, min_p 0, presence_penalty 1.5 (shipped: the card's instruct profile)",
+  "tasks": "6 later + 8 hard"
+ },
+ "qwen-B": {
+  "settings": "temperature 0.7, top_p 0.8, top_k 20, min_p 0, presence_penalty 0",
+  "tasks": "6 later + 8 hard"
+ },
+ "qwen-C": {
+  "settings": "temperature 0.6, top_p 0.95, top_k 20, min_p 0, presence_penalty 0 (the card's thinking profile)",
+  "tasks": "6 later + 8 hard"
+ },
+ "mistral-A": {
+  "settings": "reasoning high, temperature 0.7 (shipped: Mistral's figure)",
+  "tasks": "all 25"
+ },
+ "mistral-B": {
+  "settings": "reasoning high, temperature 0.4",
+  "tasks": "all 25"
+ },
+ "mistral-C": {
+  "settings": "reasoning high, temperature 0.15",
+  "tasks": "all 25"
+ },
+ "llama-A": {
+  "settings": "pi sends 0.6 / top_p 0.9 (shipped); the shim sends 0 with tools",
+  "tasks": "all 25"
+ },
+ "llama-B": {
+  "settings": "pi sends 0.2 / top_p 0.9; the shim sends 0 with tools",
+  "tasks": "all 25"
+ },
+ "llama-C": {
+  "settings": "pi sends 0 / top_p 0.9; the shim sends 0 with tools",
+  "tasks": "all 25"
+ }
+}

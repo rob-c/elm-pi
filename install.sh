@@ -113,11 +113,13 @@ Passed through to bootstrap.sh:
   --no-shim           no Llama tool-call shim
   --no-patch          leave pi's /share and /bug commands in place
   --no-auth-lock      leave agent/auth.json writable, so /login works
-  --with-python       the agent's own Python (agent/python, ~1GB)
+  --no-python         leave out the agent's own Python (agent/python, ~1GB),
+                      which every install has otherwise
+  --with-python       take --no-python back
   --with-pypi-index   offline PyPI search, `pypi-search` (implies --with-python)
-  --with-all          every optional part: both of the above (nothing that opens
-                      the network - that is `pi --remote`, per run)
-  --no-python, --no-pypi-index  take those back
+  --with-all          every optional part: the Python and the index (nothing
+                      that opens the network - that is `pi --remote`, per run)
+  --no-pypi-index     take the index back
   --force             re-download the tools and reinstall the npm packages
   --force-packages    reinstall the extension packages at the tested versions,
                       and pi too if it is not at its tested version
@@ -132,7 +134,8 @@ ELM_PI_FORCE_LINK, ELM_PI_PYTHON, ELM_PI_BUNDLED_PYTHON, ELM_API_KEY,
 ELM_PI_IGNORE_DISK_SPACE, ELM_PI_WITH_ALL (=1: the same as --with-all),
 ELM_PI_RUN_TESTS (=1: run the test suite on the source first, a few minutes).
 
-Your shell's conda/venv/pyenv Python, nvm/volta Node, ~/.npmrc, ~/.npm,
+Your shell's conda/venv/pyenv Python, nvm/volta/Homebrew Node, node_modules
+elsewhere on the machine, ~/.npmrc, ~/.npm,
 ~/.gitconfig, ~/.curlrc and PYTHON*/NODE_*/npm_config_*/GIT_* variables are
 ignored by the install.
 EOU
@@ -200,7 +203,9 @@ if [ -n "$missing" ]; then
   case "$OS" in
     macOS) warn "install the Apple command line tools:  xcode-select --install" ;;
     Linux) warn "Debian/Ubuntu:  sudo apt install -y curl tar python3 git"
-           warn "Fedora/RHEL:    sudo dnf install -y curl tar python3 git" ;;
+           warn "Fedora/RHEL:    sudo dnf install -y curl tar python3 git"
+           warn "Arch:           sudo pacman -S --needed curl tar python git"
+           warn "NixOS:          add curl and git to environment.systemPackages" ;;
   esac
   die "install the tools above, then re-run this command"
 fi
@@ -225,8 +230,12 @@ fi
 if [ ! -f "$PREFIX/bootstrap.sh" ] && [ ! -e "$PREFIX/.git" ]; then
   DISK_KEEP=1000; DISK_TEMP=0
   DISK_PARTS=("Node, pi, its packages and the command-line tools (~1.0 GB)")
-  case " ${PASS_ARGS[*]-} " in *" --with-python "*|*" --with-pypi-index "*|*" --with-all "*)
-    DISK_KEEP=$((DISK_KEEP + 1000)); DISK_PARTS+=("the agent's Python (~1.0 GB)") ;; esac
+  # The agent's Python unless --no-python is the last word on it.
+  _python=1
+  for _a in ${PASS_ARGS[@]+"${PASS_ARGS[@]}"}; do
+    case "$_a" in --no-python) _python=0 ;; --with-python|--with-pypi-index|--with-all) _python=1 ;; esac
+  done
+  [ "$_python" = "0" ] || { DISK_KEEP=$((DISK_KEEP + 1000)); DISK_PARTS+=("the agent's Python (~1.0 GB)"); }
   case " ${PASS_ARGS[*]-} " in *" --with-pypi-index "*|*" --with-all "*)
     DISK_KEEP=$((DISK_KEEP + 400)); DISK_TEMP=1000
     DISK_PARTS+=("the offline PyPI index (~0.4 GB, after a ~1 GB download deleted once it is built)") ;; esac
@@ -289,6 +298,8 @@ validate_source() { # $1 = candidate source tree
   # it ship with the release. Exported: bootstrap.sh and check.sh inherit it.
   # shellcheck source=lib/sandbox.sh
   . "$source_dir/lib/sandbox.sh"
+  # Before the standalone CPython below, which would not run either.
+  elm_check_loader || die "$ELM_LOADER_ERROR"
   # May download the standalone CPython into $PREFIX/.python, which is where
   # bootstrap.sh then finds it.
   elm_ensure_python "$PREFIX" || die "$ELM_PY_ERROR"

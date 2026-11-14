@@ -15,7 +15,7 @@ cd "$HERE"
 CONFIG_TOOL="$HERE/scripts/elm_config.py"
 
 WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; FORCE=0
-WITH_TOOLS=1; WITH_PATCH=1; WITH_PYTHON=0; WITH_PYPI_INDEX=0; FORCE_PACKAGES=0; RESET_OPTIONS=0
+WITH_TOOLS=1; WITH_PATCH=1; WITH_PYTHON=1; WITH_PYPI_INDEX=0; FORCE_PACKAGES=0; RESET_OPTIONS=0
 # The --no-* and --with-* flags this run was given, for agent/install-options
 # (see below), and the --with-* ones it takes back.
 GIVEN_FLAGS=""; DROPPED_FLAGS=""
@@ -59,17 +59,19 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
 
   --no-packages       pi only: no sub-agents, web access or anchor edit
   --no-tools          no bundled fd/rg/jq/yq/shellcheck/ast-grep/uv/mlr/resvg/pixi/ruff
-  --with-python       give the agent its own Python: uv-managed CPython and the
-                      analysis stack in agent/python (~1GB); `pi setup --python`
+  --no-python         no agent's Python: leave out (or remove) agent/python, the
+                      uv-managed CPython and analysis stack every install has by
+                      default (~1GB), and the index with it; `pi setup --no-python`
+  --with-python       take --no-python back; `pi setup --python`
   --with-pypi-index   an offline search index of PyPI for the agent, `pypi-search`
                       (downloads ~1GB once, keeps ~390MB); implies --with-python
   --with-all          every optional part: --with-python and --with-pypi-index
                       (recorded as those two; nothing here opens the network -
                       that is `pi --remote`, per run); `pi setup --all`
-  --no-python         take --with-python (and --with-pypi-index) back, removing
-                      agent/python; --no-pypi-index takes back the index alone
+  --no-pypi-index     take --with-pypi-index back, removing the index
   --no-shim           skip the Llama tool-call shim
-  --no-patch          leave pi's /share and /bug commands in place
+  --no-patch          leave pi as shipped: /share, /bug and its subcommands stay,
+                      and the permission gate runs in auto mode only
   --no-auth-lock      leave agent/auth.json writable, so /login works
   --reset-options     forget the --no-* flags and ELM_PI_TOOLS earlier runs
                       recorded, and use only what this run is given
@@ -84,7 +86,8 @@ PI_VERSION, ELM_PI_TOOLS, FD_VERSION, RG_VERSION, JQ_VERSION, YQ_VERSION,
 SHELLCHECK_VERSION, ASTGREP_VERSION, UV_VERSION, MLR_VERSION, RESVG_VERSION,
 PIXI_VERSION, RUFF_VERSION.
 
-Your shell's conda/venv/pyenv Python, nvm/volta Node, ~/.npmrc, ~/.npm and
+Your shell's conda/venv/pyenv Python, nvm/volta/Homebrew Node, node_modules
+elsewhere on the machine, ~/.npmrc, ~/.npm and
 PYTHON*/NODE_*/npm_config_* variables are ignored: see lib/sandbox.sh.
 EOU
 }
@@ -96,16 +99,21 @@ for arg in "$@"; do
 done
 for arg in "$@"; do
   case "$arg" in
-    --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--with-python|--with-pypi-index)
-      case " $GIVEN_FLAGS " in *" $arg "*) ;; *) GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$arg" ;; esac ;;
-    # Taking an opt-in back: not recorded itself, it removes what it names from
-    # the record. --no-python takes the index with it, which cannot build without.
-    --no-python) DROPPED_FLAGS="$DROPPED_FLAGS --with-python --with-pypi-index" ;;
+    --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--with-python|--with-pypi-index|--no-python)
+      case " $GIVEN_FLAGS " in *" $arg "*) ;; *) GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$arg" ;; esac
+      # Each one replaces its opposite in the record. The agent's Python is built by
+      # default since 2026-11-14, so --no-python is recorded like the other --no-*
+      # flags; it takes the index with it, which cannot build without.
+      case "$arg" in
+        --no-python) DROPPED_FLAGS="$DROPPED_FLAGS --with-python --with-pypi-index" ;;
+        --with-python|--with-pypi-index) DROPPED_FLAGS="$DROPPED_FLAGS --no-python" ;;
+      esac ;;
     # Recorded as the parts it stands for, so --no-pypi-index can take one back.
     --with-all)
       for _f in --with-python --with-pypi-index; do
         case " $GIVEN_FLAGS " in *" $_f "*) ;; *) GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$_f" ;; esac
-      done ;;
+      done
+      DROPPED_FLAGS="$DROPPED_FLAGS --no-python" ;;
     --no-pypi-index) DROPPED_FLAGS="$DROPPED_FLAGS --with-pypi-index" ;;
     --non-interactive) INTERACTIVE=0 ;;
     --update) UPDATE=1 ;;
@@ -124,6 +132,7 @@ apply_flag() {
     --no-patch) WITH_PATCH=0 ;;
     --with-python) WITH_PYTHON=1 ;;
     --with-pypi-index) WITH_PYPI_INDEX=1; WITH_PYTHON=1 ;;
+    --no-python) WITH_PYTHON=0; WITH_PYPI_INDEX=0 ;;
   esac
 }
 
@@ -141,6 +150,9 @@ die()  { printf '\033[31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 # shellcheck source=lib/sandbox.sh
 . "$HERE/lib/sandbox.sh"
 elm_install_env "$HERE"
+# Before anything is downloaded: on NixOS without nix-ld none of it would run.
+elm_check_loader || die "$ELM_LOADER_ERROR"
+elm_curl_retry   # ELM_CURL_RETRY for every download below
 say "Python"
 elm_ensure_python "$HERE" || die "$ELM_PY_ERROR"
 echo "    $ELM_PI_PYTHON ($(elm_py -c 'import platform; print(platform.python_version())'))"
@@ -181,18 +193,9 @@ if [ "$RESET_OPTIONS" = "1" ]; then
   [ -z "$SAVED_FLAGS$SAVED_TOOLS" ] || echo "    --reset-options: not repeating $SAVED_FLAGS${SAVED_TOOLS:+ ELM_PI_TOOLS=$SAVED_TOOLS}"
   SAVED_FLAGS=""; SAVED_TOOLS=""
 fi
-# The agent's Python was built by default before --with-python existed. An
-# install that has one keeps it - with the agent's own packages in it - rather
-# than losing it to an update; --no-python removes it.
-if [ -x agent/python/env/bin/python ] && [ "$RESET_OPTIONS" != "1" ]; then
-  case " $SAVED_FLAGS $GIVEN_FLAGS ${DROPPED_FLAGS:-} " in
-    *" --with-python "*) ;;
-    *) SAVED_FLAGS="$SAVED_FLAGS --with-python"; PY_INFERRED=1 ;;
-  esac
-fi
 REPEATED=""
 for flag in $SAVED_FLAGS; do
-  case "$flag" in --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--with-python|--with-pypi-index) ;; *) continue ;; esac
+  case "$flag" in --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--with-python|--with-pypi-index|--no-python) ;; *) continue ;; esac
   case " $GIVEN_FLAGS " in *" $flag "*) continue ;; esac
   case " ${DROPPED_FLAGS:-} " in *" $flag "*) continue ;; esac
   GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$flag"; REPEATED="$REPEATED $flag"
@@ -208,7 +211,11 @@ if [ -n "$REPEATED" ]; then
   echo "    (to drop one: re-run with --reset-options and only the flags you want)"
 fi
 echo "    this install: ${GIVEN_FLAGS:-the defaults}${ELM_PI_TOOLS:+, ELM_PI_TOOLS=$ELM_PI_TOOLS}"
-[ "${PY_INFERRED:-0}" = "0" ] || echo "    (agent/python was already here, so it is kept as --with-python; --no-python removes it)"
+# An install made while the agent's Python was opt-in gains it on its next run.
+if [ "${WITH_PYTHON:-0}" = "1" ] && [ ! -x agent/python/env/bin/python ] && [ -n "$OPTIONS_FROM" ]; then
+  echo "    the agent's Python (agent/python, ~1 GB) is part of every install now, and is built below;"
+  echo "    to leave it out: pi setup --no-python"
+fi
 # install.sh passes the branch and repository it fetched; any other run keeps
 # what was recorded. Values with whitespace in them are not a branch or a URL.
 OPT_BRANCH="${ELM_PI_BRANCH:-$(saved_option branch)}"
@@ -225,17 +232,6 @@ mkdir -p agent
   echo "branch=$OPT_BRANCH"
   echo "repo=$OPT_REPO"
 } > "$OPTIONS_FILE.tmp" && mv -f "$OPTIONS_FILE.tmp" "$OPTIONS_FILE"
-
-# Before anything runs pi: jiti searches every ancestor of the install for
-# packages, so a node_modules above it would be loaded into pi - by the cache
-# warm-up and the checks below as much as by the launcher, which refuses to
-# start while one exists.
-EXTERNAL_MODULES="$(elm_external_module_dirs "$HERE")"
-if [ -n "$EXTERNAL_MODULES" ] && [ "${ELM_PI_ALLOW_EXTERNAL_MODULES:-0}" != "1" ]; then
-  warn "node_modules outside this install, in a directory above it:"
-  printf '%s\n' "$EXTERNAL_MODULES" | sed 's/^/      /'
-  die "packages there would be loaded into pi. Move or delete them (usually an \`npm install\` run in the wrong place), or set ELM_PI_ALLOW_EXTERNAL_MODULES=1"
-fi
 
 # Not NODE_VERSION: official Node container images and some CI runners export
 # that for their own Node, without the leading v, and it used to be read here.
@@ -314,7 +310,7 @@ fi
 # On an Intel Mac `brew install node` has no bottle and compiles V8 from source
 # (over an hour). The official prebuilt tarball takes seconds.
 say "Node $NODE_VERSION"
-if [ -x ".node/bin/node" ] && [ "$(.node/bin/node --version)" = "$NODE_VERSION" ]; then
+if [ -x ".node/bin/node" ] && [ "$(.node/bin/node --version 2>/dev/null)" = "$NODE_VERSION" ]; then
   echo "    already present: $(.node/bin/node --version)"
 else
   case "$(uname -s)" in
@@ -330,8 +326,8 @@ else
   TAR="node-$NODE_VERSION-$OS-$ARCH.tar.gz"
   TMP="$(mktemp -d)"
   echo "    downloading $TAR"
-  curl -q -fsSL -o "$TMP/$TAR" "https://nodejs.org/dist/$NODE_VERSION/$TAR"
-  curl -q -fsSL -o "$TMP/SHASUMS256.txt" "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt"
+  curl -q -fsSL "${ELM_CURL_RETRY[@]}" -o "$TMP/$TAR" "https://nodejs.org/dist/$NODE_VERSION/$TAR"
+  curl -q -fsSL "${ELM_CURL_RETRY[@]}" -o "$TMP/SHASUMS256.txt" "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt"
   # The exact file's line - not the .tar.xz beside it - and awk, not grep: a
   # grep that finds nothing fails the pipeline, and set -e ends the install
   # before the mismatch message below.
@@ -340,7 +336,11 @@ else
   if [ -z "$want" ] || [ "$want" != "$got" ]; then die "checksum mismatch for $TAR"; fi
   rm -rf .node && mkdir -p .node
   tar -xzf "$TMP/$TAR" -C .node --strip-components=1
-  echo "    installed $(.node/bin/node --version)"
+  # Run it before anything relies on it: a Node that cannot start here used to
+  # surface three steps later as "npm is not isolated to this install".
+  node_says="$(.node/bin/node --version 2>&1)" \
+    || die "the downloaded Node does not run on this system: $node_says"
+  echo "    installed $node_says"
 fi
 # elm_install_env already put .node/bin first; prove it rather than assume it.
 [ "$(command -v node)" = "$HERE/.node/bin/node" ] || die "node resolves to $(command -v node), not the bundled $HERE/.node/bin/node"
@@ -408,7 +408,7 @@ if [ "$NEED_PI" = "1" ]; then
       --fetch-retries=5 --fetch-retry-maxtimeout=60000 --loglevel=error )
   if [ "$WITH_PATCH" = "1" ]; then
     elm_py "$HERE/patch-pi.py" --bundle "$CORE_STAGE/node_modules/@earendil-works/pi-coding-agent/dist/bundle" \
-      || die "could not disable /share and /bug in the staged pi release"
+      || die "could not patch the staged pi release (/share, /bug, its subcommands, retry jitter) - see patch-pi.py"
   fi
   "$HERE/.node/bin/node" "$CORE_STAGE/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" --version >/dev/null \
     || die "the staged pi release does not start"
@@ -431,7 +431,9 @@ fi
 echo "    $("$HERE/.node/bin/node" node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js --version 2>/dev/null || echo installed)"
 # /share publishes the session as a GitHub gist and /bug POSTs the whole
 # transcript to radius.pi.dev. pi has no way to disable a built-in command, so
-# they are patched out of the release here, on every install and every update.
+# they are patched out of the release here, on every install and every update,
+# with pi's own subcommands (auth, mcp, config, install, ...), which manage
+# what this install manages itself.
 #
 # Fatal by design. If a pi release moves the code the patch anchors to, this
 # stops the install rather than leaving an unpatched pi behind a message nobody
@@ -439,9 +441,9 @@ echo "    $("$HERE/.node/bin/node" node_modules/@earendil-works/pi-coding-agent/
 # Re-derive the anchors in patch-pi.py, or re-run with --no-patch if you have
 # decided you want those commands.
 if [ "$WITH_PATCH" = "1" ]; then
-  elm_py "$HERE/patch-pi.py" || die "could not disable /share and /bug - see patch-pi.py"
+  elm_py "$HERE/patch-pi.py" || die "could not patch pi (/share, /bug, its subcommands, retry jitter) - see patch-pi.py"
 else
-  warn "--no-patch: /share and /bug are live; both upload the whole session off-site"
+  warn "--no-patch: /share and /bug are live, and both upload the whole session off-site; so are pi's subcommands"
 fi
 # npm warns that esbuild / protobufjs / @google/genai have unapproved install
 # scripts. pi runs from a prebuilt bundle and does not need them.
@@ -677,11 +679,11 @@ fi
 #                           (default ~/.cache/elm-pi/tools)
 #   ELM_PI_TOOLS=fd,rg,jq   install a subset - shellcheck and ast-grep are 35MB
 #                           and 51MB respectively, the other four total ~23MB
-#   FD_VERSION=10.5.0   pin any of them      (checksums: templates/tools.sha256)
-#   RG_VERSION=15.2.0   JQ_VERSION=1.8.2     YQ_VERSION=4.53.6
-#   SHELLCHECK_VERSION=0.11.0                ASTGREP_VERSION=0.45.3
-#   UV_VERSION=0.12.24  MLR_VERSION=6.22.0   RESVG_VERSION=0.48.1
-#   PIXI_VERSION=0.82.0 RUFF_VERSION=0.17.1
+#   FD_VERSION=10.5.2   pin any of them      (checksums: templates/tools.sha256)
+#   RG_VERSION=15.2.0   JQ_VERSION=1.8.2     YQ_VERSION=4.54.3
+#   SHELLCHECK_VERSION=0.11.0                ASTGREP_VERSION=0.51.2
+#   UV_VERSION=0.13.7   MLR_VERSION=6.22.0   RESVG_VERSION=0.49.0
+#   PIXI_VERSION=0.84.2 RUFF_VERSION=0.17.4
 if [ "$WITH_TOOLS" = "1" ]; then
   TOOLSET="${ELM_PI_TOOLS:-fd,rg,jq,yq,shellcheck,ast-grep,uv,mlr,resvg,pixi,ruff}"
   want_tool() { case ",$TOOLSET," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
@@ -699,7 +701,8 @@ if [ "$WITH_TOOLS" = "1" ]; then
     *) die "unsupported architecture: $(uname -m)" ;;
   esac
   # musl where it is offered: a static binary has no glibc version to match.
-  # ast-grep publishes no musl build, so on Linux it gets the glibc one.
+  # ast-grep's Linux builds are the glibc ones: it published no musl build
+  # before 0.51.2, and that one has not yet been tried on a login node.
   TRIPLE="$RUST_ARCH-$RUST_OS"
   GNU_TRIPLE="$RUST_ARCH-$GNU_OS"
   # fd 10.4+ is built against a macOS SDK newer than the Intel Macs in the
@@ -707,18 +710,18 @@ if [ "$WITH_TOOLS" = "1" ]; then
   if [ "$TRIPLE" = "x86_64-apple-darwin" ]; then
     FD_VERSION="${FD_VERSION:-10.3.0}"
   else
-    FD_VERSION="${FD_VERSION:-10.5.0}"
+    FD_VERSION="${FD_VERSION:-10.5.2}"
   fi
   RG_VERSION="${RG_VERSION:-15.2.0}"
   JQ_VERSION="${JQ_VERSION:-1.8.2}"
-  YQ_VERSION="${YQ_VERSION:-4.53.6}"
+  YQ_VERSION="${YQ_VERSION:-4.54.3}"
   SHELLCHECK_VERSION="${SHELLCHECK_VERSION:-0.11.0}"
-  ASTGREP_VERSION="${ASTGREP_VERSION:-0.45.3}"
-  UV_VERSION="${UV_VERSION:-0.12.24}"
+  ASTGREP_VERSION="${ASTGREP_VERSION:-0.51.2}"
+  UV_VERSION="${UV_VERSION:-0.13.7}"
   MLR_VERSION="${MLR_VERSION:-6.22.0}"
-  RESVG_VERSION="${RESVG_VERSION:-0.48.1}"
-  PIXI_VERSION="${PIXI_VERSION:-0.82.0}"
-  RUFF_VERSION="${RUFF_VERSION:-0.17.1}"
+  RESVG_VERSION="${RESVG_VERSION:-0.49.0}"
+  PIXI_VERSION="${PIXI_VERSION:-0.84.2}"
+  RUFF_VERSION="${RUFF_VERSION:-0.17.4}"
 
   # Archives are cached per user, keyed tool/version/asset, so a second install
   # - a new prefix, another machine account, a rebuilt install - extracts what
@@ -755,7 +758,7 @@ if [ "$WITH_TOOLS" = "1" ]; then
       from_cache=1
     else
       echo "    downloading $asset"
-      if ! curl -q -fsSL -o "$TOOLS_TMP/$asset" "$url"; then
+      if ! curl -q -fsSL "${ELM_CURL_RETRY[@]}" -o "$TOOLS_TMP/$asset" "$url"; then
         warn "could not download $asset - $bin not installed"
         return 0
       fi
@@ -766,7 +769,7 @@ if [ "$WITH_TOOLS" = "1" ]; then
     want="$(awk -v a="$bin/$version/$asset" '$2 == a {print $1}' templates/tools.sha256 2>/dev/null | head -1)"
     # "hash  asset", sha256sum's binary-mode "hash *asset", or a bare hash.
     if [ -z "$want" ] && [ -n "$shaurl" ]; then
-      if sums="$(curl -q -fsSL "$shaurl" 2>/dev/null)"; then
+      if sums="$(curl -q -fsSL "${ELM_CURL_RETRY[@]}" "$shaurl" 2>/dev/null)"; then
         want="$(awk -v a="$asset" '{ f = $2; sub(/^\*/, "", f) }
                 f == a {print $1; exit} NF == 1 {print $1; exit}' <<<"$sums")"
       else
@@ -786,15 +789,25 @@ if [ "$WITH_TOOLS" = "1" ]; then
     fi
 
     rm -rf "$TOOLS_TMP/x" && mkdir -p "$TOOLS_TMP/x"
+    # Python's own tarfile and zipfile last: GNU tar needs an `xz` binary for a
+    # .tar.xz and cannot read a zip at all, and minimal Linux installs (AlmaLinux,
+    # Arch, Ubuntu's container images) have neither xz nor unzip. Without this,
+    # ast-grep was missing from every Linux install tested, and shellcheck too
+    # where xz was. The selected Python is always there by this point.
     case "$asset" in
       # `tar -xf` auto-detects gzip and xz on both bsdtar and GNU tar; GNU tar
       # needs an `xz` binary on PATH for the latter, bsdtar does not.
       *.tar.gz|*.tar.xz|*.tgz)
-        tar -xf "$TOOLS_TMP/$asset" -C "$TOOLS_TMP/x" 2>/dev/null || true ;;
+        tar -xf "$TOOLS_TMP/$asset" -C "$TOOLS_TMP/x" 2>/dev/null \
+          || elm_py -c 'import sys, tarfile
+kw = {"filter": "data"} if hasattr(tarfile, "data_filter") else {}
+with tarfile.open(sys.argv[1]) as t: t.extractall(sys.argv[2], **kw)' "$TOOLS_TMP/$asset" "$TOOLS_TMP/x" 2>/dev/null \
+          || true ;;
       # bsdtar reads zip files, GNU tar does not - try unzip first.
       *.zip)
         unzip -q "$TOOLS_TMP/$asset" -d "$TOOLS_TMP/x" 2>/dev/null \
-          || tar -xf "$TOOLS_TMP/$asset" -C "$TOOLS_TMP/x" 2>/dev/null || true ;;
+          || tar -xf "$TOOLS_TMP/$asset" -C "$TOOLS_TMP/x" 2>/dev/null \
+          || elm_py -m zipfile -e "$TOOLS_TMP/$asset" "$TOOLS_TMP/x" 2>/dev/null || true ;;
       *)  # a bare binary, no archive
         mv -f "$TOOLS_TMP/$asset" "$TOOLS_TMP/x/$bin" ;;
     esac
@@ -837,9 +850,9 @@ if [ "$WITH_TOOLS" = "1" ]; then
   install_tool mlr "$MLR_VERSION" "miller-$MLR_VERSION-$GO_OS-$GO_ARCH.tar.gz" \
     "$GH/johnkerl/miller/releases/download/v$MLR_VERSION/miller-$MLR_VERSION-$GO_OS-$GO_ARCH.tar.gz" \
     "$GH/johnkerl/miller/releases/download/v$MLR_VERSION/miller-$MLR_VERSION-checksums.txt"
-  # resvg publishes no build for 64-bit ARM Linux before 0.49; there it is
-  # skipped with a warning and view-outputs falls back to the system's tools.
-  # The Linux build links glibc, like ast-grep's.
+  # resvg publishes no build for 64-bit ARM Linux before 0.49; pinned below
+  # that, it is skipped there with a warning and view-outputs falls back to
+  # the system's tools. The Linux build links glibc, like ast-grep's.
   install_tool resvg "$RESVG_VERSION" "resvg-$RESVG_OS-$RUST_ARCH.$RESVG_EXT" \
     "$GH/linebender/resvg/releases/download/v$RESVG_VERSION/resvg-$RESVG_OS-$RUST_ARCH.$RESVG_EXT" ""
   install_tool pixi "$PIXI_VERSION" "pixi-$TRIPLE.tar.gz" \
@@ -868,8 +881,11 @@ fi
 # configured packages are installed again when the list, the Python version or
 # uv changes, upgraded by --update, and reinstalled by --force.
 #
-# Opt-in: --with-python (or `pi setup --python`), recorded like the other
-# install options. --no-python takes it back and removes agent/python - the
+# Built by default since 2026-11-14: in driven test sessions every task that
+# needed numpy, scipy, matplotlib or Jupyter (5 of 5) worked around its absence -
+# a pip-built .venv per project, and once `pip install --break-system-packages`
+# into Homebrew's Python. --no-python (or `pi setup --no-python`), recorded like
+# the other install options, leaves it out and removes agent/python - the
 # packages the agent installed with it.
 if [ "$WITH_PYTHON" = "1" ]; then
   say "the agent's Python (agent/python)"
@@ -911,7 +927,7 @@ if [ "$WITH_PYTHON" = "1" ]; then
 elif [ -d agent/python ]; then
   say "the agent's Python"
   rm -rf agent/python
-  echo "    removed agent/python (not --with-python): the agent uses the python3 on PATH"
+  echo "    removed agent/python (--no-python): the agent uses the python3 on PATH"
 fi
 
 # --- 3d. an offline search of PyPI (--with-pypi-index) ------------------------
@@ -945,10 +961,10 @@ if [ "$WITH_PYPI_INDEX" = "1" ]; then
       HF=https://huggingface.co
       pypi_ok=1
       echo "    downloading $PYPI_DATASET at ${PYPI_REVISION:0:7} (~1GB, deleted after the build)"
-      if curl -q -fsSL -o "$PYPI_TMP/tree.json" "$HF/api/datasets/$PYPI_DATASET/tree/$PYPI_REVISION/$PYPI_FOLDER"; then
+      if curl -q -fsSL "${ELM_CURL_RETRY[@]}" -o "$PYPI_TMP/tree.json" "$HF/api/datasets/$PYPI_DATASET/tree/$PYPI_REVISION/$PYPI_FOLDER"; then
         while read -r want path; do
           file="$PYPI_TMP/data/${path##*/}"
-          if ! curl -q -fsSL --retry 3 -o "$file" "$HF/datasets/$PYPI_DATASET/resolve/$PYPI_REVISION/$path"; then
+          if ! curl -q -fsSL "${ELM_CURL_RETRY[@]}" -o "$file" "$HF/datasets/$PYPI_DATASET/resolve/$PYPI_REVISION/$path"; then
             warn "could not download $path"; pypi_ok=0; break
           fi
           [ "$(sha256_of "$file")" = "$want" ] || die "checksum mismatch for $path"
@@ -994,7 +1010,12 @@ import json, os, collections
 
 HERE = os.environ["HERE"]
 models_path = os.path.join(HERE, "agent", "model-ids.json")
-model_ids = json.load(open(models_path))
+# The config's ids under the recorded ones, as scripts/elm_config.py reads them:
+# a model added to config/elm-pi.json after this install recorded its ids is
+# still known.
+config_path = os.path.join(HERE, "config", "elm-pi.json")
+model_ids = dict(json.load(open(config_path))["models"]) if os.path.exists(config_path) else {}
+model_ids.update(json.load(open(models_path)))
 
 # file -> keys this repo decides. The reason for each is in the file it
 # belongs to; the short version is in the comment beside it.
@@ -1006,6 +1027,8 @@ OWNED = {
         "sessionDir",            # per-project .pi/sessions, not one central pile
         "defaultThinkingLevel",  # off: measured ~400x slower here for no gain
         "retry",                 # gateway retry policy
+        "httpIdleTimeoutMs",     # 120s: a silent request is retried sooner
+                                 # (docs/tuning, "how long ELM goes silent")
         "defaultProjectTrust",   # never: a repo's .pi/ cannot load code or
                                  # override settings unless /trust says so
         "shellCommandPrefix",    # agent/shell/colour.sh: colour for output
@@ -1028,7 +1051,11 @@ OWNED = {
         "piInfrastructureReadPaths",
     ),
     "config/pi-task-models/config.json": (
-        "profiles",              # frontier/balanced/fast -> Qwen+think, Qwen, Llama
+        "profiles",              # frontier/balanced/fast -> Qwen+think, Qwen,
+                                 # Mistral+think; Mistral is the fallback too. With
+                                 # reasoning on it beat Llama 31 to 23 of 33 agent
+                                 # tasks, and wrote as good a compaction summary in
+                                 # half the time (INSTALL.md, Mistral Small 4)
         "tasks",                 # compaction routed to balanced
     ),
     "config/pi-auto-compact/config.json": (
@@ -1054,6 +1081,8 @@ def load(path):
         raw = fh.read()
     raw = raw.replace("@QWEN_MODEL@", as_json(model_ids["qwen"]))
     raw = raw.replace("@LLAMA_MODEL@", as_json(model_ids["llama"]))
+    if "mistral" in model_ids:
+        raw = raw.replace("@MISTRAL_MODEL@", as_json(model_ids["mistral"]))
     return json.loads(raw, object_pairs_hook=collections.OrderedDict)
 
 def same(a, b):
@@ -1100,9 +1129,10 @@ for rel, keys in OWNED.items():
         print(f"    agent/{rel} matches")
 
 # models.json is not a key merge: configure.sh resolves the Qwen id from the
-# gateway, so the ids are live data. The decision here is that exactly one
+# gateway, so the ids are live data. The decisions here are that exactly one
 # Llama exists, the shim one - `configure.sh llama` re-adds a direct ELM entry
-# that cannot call tools at all.
+# that cannot call tools at all - and that Mistral is listed: an install made
+# before ELM served it has no entry, and is given the template's.
 models_path = os.path.join(HERE, "agent", "models.json")
 if os.path.exists(models_path):
     models = load(models_path)
@@ -1132,6 +1162,61 @@ if os.path.exists(models_path):
                 m[key] = tmpl_qwen[key]
                 models_dirty = True
 
+    # maxTokens is yours to tune, so it is left alone - except the 32768 every
+    # install before this one was given, which was a guess and not ELM's limit:
+    # that becomes the template's, which was measured (INSTALL.md, "Output length").
+    OLD_MAX_TOKENS = 32768
+    for m in elm.get("models", []):
+        tmpl = next((t for t in tmpl_models["providers"]["elm"]["models"]
+                     if t.get("id", "").lower() == m.get("id", "").lower()), None)
+        if tmpl is None or m.get("maxTokens") != OLD_MAX_TOKENS or tmpl.get("maxTokens") in (None, OLD_MAX_TOKENS):
+            continue
+        print(f"    agent/models.json: maxTokens of elm/{m['id']} {OLD_MAX_TOKENS} -> {tmpl['maxTokens']}")
+        m["maxTokens"] = tmpl["maxTokens"]
+        models_dirty = True
+
+    # Mistral's three keys are reapplied the same way:
+    #   compat                         pi sends a reasoning model's system prompt as
+    #                                  the "developer" role unless told not to, and
+    #                                  ELM's Mistral answers that with 400 "Unknown
+    #                                  message role: developer" - every request fails
+    #   samplingParams                 temperature 0.15. The model ships no sampling
+    #                                  defaults, so vLLM samples at 1.0; Mistral says
+    #                                  0.0-0.7 with reasoning off. Measured: 38/51
+    #                                  small agent tasks against 33/51 at the default
+    #   samplingParamsByThinkingLevel  0.7 with reasoning on, Mistral's figure
+    mistral_id = model_ids.get("mistral", "")
+    tmpl_mistral = next((m for m in tmpl_models["providers"]["elm"]["models"]
+                         if mistral_id and m.get("id", "").lower() == mistral_id.lower()), None)
+    if tmpl_mistral is not None:
+        mine = [m for m in elm.get("models", []) if m.get("id", "").lower() == mistral_id.lower()]
+        for m in mine:
+            for key in ("compat", "samplingParams", "samplingParamsByThinkingLevel"):
+                if key in tmpl_mistral and not same(m.get(key), tmpl_mistral[key]):
+                    print(f"    agent/models.json: {key} {json.dumps(m.get(key))} -> {json.dumps(tmpl_mistral[key])}")
+                    m[key] = tmpl_mistral[key]
+                    models_dirty = True
+        if not mine and "models" in elm:
+            elm["models"].append(tmpl_mistral)
+            print(f"    agent/models.json: added elm/{mistral_id}")
+            models_dirty = True
+
+    # Mistral thinks by default: with reasoning_effort high it passed 46 of 51
+    # small agent tasks, against 38 without (INSTALL.md, Mistral Small 4).
+    # modelThinkingLevels is yours - pi writes it when you change a model's level -
+    # so an install only gets the entry when it has none for Mistral.
+    settings_path = os.path.join(HERE, "agent", "settings.json")
+    if tmpl_mistral is not None and os.path.exists(settings_path):
+        live_settings = load(settings_path)
+        levels = live_settings.get("modelThinkingLevels")
+        key = f"elm/{mistral_id}"
+        if isinstance(levels, dict) and not any(k.lower() == key.lower() for k in levels):
+            levels[key] = "high"
+            with open(settings_path, "w") as fh:
+                json.dump(live_settings, fh, indent=2)
+                fh.write("\n")
+            print(f"    agent/settings.json: modelThinkingLevels {key} -> high")
+
     strays = [m for m in elm.get("models", []) if "llama" in m.get("id", "").lower()]
     if strays or models_dirty:
         elm["models"] = [m for m in elm.get("models", []) if m not in strays]
@@ -1157,7 +1242,21 @@ PYX
 #                                 word "workflow" forces a fan-out
 #   providerMiddlewareExtensions  workflow children load no extensions at all
 #                                 by default - no permission gate, no protected
-#                                 paths, no safety net. These are loaded into them.
+#                                 paths, no safety net. These are loaded into them:
+#                                 the policy (ELM only, the gate, protected paths,
+#                                 command-guard, cc-safety-net, pins, trust) and the
+#                                 guards that act within one agent's own session
+#                                 (owner-guard, report-guard, server-reaper, repeat-guard,
+#                                 claim-guard, date-note, view-outputs). A live
+#                                 probe (2026-11-13) had a workflow agent given six
+#                                 steps make no tool call and report six made-up
+#                                 results, twice; claim-guard's note goes in
+#                                 before the run settles, so the agent's answer
+#                                 is the one after it. owner-guard, for its one
+#                                 rule that needs no task: a workflow agent may not
+#                                 replace, unread, a file another changed after it
+#                                 started. Not remote-research: workflow agents
+#                                 have no web tools.
 #   defaultAgentTimeoutMs         30 min: without it a workflow agent has no
 #                                 deadline at all, and one that stalls holds the
 #                                 run open until someone notices. pi-subagents
@@ -1221,6 +1320,9 @@ PYWF
 
 # Build the extension package tree in a sibling staging directory and swap it in
 # only once npm has finished and every listed package is present.
+# The permission gate: the one package patch-pi.py patches (--gate).
+GATE_PACKAGE=@gotgenes/pi-permission-system
+
 install_packages() {
   local pkg
   PKG_STAGE="$(mktemp -d "$HERE/.elm-pi-stage-packages.XXXXXX")"
@@ -1232,6 +1334,13 @@ install_packages() {
   for pkg in $CHOSEN; do
     [ -d "$PKG_STAGE/node_modules/$pkg" ] || die "staged package is missing: $pkg"
   done
+  # The permission modes are applied by the gate, patched before it goes live
+  # like pi's bundle is: a gate that moved under patch-pi.py stops the install
+  # rather than running a manual session as an auto one.
+  if [ "$WITH_PATCH" = "1" ] && [ -d "$PKG_STAGE/node_modules/$GATE_PACKAGE" ]; then
+    elm_py "$HERE/patch-pi.py" --gate "$PKG_STAGE/node_modules/$GATE_PACKAGE" \
+      || die "could not add the permission modes to the staged permission gate - see patch-pi.py"
+  fi
   printf '%s\n' "$PACKAGE_MANIFEST_DIGEST" > "$PKG_STAGE/node_modules/.elm-pi-lock.sha256"
   PKG_OLD="$HERE/.elm-pi-old-packages.$$"
   [ ! -d agent/npm/node_modules ] || mv agent/npm/node_modules "$PKG_OLD"
@@ -1327,6 +1436,12 @@ PYC
   # does not contain what it declares: stop rather than run without it.
   elm_py "$HERE/scripts/verify_install.py" --root "$HERE" --packages-only \
     || die "extension packages are incomplete even after reinstalling (above); re-run with --force"
+  # And on a tree that was not reinstalled: an install from before the modes
+  # gets them on its next run.
+  if [ "$WITH_PATCH" = "1" ] && [ -d "agent/npm/node_modules/$GATE_PACKAGE" ]; then
+    elm_py "$HERE/patch-pi.py" --gate "agent/npm/node_modules/$GATE_PACKAGE" \
+      || die "could not add the permission modes to the permission gate - see patch-pi.py"
+  fi
 else
   elm_py - <<'PY'
 import json
@@ -1368,10 +1483,13 @@ if [ "$WITH_PACKAGES" = "1" ] && [ -d agent/npm/node_modules ]; then
   # extension"). `pi --list-models`, used here before, returns before pi
   # reports load errors, so a package that was on disk but did not load passed.
   # A failure is repaired by reinstalling the packages once; if it still fails,
-  # the install stops with the error.
+  # the install stops with the error. It runs under lib/node-guard.mjs, as pi
+  # does, so an extension that would take a package from a node_modules outside
+  # this install - one missing from it - fails here, by name, instead of
+  # loading it. node_modules elsewhere on the machine are otherwise no concern.
   warm_up() {
     ELM_PI_INSTALL_DIR="$HERE" PI_CODING_AGENT_DIR="$HERE/agent" PI_OFFLINE=1 \
-      "$HERE/.node/bin/node" "$HERE/scripts/check-extensions.mjs" > "$WARM_LOG" 2>&1
+      "$HERE/.node/bin/node" --import "$HERE/lib/node-guard.mjs" "$HERE/scripts/check-extensions.mjs" > "$WARM_LOG" 2>&1
   }
   WARM_LOG="$(mktemp)"
   WARM_OK=0; warm_up && WARM_OK=1
@@ -1448,8 +1566,9 @@ fi
 # --- 7. verify the lockdown -------------------------------------------------
 say "verifying the ELM-only policy"
 VERIFY_ERR="$(mktemp "$HERE/.elm-pi-verify.XXXXXX")"
+# In auto mode whatever .env asks for: this probes the ELM policy, not the modes.
 LIST="$(PI_FORCE=1 PI_OFFLINE=1 ELM_PI_NO_PROXY=1 ANTHROPIC_API_KEY=probe-should-be-ignored \
-        OPENAI_API_KEY=probe-should-be-ignored ./pi --list-models </dev/null 2>"$VERIFY_ERR" || true)"
+        OPENAI_API_KEY=probe-should-be-ignored PI_ELM_PERMISSION_MODE='' ./pi --auto --list-models </dev/null 2>"$VERIFY_ERR" || true)"
 if printf '%s' "$LIST" | grep -qE '^(anthropic|openai|google) '; then
   die "commercial providers are still visible - the credential scrub in ./pi is not working"
 fi
@@ -1495,7 +1614,11 @@ else
   warn "agent/bin/pi is missing or points elsewhere - sub-agents may fail to start"
 fi
 if [ "$WITH_PATCH" = "1" ]; then
-  elm_py "$HERE/patch-pi.py" --check || warn "/share and /bug are NOT disabled in this install"
+  elm_py "$HERE/patch-pi.py" --check || warn "/share, /bug and pi's subcommands are NOT disabled in this install"
+  if [ -d "agent/npm/node_modules/$GATE_PACKAGE" ]; then
+    elm_py "$HERE/patch-pi.py" --gate "agent/npm/node_modules/$GATE_PACKAGE" --check \
+      || warn "the permission gate does not apply the permission modes: pi --manual and pi --yolo will refuse to start"
+  fi
 fi
 # The module guard is only worth having if it fires. Plant a package outside
 # the install and ask the guarded node for it, through require and import.
@@ -1569,7 +1692,7 @@ if [ -d agent/npm/node_modules ]; then
   if [ -n "$_xt_missing" ]; then
     warn "excluded tools that no installed package registers:$_xt_missing - a renamed tool is back in every request; update excludedTools in config/elm-pi.json"
   else
-    echo "    other excluded tools: all $_xt_n still registered, left out by default (pi --workflows brings back the workflow tools)"
+    echo "    other excluded tools: all $_xt_n still registered, left out by default (the workflow tools only with pi --no-workflows)"
   fi
 fi
 # Match the sentence both refusal paths share. lib/policy.sh says "is not

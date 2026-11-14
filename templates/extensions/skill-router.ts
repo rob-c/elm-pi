@@ -52,7 +52,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import type { ExtensionAPI, SessionEntry, Theme } from "@earendil-works/pi-coding-agent";
 
 /** The custom message type the routed skills are stored under. */
@@ -82,7 +82,9 @@ function unicodeWords(pattern: RegExp): RegExp {
  * way. Those that it does ("report", "constant", "integration", "propagate",
  * "systematic", "efficiency", "coupling", "fit", "regression", "simulate",
  * "lifetime") count only with a qualifier or with physics or data in the
- * request. A `^(?=...)(?=...)` alternative is that second kind: both words
+ * request. "Fits in with", "fits into" and a clause-ending "fits in" are the
+ * idiom, not a fit: "where CP violation fits in with this" beside "kaon decay"
+ * routed data-fitting into a request for a Beamer deck. A `^(?=...)(?=...)` alternative is that second kind: both words
  * anywhere in the request - "fit" with "data", "curve", "peak"..., but not
  * "fits on one line" or "overrides fit()". tests/test_skill_router.py runs this
  * table against both kinds of request. A skill may have a second, case-sensitive
@@ -90,7 +92,7 @@ function unicodeWords(pattern: RegExp): RegExp {
  * not "root file system").
  */
 export const ROUTES: Array<[string, RegExp]> = ([
-	["data-fitting", /^(?=[\s\S]*\b(fit|fits|fitting|fitted|slopes?|calibrat\w*)\b(?!\s*\())(?=[\s\S]*\b(data|dataset|points|measure\w*|curves?|spectr\w*|peaks?|counts|events|histograms?|decays?|gaussian|exponential|polynomial|straight line|parameters|residuals|calibration|resonance|lineshape)\b)|\b(half[- ]?li(fe|ves)|decay (constant|curve|rate)s?|chi2|chi-?squared?|χ²|least[- ]squares|curve_fit|iminuit|lmfit|best[- ]fit|goodness[- ]of[- ]fit|fit (function|range|parameters|results?|quality)|(linear|polynomial|logistic|nonlinear|weighted) regression|pulls)\b/i],
+	["data-fitting", /^(?=[\s\S]*\b(fit|fits|fitting|fitted|slopes?|calibrat\w*)\b(?!\s*\(|\s+in\s+with\b|\s+into\b|\s+in\s*(?:$|[,.;:!?)])))(?=[\s\S]*\b(data|dataset|points|measure\w*|curves?|spectr\w*|peaks?|counts|events|histograms?|decays?|gaussian|exponential|polynomial|straight line|parameters|residuals|calibration|resonance|lineshape)\b)|\b(half[- ]?li(fe|ves)|decay (constant|curve|rate)s?|chi2|chi-?squared?|χ²|least[- ]squares|curve_fit|iminuit|lmfit|best[- ]fit|goodness[- ]of[- ]fit|fit (function|range|parameters|results?|quality)|(linear|polynomial|logistic|nonlinear|weighted) regression|pulls)\b/i],
 	["statistics-and-significance", /\b(p[- ]?values?|\d+(\.\d+)?\s*(σ|sigma)|\d+(\.\d+)?\s*% (CL|C\.L|confidence level|credibility)|(statistical|discovery|observed|expected|local|global) significance|statistically significant|confidence (level|interval|belt)s?|credible intervals?|CLs (method|limits?|values?)|exclusion (limit|contour|region)s?|(null|alternative|background[- ]only|signal[- ]plus[- ]background) hypothes[ie]s|likelihood[- ]ratio|test statistic|look[- ]elsewhere|feldman[- ]cousins|(detector|trigger|selection|reconstruction|tagging|signal|cut|event|identification) efficienc(y|ies)|efficiency (correction|map|curve)s?)\b|^(?=[\s\S]*\bupper limits?\b)(?=[\s\S]*\b(CLs?|confidence|credible|cross[- ]sections?|signal|branching (ratio|fraction)s?|exclusion|frequentist|bayesian|poisson)\b)/i],
 	["uncertainty-propagation", /\b(uncertaint(y|ies)|error bars?|error propagation|(statistical|systematic|measurement) (errors?|uncertaint\w*)|systematics|significant figures|sig figs|weighted (average|mean)s?|(in|added in) quadrature|covariance matrix|correlated (errors|inputs|uncertaint\w*))\b/i],
 	["histogram-analysis", /\b(histograms?|binning|(equal|variable|log|fixed|fine|coarse|\d+) bins|bin (width|edges|contents|counts?)|cut ?flow|event selection|uproot|TTree|TH1\w*)\b/i],
@@ -102,9 +104,20 @@ export const ROUTES: Array<[string, RegExp]> = ([
 	["scientific-cpp", /(\bC\+\+|\bcpp\b|\bcmake\b|\bEigen\b|\bGSL\b|\bg\+\+|\bclang\b)/i],
 	// CERN's ROOT by its capitals, as for histogram-analysis: "root macro" is not it.
 	["scientific-cpp", /\bROOT macros?\b/],
-	["scientific-python", /\b(python|numpy|scipy|matplotlib|pandas|jupyter|ipynb|plot(s|ted|ting)?)\b/i],
+	// "python3" too: "in Python3" routed nothing while \bpython\b needed a boundary after the n.
+	["scientific-python", /\b(python[23]?|numpy|scipy|matplotlib|pandas|jupyter|ipynb|plot(s|ted|ting)?)\b/i],
 	["installing-software", /\b(install(ing|ed|s)?|brew|homebrew|apt-get|apt (install|search|show|policy|update|upgrade)|yum|dnf|zypper|command not found|not installed|(module|import)error|no module named|missing (tool|program|package|library|libraries|dependenc(y|ies)|compiler))\b/i],
 	["containers", /\b(docker|podman|texlive|tex live|latexmk|pdflatex|xelatex|lualatex|compile (the |this |my |a )?(pdf|latex|\.?tex|document|paper|thesis|slides))\b/i],
+	// Asked for workers by name ("use 5 workers in parallel", "use 5 agents"): the rules for
+	// briefing children, one writer per file and what to do after the launch, before the first
+	// call rather than after the gate below sends the model back for them. A count, or "fan out":
+	// the bare word "subagent" is in every child's own task preamble. Routed only where the
+	// session can delegate (orchestrationOnly).
+	// A plugin for elm-pi itself (the treadmill, 2026-11-13): with only the repository's AGENTS.md in its
+	// system prompt, one session wrote the files by hand and never set the clone up.
+	// "I'd like a plugin for elm-pi: ... Build it" (dev05) has its verb after the noun: any order.
+	["developing-elm-pi", /^(?=[\s\S]*\belm-?pi\b)(?=[\s\S]*\b(plugins?|extensions?|tools?|(slash )?commands?)\b)(?=[\s\S]*\b(add|make|write|build|creat\w*|develop\w*|implement\w*|new|like|want|need|give)\b)/i],
+	["elm-delegation", /\b((\d+|two|three|four|five|six|seven|eight|nine|ten|twelve|several|multiple) (parallel )?(workers|sub-?agents)|(use|using|with|spawn|launch|run) (\d+|two|three|four|five|six|seven|eight|nine|ten|twelve|several|multiple) (parallel )?agents|fan(ning)? (it |this |the work )?out)\b/i],
 ] as Array<[string, RegExp]>).map(([name, pattern]): [string, RegExp] => [name, unicodeWords(pattern)]);
 const MAX_ROUTED = 4;
 /** How many of the matches are inlined in full rather than named. */
@@ -117,11 +130,16 @@ const MAX_INLINED = 2;
  */
 export function requestText(prompt: string): string {
 	return prompt
+		// pi-subagents' preamble to a forked child's task ("You are a delegated subagent running from a
+		// fork ... Task:"): its "subagent" routed elm-delegation into every child of test5.
+		.replace(/^\s*(?:Task:\s*)?You are a delegated subagent[\s\S]*?\n\s*Task:\s*\n/, "")
 		.replace(/<subagent_instructions>[\s\S]*?<\/subagent_instructions>/g, "")
 		.replace(/<skill name="[^"]*"[^>]*>[\s\S]*?<\/skill>/g, "")
 		.replace(/^\s*Task:\s*/, "")
 		.replace(/^\[(Read from|Write to): [^\]\n]*\]$/gm, "")
 		.replace(/\n---\n(\*\*Output:\*\*|Create and maintain progress at:|Update progress at:|Previous step output:)[\s\S]*$/, "")
+		// /ultracode's note, which says "subagents", "parallel" and "workflow" whatever was asked
+		.replace(/\n\n---\n\[workflows mode armed[\s\S]*$/, "")
 		.trim();
 }
 
@@ -129,6 +147,66 @@ export function requestText(prompt: string): string {
 export function routesFor(prompt: string): string[] {
 	const text = requestText(prompt);
 	return [...new Set(ROUTES.filter(([, pattern]) => pattern.test(text)).map(([name]) => name))];
+}
+
+/** The commands that build a LaTeX document. */
+const TEX_COMMANDS = ["latexmk", "pdflatex", "xelatex", "lualatex", "tectonic"];
+
+/** Whether this PATH has any of them. */
+export function texOnPath(pathEnv: string | undefined): boolean {
+	return (pathEnv ?? "").split(delimiter).some((dir) => dir !== "" && TEX_COMMANDS.some((cmd) => existsSync(join(dir, cmd))));
+}
+
+/**
+ * The routes for this machine. A document request where no TeX is installed
+ * also needs `containers`, which says how to build it in Docker or Podman - and
+ * a request rarely says "compile": "build a beamer presentation about kaon
+ * decay" routed physics-documents alone, the session found no TeX, ran a docker
+ * command nobody had checked would answer, and reported a deck it never built.
+ * So `containers` goes right after `physics-documents`, where it is inlined with
+ * it, not merely named.
+ */
+/** Where pi-dynamic-workflows' /ultracode and /effort note starts in a message (ultracode-note.ts). */
+const ARMED = "[workflows mode armed";
+
+/**
+ * The orchestration skill a message armed by /ultracode or /effort needs, by
+ * whether this session has the `workflow` tool: its own skill when it does, and
+ * otherwise the `subagent` one, which says what the note means without the
+ * tool. Twice the model went for `subagent({ workflow: true })` first, hit the
+ * gate below, and only then read why - 11 to 14 turns later.
+ */
+export function orchestrationSkill(prompt: string, activeTools: readonly string[]): string | undefined {
+	if (!prompt.includes(ARMED) || !canDelegate(activeTools)) return undefined;
+	return activeTools.includes("workflow") ? "elm-dynamic-workflows" : "elm-subagent-workflows";
+}
+
+/** The skills for launching children: no use, and harm, in a session that cannot launch any. */
+const ORCHESTRATION = new Set(["elm-delegation", "elm-subagent-workflows", "elm-dynamic-workflows"]);
+
+/**
+ * Whether this session can start children. A sub-agent cannot: pi-subagents takes the `subagent`
+ * tool away. In test5 every child was given elm-delegation anyway, the parent's playbook for
+ * fanning out and waiting, and acted as the parent: two waited on and polled the parent's run,
+ * and one wrote all five pages over its siblings'.
+ */
+export function canDelegate(activeTools: readonly string[]): boolean {
+	return activeTools.includes("subagent") || activeTools.includes("workflow");
+}
+
+/** The skills to route here: orchestration ones only where children can be launched. */
+export function sessionRoutes(prompt: string, activeTools: readonly string[], pathEnv?: string): string[] {
+	const armed = orchestrationSkill(prompt, activeTools);
+	const routed = [...new Set([...(armed ? [armed] : []), ...routesHere(prompt, pathEnv)])];
+	return canDelegate(activeTools) ? routed : routed.filter((name) => !ORCHESTRATION.has(name));
+}
+
+export function routesHere(prompt: string, pathEnv: string | undefined = process.env.PATH): string[] {
+	const routed = routesFor(prompt);
+	if (!routed.includes("physics-documents") || texOnPath(pathEnv)) return routed;
+	const rest = routed.filter((name) => name !== "containers");
+	rest.splice(rest.indexOf("physics-documents") + 1, 0, "containers");
+	return rest;
 }
 
 /**
@@ -169,9 +247,12 @@ function skillBody(name: string): string {
 }
 
 /** Tool -> the skill that must have been read before its first call. */
-function requiredSkill(toolName: string, input: Record<string, unknown>): string | undefined {
+export function requiredSkill(toolName: string, input: Record<string, unknown>): string | undefined {
 	if (toolName === "workflow") return "elm-dynamic-workflows";
 	if (toolName !== "subagent") return undefined;
+	// The built-in parallel workflow is data, not a script: elm-delegation covers it. In test6
+	// (2026-11-12) the gate bounced a correct parallel call until the script skill was read.
+	if (input.workflow === "parallel") return "elm-delegation";
 	if (input.workflow !== undefined) return "elm-subagent-workflows";
 	if (input.agent !== undefined || input.task !== undefined) return "elm-delegation";
 	return undefined; // status, list, children.list and the like need nothing
@@ -228,7 +309,7 @@ export default function (pi: ExtensionAPI) {
 		if (event.messageType !== "user") return undefined;
 		// Compaction-aware: a skill summarised away is no longer in these entries.
 		const present = skillsIn(ctx.sessionManager.buildContextEntries());
-		const matched = routesFor(event.prompt)
+		const matched = sessionRoutes(event.prompt, pi.getActiveTools?.() ?? [], process.env.PATH)
 			.filter((name) => !present.has(name) && existsSync(skillPath(name)))
 			.slice(0, MAX_ROUTED);
 		if (matched.length === 0) return undefined;

@@ -15,7 +15,7 @@ OpenAI-compatible tool calling by prompt engineering:
 Models that already support tools natively (Qwen, the OpenAI ones) are passed
 through untouched.
 """
-import glob, http.server, json, os, re, socket, socketserver, ssl, sys, threading, time, urllib.error, urllib.request, uuid
+import glob, http.client, http.server, json, os, re, socket, socketserver, ssl, sys, threading, time, urllib.error, urllib.request, uuid
 
 UPSTREAM = os.environ.get("ELM_BASE_URL", "https://elm.edina.ac.uk/api/v1")
 PORT     = int(os.environ.get("SHIM_PORT", "8811"))
@@ -99,9 +99,60 @@ def resolve_proxy(force=False):
         return None
 
 
-def _build_opener():
-    proxy = resolve_proxy() if PROXY_MANAGED else None
-    if PROXY_MANAGED and not proxy:
+# --- the caller's own proxy -------------------------------------------------
+# Better than any of the above: the session making this request names its own
+# proxy (elm-shim.ts sends it in this header), and that proxy is alive for as
+# long as the request is. The newest port file is only a guess - another session
+# that may end mid-request, which drops the connection after it was accepted
+# ("Remote end closed connection without response"), and a tuning run of short
+# `pi -p` sessions hit that on most Llama requests. It is used only if it is a
+# loopback address that answers as an elm-pi egress proxy, and is never sent on
+# to ELM. A request that carries the header comes from a session behind the
+# proxy, so it never goes direct, even through a shim started without one.
+CALLER_PROXY_HEADER = "X-Elm-Pi-Proxy"
+EGRESS_HEALTH = "/__elm_pi_egress__/health"
+_CALLER_PROXY = re.compile(r"\s*http://(?:127\.0\.0\.1|localhost):(\d{1,5})/?\s*")
+
+
+def _is_egress(url):
+    """True if url is an elm-pi egress proxy that answers its health route."""
+    try:
+        port = int(url.rsplit(":", 1)[1].rstrip("/"))
+        with socket.create_connection(("127.0.0.1", port), 0.5) as sock:
+            sock.settimeout(0.5)
+            sock.sendall(f"GET {EGRESS_HEALTH} HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n".encode())
+            reply = b""
+            while len(reply) < 4096:
+                chunk = sock.recv(1024)
+                if not chunk:
+                    break
+                reply += chunk
+        return b"elm-pi-egress" in reply
+    except (OSError, ValueError, IndexError):
+        return False
+
+
+def caller_proxy(headers):
+    """(whether the caller is behind a proxy, its proxy if it is usable now)."""
+    value = headers.get(CALLER_PROXY_HEADER) if headers is not None else None
+    if not value:
+        return False, None
+    match = _CALLER_PROXY.fullmatch(value)
+    if not match:
+        return True, None
+    url = f"http://127.0.0.1:{int(match.group(1))}"
+    return True, (url if _is_egress(url) else None)
+
+
+def _build_opener(proxy=None, managed=None):
+    """An opener through `proxy`, or through the proxy resolved now.
+
+    `managed` says whether a proxy is required; it defaults to how this shim was
+    started, and a caller behind a proxy makes it required whatever that was."""
+    managed = PROXY_MANAGED if managed is None else managed
+    if proxy is None:
+        proxy = resolve_proxy() if managed else None
+    if managed and not proxy:
         # Fail loudly rather than reaching ELM directly: this install routes
         # everything through an allowlisting proxy on purpose.
         raise RuntimeError(
@@ -314,19 +365,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _upstream(self, path, body, headers, stream=False):
         req = urllib.request.Request(_url(path), data=body, method="POST" if body else "GET")
         for k, v in headers.items():
-            if k.lower() not in ("host", "content-length", "accept-encoding", "connection"):
+            if k.lower() not in ("host", "content-length", "accept-encoding", "connection",
+                                 CALLER_PROXY_HEADER.lower()):
                 req.add_header(k, v)
+        behind, proxy = caller_proxy(headers)
+        managed = PROXY_MANAGED or behind
         try:
-            return _build_opener().open(req, timeout=900)
-        except urllib.error.URLError as err:
+            return _build_opener(proxy, managed).open(req, timeout=900)
+        except (urllib.error.URLError, http.client.RemoteDisconnected, ConnectionResetError) as err:
             # A proxy that was answering when we resolved it can go away between
-            # one request and the next - the session owning it exits. Re-resolve
-            # once and try again before reporting a failure, because the caller
-            # turns a failure here into a 24-hour model exclusion.
-            if not PROXY_MANAGED or not isinstance(err.reason, OSError):
+            # one request and the next - the session owning it exits - either
+            # before the connection (URLError) or during it (RemoteDisconnected,
+            # ConnectionResetError: "Remote end closed connection without
+            # response"). Resolve again and try once more before reporting a
+            # failure, because the caller turns a failure here into a 24-hour
+            # model exclusion.
+            if not managed:
                 raise
-            resolve_proxy(force=True)
-            return _build_opener().open(req, timeout=900)
+            if isinstance(err, urllib.error.URLError) and not isinstance(err.reason, OSError):
+                raise
+            behind, proxy = caller_proxy(headers)
+            if proxy is None:
+                resolve_proxy(force=True)
+            return _build_opener(proxy, managed).open(req, timeout=900)
 
     def do_GET(self):
         if self.path.split("?", 1)[0] == HEALTH_PATH:
@@ -337,6 +398,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "port": PORT,
                 "upstream": UPSTREAM,
                 "proxyManaged": PROXY_MANAGED,
+                # Takes the caller's proxy from CALLER_PROXY_HEADER. elm-shim.ts replaces a
+                # shim of this install that does not say so: it would ignore the header.
+                "callerProxy": True,
                 "proxy": proxy,
                 "proxyFromEnv": os.environ.get("HTTPS_PROXY", ""),
                 "models": list(SHIM_MODELS),

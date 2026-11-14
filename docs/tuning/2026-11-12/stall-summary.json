@@ -1,0 +1,86 @@
+{
+ "date": "2026-11-12",
+ "question": "how long ELM leaves a request silent before its reply starts, so httpIdleTimeoutMs can be set",
+ "method": "pi's idle timeout (`httpIdleTimeoutMs`, 300 s by default) ends a request that has sent nothing for that long - no headers, no first token, no next chunk - and pi retries it. Too short and a slow but healthy request is cut off and sent back to the end of the queue; too long and a dead stream holds the agent. test6 (2026-11-12) lost eight minutes to one.",
+ "corpus": {
+  "session_files": {
+   "interactive tests": 34,
+   "other sessions": 20,
+   "tuning runs": 5134
+  },
+  "requests": 45110,
+  "successful": 41261,
+  "short_replies": 27793,
+  "first": "2026-11-11",
+  "last": "2026-11-12"
+ },
+ "short_reply_seconds": {
+  "Qwen/Qwen3.5-397B-A17B-FP8": {
+   "n": 7452,
+   "p50": 1.4,
+   "p99": 18.3,
+   "p999": 44.1,
+   "max": 58.4,
+   "over": {
+    "30": 27,
+    "60": 0,
+    "90": 0,
+    "120": 0,
+    "180": 0,
+    "300": 0
+   }
+  },
+  "meta-llama/Llama-3.3-70B-Instruct": {
+   "n": 7213,
+   "p50": 1.8,
+   "p99": 12.5,
+   "p999": 44.2,
+   "max": 58.2,
+   "over": {
+    "30": 21,
+    "60": 0,
+    "90": 0,
+    "120": 0,
+    "180": 0,
+    "300": 0
+   }
+  },
+  "mistralai/Mistral-Small-4-119B-2603": {
+   "n": 13128,
+   "p50": 1.5,
+   "p99": 4.0,
+   "p999": 33.2,
+   "max": 56.1,
+   "over": {
+    "30": 14,
+    "60": 0,
+    "90": 0,
+    "120": 0,
+    "180": 0,
+    "300": 0
+   }
+  }
+ },
+ "stalls": [
+  {
+   "model": "Qwen/Qwen3.5-397B-A17B-FP8",
+   "seconds": 477.6,
+   "error": "terminated: Body Timeout Error (UND_ERR_BODY_TIMEOUT)"
+  },
+  {
+   "model": "Qwen/Qwen3.5-397B-A17B-FP8",
+   "seconds": 1126.6,
+   "error": "terminated: Body Timeout Error (UND_ERR_BODY_TIMEOUT)"
+  }
+ ],
+ "longest_wait_seconds": 58.4,
+ "errors": {
+  "429": 3792,
+  "terminated": 2,
+  "Request timed out.": 1,
+  "Connection error.": 42,
+  "502 terminated": 5,
+  "502": 2,
+  "400": 1
+ }
+}

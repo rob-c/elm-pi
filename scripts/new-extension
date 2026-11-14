@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Start a new elm-pi extension with everything the repository expects of one.
+
+    scripts/new-extension <name> "<what it does, one line>"
+
+Writes templates/extensions/<name>.ts (a working placeholder: a /<name> command), its test
+(tests/test_ext_<name>.py, using tests/extension_harness.py), its entry in config/elm-pi.json's
+requiredExtensions and its row in INSTALL.md's extension table - so `scripts/check-extension <name>`
+passes from the start, and each step after it is a change you can check again.
+"""
+
+import json
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+NAME = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
+
+
+def die(message):
+    print(f"new-extension: {message}", file=sys.stderr)
+    sys.exit(2)
+
+
+def extension(name, summary):
+    return f'''/**
+ * {name}: {summary}
+ *
+ * Why: the problem this solves, and the request or session that showed it.
+ *
+ * How: what it registers, and when it acts.
+ */
+import type {{ ExtensionAPI }} from "@earendil-works/pi-coding-agent";
+
+// What an extension is made of - pi's guide is node_modules/@earendil-works/pi-coding-agent/docs/extensions.md:
+//   a tool the model can call (import {{ Type }} from "typebox" for its parameters):
+//     pi.registerTool({{ name: "word_count", label: "Word count", description: "what it does and when to use it",
+//       parameters: Type.Object({{ path: Type.String({{ description: "file to count" }}) }}),
+//       async execute(_toolCallId, params, _signal, _onUpdate, ctx) {{
+//         return {{ content: [{{ type: "text", text: "..." }}], details: {{}} }};
+//       }} }});
+//     pi draws the call and its result; renderCall/renderResult are optional, and what they use must be
+//     imported (import {{ Text }} from "@earendil-works/pi-tui").
+//   a command the user types (/name):
+//     pi.registerCommand("name", {{ description: "...", handler: async (args, ctx) => ctx.ui.notify("...", "info") }});
+//   an event: pi.on("session_start" | "before_agent_start" | "tool_call" | "tool_result" | "agent_end", async (event, ctx) => ...)
+//     - a tool_call handler may return {{ block: true, reason: "..." }} to refuse the call.
+//   ctx.cwd is the project folder; ctx.model is the model this session is using now ({{ provider, id }});
+//   ctx.ui.notify(text, "info" | "warning" | "error") tells the user; ctx.ui.setStatus(key, text) sets a
+//   line in the footer. Never read the ELM key from the environment: no extension needs it.
+
+export default function (pi: ExtensionAPI) {{
+	// The placeholder: replace it with what the extension does, and change its test to match.
+	pi.registerCommand("{name}", {{
+		description: "{summary.replace('"', "'")}",
+		handler: async (_args, ctx) => {{
+			ctx.ui.notify("{name} is installed.", "info");
+		}},
+	}});
+}}
+'''
+
+
+def test(name, summary):
+    cls = "".join(part.title() for part in name.split("-")) + "Tests"
+    return f'''"""templates/extensions/{name}.ts: {summary}"""
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from extension_harness import run_extension  # noqa: E402
+
+
+class {cls}(unittest.TestCase):
+    def test_the_command_tells_the_user_it_is_installed(self):
+        # The placeholder's test: replace it with tests of what the extension does.
+        notes = run_extension(self, "{name}", """
+            await registered.commands["{name}"].handler("", ctx);
+            out(registered.notes);
+        """)
+        self.assertEqual([["{name} is installed.", "info"]], notes)
+
+
+if __name__ == "__main__":
+    unittest.main()
+'''
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] in ("-h", "--help"):
+        print(__doc__.strip())
+        sys.exit(0 if len(sys.argv) == 2 else 2)
+    name, summary = sys.argv[1], " ".join(sys.argv[2].split())
+    if not NAME.match(name):
+        die(f'"{name}" is not a name for one: lower-case words joined by hyphens, like word-count')
+    if not summary or "|" in summary:
+        die("give one line saying what it does (no | in it: it goes in a Markdown table)")
+    source = ROOT / "templates/extensions" / f"{name}.ts"
+    test_file = ROOT / "tests" / f"test_ext_{name.replace('-', '_')}.py"
+    for path in (source, test_file):
+        if path.exists():
+            die(f"{path.relative_to(ROOT)} already exists")
+
+    config_path = ROOT / "config/elm-pi.json"
+    config_text = config_path.read_text()
+    required = json.loads(config_text)["requiredExtensions"]
+    if f"{name}.ts" in required:
+        die(f"{name}.ts is already in requiredExtensions")
+    # Add it as the list's last entry, keeping the file's own layout.
+    last = f'"{required[-1]}"'
+    at = config_text.index('"requiredExtensions"')
+    at = config_text.index(last, at) + len(last)
+    config_text = config_text[:at] + f',\n    "{name}.ts"' + config_text[at:]
+    json.loads(config_text)
+
+    install_path = ROOT / "INSTALL.md"
+    install = install_path.read_text()
+    rows = [m for m in re.finditer(r"^\| `agent/extensions/[^`]+\.ts` \|.*\|$", install, re.M)]
+    if not rows:
+        die("INSTALL.md has no extension table to add a row to")
+    end = rows[-1].end()
+    install = install[:end] + f"\n| `agent/extensions/{name}.ts` | {summary} |" + install[end:]
+
+    source.write_text(extension(name, summary))
+    test_file.write_text(test(name, summary))
+    config_path.write_text(config_text)
+    install_path.write_text(install)
+    print(f"new-extension: {name}")
+    for path in (source, test_file, config_path, install_path):
+        print(f"    {path.relative_to(ROOT)}")
+    print(f"Next: scripts/check-extension {name} (it passes now), then make it do its job - the extension, its test,")
+    print("and its INSTALL.md row - checking again after each change.")
+
+
+if __name__ == "__main__":
+    main()

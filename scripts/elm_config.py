@@ -11,7 +11,7 @@ import shlex
 from pathlib import Path
 
 
-TOKENS = {"qwen": "@QWEN_MODEL@", "llama": "@LLAMA_MODEL@"}
+TOKENS = {"qwen": "@QWEN_MODEL@", "llama": "@LLAMA_MODEL@", "mistral": "@MISTRAL_MODEL@"}
 # Config people tune, which bootstrap.sh writes only when it is absent: set-model
 # moves the model id in it and leaves everything else as it is.
 CONFIGS = ("agent/models.json", "agent/settings.json", "agent/config/pi-task-models/config.json")
@@ -28,7 +28,8 @@ def load(root: Path) -> tuple[dict, dict]:
 
 def rendered(text: str, models: dict) -> str:
     for name, token in TOKENS.items():
-        text = text.replace(token, models[name])
+        if name in models:
+            text = text.replace(token, models[name])
     return text
 
 
@@ -48,12 +49,19 @@ def write_runtime(root: Path) -> None:
     values = {
         "ELM_QWEN_MODEL_ID": models["qwen"],
         "ELM_LLAMA_MODEL_ID": models["llama"],
+        "ELM_MISTRAL_MODEL_ID": models["mistral"],
         "ELM_ALLOWED_PROVIDERS": " ".join(config["allowedProviders"]),
         "ELM_BUILTIN_PROVIDERS": " ".join(config["builtinProviders"]),
         "ELM_PROVIDER_CREDENTIALS": " ".join(config["providerCredentials"]),
         "ELM_WEB_TOOLS": ",".join(config["webTools"]),
         "ELM_EXCLUDED_TOOLS": ",".join(config["excludedTools"]["always"]),
         "ELM_WORKFLOW_TOOLS": ",".join(config["excludedTools"]["workflows"]),
+        # The mode new sessions start in until /mode saves another
+        # (agent/permission-mode); the launcher reads that file first.
+        "ELM_PERMISSION_MODE_DEFAULT": config["permissionModes"]["default"],
+        "ELM_MANUAL_NO_PROMPT": ",".join(config["permissionModes"]["manualNoPrompt"]),
+        # What an approved launch's sub-agents run in, in a manual session (permission-mode.ts).
+        "ELM_APPROVED_AGENTS": config["permissionModes"].get("approvedAgents", "manual"),
         # One path per line: some of them have spaces in them.
         "ELM_UNTRUSTED_EXACT": "\n".join(config["untrustedFolders"]["exact"]),
         "ELM_UNTRUSTED_TREE": "\n".join(config["untrustedFolders"]["tree"]),

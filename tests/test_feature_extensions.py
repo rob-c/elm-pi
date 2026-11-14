@@ -427,13 +427,16 @@ ROUTER_RUNNER = r"""
 const [source, casesPath, agent, partial] = process.argv.slice(1);
 const fs = await import("node:fs");
 const mod = await import(source);
+const basePath = process.env.PATH;
 const cases = JSON.parse(fs.readFileSync(casesPath, "utf8"));
 const theme = { fg: (c, s) => `<${c}>${s}</>`, bold: (s) => s };
 const out = {};
 for (const [id, c] of Object.entries(cases)) {
   if (c.kind === "routes") { out[id] = mod.routesFor(c.prompt); continue; }
   if (c.kind === "request") { out[id] = mod.requestText(c.prompt); continue; }
+  if (c.kind === "tex") { out[id] = mod.texOnPath(c.pathEnv); continue; }
   process.env.PI_CODING_AGENT_DIR = c.partial ? partial : agent;
+  process.env.PATH = c.path ?? basePath;
   const handlers = {}; const renderers = {};
   mod.default({ on: (e, h) => { handlers[e] = h; }, registerMessageRenderer: (t, f) => { renderers[t] = f; } });
   const ctx = { sessionManager: { buildContextEntries: () => c.context ?? [], getBranch: () => c.branch ?? [] } };
@@ -448,6 +451,12 @@ for (const [id, c] of Object.entries(cases)) {
 console.log(JSON.stringify(out));
 """
 
+# The request of a real session that routed data-fitting and not containers.
+KAON = ("I want to build a beamer presentation explaining how Kaon decay works, where CP violation in the SM "
+        "fits in with this, the abbrievaited history of this from discovery to modern experiments and what "
+        "questions studying this today is hoping to shed light on.")
+THESIS = "draft the thesis chapter, plot it with matplotlib, and compile with latexmk"
+
 # request -> the skills routesFor() returns, in order. Prompts already in
 # tests/test_skill_router.py are not repeated.
 ROUTES = {
@@ -459,6 +468,14 @@ ROUTES = {
     "Fit The Data": ["data-fitting"],
     "fit, data.": ["data-fitting"],
     "the figure fits on the page": [],
+    # "fits in with", "fits into", a clause-ending "fits in": the idiom, not a fit
+    KAON: ["physics-documents"],
+    "how this decay fits into the Standard Model": [],
+    "say where the kaon decay data fits in.": [],
+    "where the decay fits in": [],
+    "and how the measured decays Fits In With the rest": [],
+    "fit in the range 0 to 10 GeV around the decay peak": ["data-fitting"],
+    "fit into the peak data with a Gaussian": [],
     "call fit (data) twice": [],
     "calibrate the touch screen": [],
     # statistics-and-significance
@@ -572,6 +589,30 @@ def details(result):
 
 
 SESSIONS = {
+    # The machine: no TeX on PATH puts containers right after the document skill.
+    "a document request without tex inlines containers after the document skill": {
+        "path": "{tmp}/empty-bin", "steps": [{"op": "start", "prompt": KAON}],
+        "check": lambda t, r, a: t.assertEqual({"inlined": ["physics-documents", "containers"], "named": []},
+                                               details(r[0]))},
+    "with tex on path a document request routes the document skill alone": {
+        "path": "{tmp}/empty-bin:{tmp}/texbin", "steps": [{"op": "start", "prompt": KAON}],
+        "check": lambda t, r, a: t.assertEqual({"inlined": ["physics-documents"], "named": []}, details(r[0]))},
+    "without tex containers moves up from named to inlined": {
+        "path": "{tmp}/empty-bin", "steps": [{"op": "start", "prompt": THESIS}],
+        "check": lambda t, r, a: t.assertEqual(
+            {"inlined": ["physics-documents", "containers"], "named": ["scientific-python"]}, details(r[0]))},
+    "with tex the same request keeps table order": {
+        "path": "{tmp}/texbin", "steps": [{"op": "start", "prompt": THESIS}],
+        "check": lambda t, r, a: t.assertEqual(
+            {"inlined": ["physics-documents", "scientific-python"], "named": ["containers"]}, details(r[0]))},
+    "without tex a request with no document skill gets no containers": {
+        "path": "{tmp}/empty-bin", "steps": [{"op": "start", "prompt": "fit this decay curve"}],
+        "check": lambda t, r, a: t.assertEqual({"inlined": ["data-fitting"], "named": []}, details(r[0]))},
+    "containers already in the session is not added again": {
+        "path": "{tmp}/empty-bin", "context": [{"type": "custom_message", "customType": "skill-routing",
+                                                "details": {"inlined": ["containers"], "named": []}}],
+        "steps": [{"op": "start", "prompt": KAON}],
+        "check": lambda t, r, a: t.assertEqual({"inlined": ["physics-documents"], "named": []}, details(r[0]))},
     "one match is inlined with an apply where relevant preamble": {
         "steps": [{"op": "start", "prompt": "fit this decay curve"}],
         "check": lambda t, r, a: (t.assertTrue(r[0]["message"]["content"].startswith(ONE_HEAD)),
@@ -643,9 +684,13 @@ SESSIONS = {
     "the first workflow call waits for its skill": {
         "steps": [{"op": "call", "tool": "workflow", "input": {"script": "x"}}],
         "check": lambda t, r, a: t.assertEqual([fill(gate("elm-dynamic-workflows", "workflow"), agent=a)], r)},
-    "a subagent workflow waits for the workflows skill": {
-        "steps": [{"op": "call", "tool": "subagent", "input": {"workflow": "parallel"}}],
+    "a subagent workflow script waits for the workflows skill": {
+        "steps": [{"op": "call", "tool": "subagent", "input": {"workflow": "./.pi/tmp/flow.js"}}],
         "check": lambda t, r, a: t.assertEqual([fill(gate("elm-subagent-workflows", "subagent"), agent=a)], r)},
+    # test6: the built-in parallel workflow is data, not a script; elm-delegation covers it
+    "the parallel workflow waits only for the delegation skill": {
+        "steps": [{"op": "call", "tool": "subagent", "input": {"workflow": "parallel"}}],
+        "check": lambda t, r, a: t.assertEqual([fill(gate("elm-delegation", "subagent"), agent=a)], r)},
     "a delegation by agent waits for the delegation skill": {
         "steps": [{"op": "call", "tool": "subagent", "input": {"agent": "qwen", "task": "x"}}],
         "check": lambda t, r, a: t.assertEqual([fill(gate("elm-delegation", "subagent"), agent=a)], r)},
@@ -697,13 +742,22 @@ class SkillRouterTests(unittest.TestCase):
         cls.partial = cls.tmp / "partial"
         (cls.partial / "skills").mkdir(parents=True)
         (cls.partial / "skills/histogram-analysis").symlink_to(SKILLS / "histogram-analysis")
+        (cls.tmp / "empty-bin").mkdir()
+        for command in TEX_COMMANDS:
+            (cls.tmp / f"only-{command}").mkdir()
+            (cls.tmp / f"only-{command}" / command).write_text("")
+        (cls.tmp / "texbin").symlink_to(cls.tmp / "only-latexmk")
         cases = {}
         for prompt in ROUTES:
             cases[prompt] = {"kind": "routes", "prompt": prompt}
+        for name, (path_env, _) in TEX_PATHS.items():
+            cases[name] = {"kind": "tex", "pathEnv": None if path_env is None else path_env.replace("{tmp}", str(cls.tmp))}
         for name, (prompt, _) in REQUESTS.items():
             cases[name] = {"kind": "request", "prompt": prompt}
         for name, case in SESSIONS.items():
             cases[name] = {"kind": "session", **{k: v for k, v in case.items() if k != "check"}}
+            if "path" in case:
+                cases[name]["path"] = case["path"].replace("{tmp}", str(cls.tmp))
         (cls.tmp / "cases.json").write_text(json.dumps(cases))
         env = {"PATH": "/usr/bin:/bin", "HOME": str(cls.tmp)}
         try:
@@ -716,6 +770,18 @@ class SkillRouterTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
+
+
+TEX_COMMANDS = ("latexmk", "pdflatex", "xelatex", "lualatex", "tectonic")
+# name -> (PATH, whether texOnPath finds a TeX command on it)
+TEX_PATHS = {
+    **{f"tex on path finds {c}": (f"{{tmp}}/empty-bin:{{tmp}}/only-{c}", True) for c in TEX_COMMANDS},
+    "tex on path finds nothing in an empty folder": ("{tmp}/empty-bin", False),
+    "tex on path ignores a missing folder": ("{tmp}/no-such-folder", False),
+    "tex on path does not read an empty entry as the current folder": ("::", False),
+    "tex on path with no path at all": (None, False),
+    "tex on path follows a symlinked folder": ("{tmp}/texbin", True),
+}
 
 
 def _check_route(self, case, result):
@@ -733,6 +799,7 @@ def _check_session(self, case, result):
 generate(SkillRouterTests, {p: {"name": p, "expected": e} for p, e in ROUTES.items()}, _check_route)
 generate(SkillRouterTests, {n: {"expected": e} for n, (_, e) in REQUESTS.items()}, _check_request)
 generate(SkillRouterTests, SESSIONS, _check_session)
+generate(SkillRouterTests, {n: {"expected": e} for n, (_, e) in TEX_PATHS.items()}, _check_request)
 
 
 # --------------------------------------------------------------------------
@@ -1027,6 +1094,8 @@ def b64(data):
 GIF = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
 SMALL = b64(png(6, 6))
 FAKE = b64(b"not really an image")
+# A JPEG by its bytes - start and end markers - that MuPDF cannot decode.
+ODD_JPEG = b64(b"\xff\xd8\xff\xe0" + b"\x00" * 16 + b"\xff\xd9")
 LIMIT = 64 * 1024 * 1024
 
 VIEW_RUNNER = r"""
@@ -1147,8 +1216,17 @@ VIEW = {
         "check": lambda t, s: t.assertEqual(
             (["out", "[view-outputs] This command wrote 1 figure/document file(s). Attached below: a.png.\n" + ATTACH_NOTE, "a.png:"],
              ["image/png"]), (s[0]["texts"], s[0]["images"]))},
-    "a jpeg mupdf cannot read is passed through as jpeg": {
-        **vision({"a.jpg": FAKE}), "check": lambda t, s: t.assertEqual(["image/jpeg"], s[0]["images"])},
+    # auto08 (2026-11-13): a JPEG's first and last bytes with nothing a decoder can read in between, attached,
+    # got "400 Failed to load image" from the gateway and ended the session. One mupdf cannot read is not sent.
+    "a jpeg mupdf cannot read is reported and not attached": {
+        **vision({"a.jpg": ODD_JPEG}),
+        "check": lambda t, s: (t.assertEqual([], s[0]["images"]),
+                               t.assertIn("Not an image: a.jpg - it does not decode as a picture", "\n".join(s[0]["texts"])))},
+    # test9: "error code: 522" saved as .jpg, attached, and every request after refused with 400
+    "a file named jpg that is not one is reported and not attached": {
+        **vision({"a.jpg": FAKE}),
+        "check": lambda t, s: (t.assertEqual([], s[0]["images"]),
+                               t.assertIn('Not an image: a.jpg - it holds 19 bytes of text: "not really an image".', s[0]["texts"][1]))},
     "a gif is passed through as gif": {
         **vision({"a.gif": b64(GIF)}), "check": lambda t, s: t.assertEqual(["image/gif"], s[0]["images"])},
     "a bmp is rendered to png": {
@@ -1229,7 +1307,7 @@ VIEW = {
                                             (s[0]["isError"], s[0]["texts"]))},
     "view refuses a text file": {
         "path": "none", "before": {"data.csv": FAKE}, "steps": [{"kind": "view", "params": {"path": "data.csv"}}],
-        "check": lambda t, s: t.assertEqual(["data.csv: not an image or PDF. Use read for text files."], s[0]["texts"])},
+        "check": lambda t, s: t.assertEqual(["data.csv: not an image, PDF or web page. Use read for text files."], s[0]["texts"])},
     "view of a missing file says so": {
         "path": "none", "steps": [{"kind": "view", "params": {"path": "nope.pdf"}}],
         "check": lambda t, s: t.assertEqual((True, ["nope.pdf: no such file."]), (s[0]["isError"], s[0]["texts"]))},
@@ -1301,7 +1379,7 @@ class ViewOutputsTests(unittest.TestCase):
         (ext / "node_modules/typebox").mkdir(parents=True)
         (ext / "node_modules/typebox/package.json").write_text('{"name":"typebox","type":"module","main":"index.js"}')
         (ext / "node_modules/typebox/index.js").write_text(
-            "const f = (...a) => ({ a }); export const Type = { Object: f, String: f, Optional: f, Boolean: f };")
+            "const f = (...a) => ({ a }); export const Type = { Object: f, String: f, Optional: f, Boolean: f, Array: f };")
         (ext / "node_modules/mupdf").symlink_to(mupdf)
         shutil.copy(EXTENSIONS / "view-outputs.ts", ext / "view-outputs.ts")
         cls.out = cls.tmp / "outside"
@@ -1375,12 +1453,14 @@ import { pathToFileURL } from "node:url";
 const [file] = process.argv.slice(1);
 const mod = await import(pathToFileURL(file).href);
 const out = {};
-const run = (remote, computerUse) => {
+const run = (remote, computerUse, child = null) => {
   if (remote === null) delete process.env.PI_ELM_REMOTE; else process.env.PI_ELM_REMOTE = remote;
   if (computerUse === null) delete process.env.PI_ELM_COMPUTER_USE; else process.env.PI_ELM_COMPUTER_USE = computerUse;
+  if (child === null) delete process.env.PI_SUBAGENT_CHILD; else process.env.PI_SUBAGENT_CHILD = child;
   const handlers = [];
   mod.default({ on: (name, fn) => handlers.push([name, fn]) });
-  const event = { systemPromptOptions: { sections: { other: "kept", remote_research: "stale" } } };
+  // A forked child's prompt starts from its parent's sections, computer_use among them.
+  const event = { systemPromptOptions: { sections: { other: "kept", remote_research: "stale", ...(child ? { computer_use: "the parent's" } : {}) } } };
   for (const [name, fn] of handlers) if (name === "before_agent_start") fn(event, {});
   return { handlers: handlers.map(([name]) => name), sections: event.systemPromptOptions.sections };
 };
@@ -1388,6 +1468,7 @@ for (const value of [null, "", "0", "true", "1"]) out[String(value)] = run(value
 out.computer_use = run("1", "1");
 out.computer_use_without_remote = run(null, "1");
 out.computer_use_other_value = run("1", "true");
+out.computer_use_in_a_child = run("1", "1", "1");
 out.text = mod.RESEARCH;
 out.computer_use_text = mod.COMPUTER_USE;
 console.log(JSON.stringify(out));
@@ -1414,25 +1495,36 @@ class RemoteResearchTests(unittest.TestCase):
 
     def test_remote_adds_the_section(self):
         result = self.results["1"]
-        self.assertEqual(["before_agent_start"], result["handlers"])
+        # the section, and the check on Commons file names (what the session has been shown, and its downloads)
+        self.assertEqual(["session_start", "tool_result", "tool_call", "before_agent_start"], result["handlers"])
         self.assertEqual(self.results["text"], result["sections"]["remote_research"])
         self.assertEqual("kept", result["sections"]["other"])
 
-    def test_anything_else_registers_nothing(self):
+    def test_anything_else_adds_no_section_only_the_no_web_note(self):
+        # Without --remote the one handler is the note for a request that wants the web (auto04, 2026-11-13);
+        # it adds a message when asked for downloads, never a section.
         for value in ("null", "", "0", "true"):
             with self.subTest(PI_ELM_REMOTE=value):
-                self.assertEqual([], self.results[value]["handlers"])
+                self.assertEqual(["before_agent_start"], self.results[value]["handlers"])
                 self.assertEqual({"other": "kept", "remote_research": "stale"}, self.results[value]["sections"])
 
     def test_computer_use_adds_the_safari_section_only_with_remote(self):
         self.assertEqual(self.results["computer_use_text"], self.results["computer_use"]["sections"]["computer_use"])
         self.assertNotIn("computer_use", self.results["1"]["sections"])
         self.assertNotIn("computer_use", self.results["computer_use_other_value"]["sections"])
-        self.assertEqual([], self.results["computer_use_without_remote"]["handlers"])
+        self.assertEqual(["before_agent_start"], self.results["computer_use_without_remote"]["handlers"])
+
+    def test_a_sub_agent_child_gets_the_research_but_not_the_safari_section(self):
+        """pi-subagents starts children with the parent's environment, PI_ELM_COMPUTER_USE=1 included,
+        and not through the launcher that unsets it; a child has no computer use."""
+        sections = self.results["computer_use_in_a_child"]["sections"]
+        self.assertEqual(self.results["text"], sections["remote_research"])
+        self.assertNotIn("computer_use", sections)
 
     def test_the_safari_text_presses_return_and_hands_the_screen_back(self):
         text = self.results["computer_use_text"]
-        for phrase in ('`keys: ["return"]`', "Typing alone opens", 'minimise its window', '`keys: ["cmd", "m"]`',
+        for phrase in ("Safari is for the web", "use `view`", '`keys: ["return"]`', "Typing alone opens",
+                       'minimise its window', '`keys: ["cmd", "m"]`',
                        "`find_roots`", "$TERM_PROGRAM", "before your\n   final report"):
             self.assertIn(phrase, text)
 
@@ -1444,6 +1536,37 @@ class RemoteResearchTests(unittest.TestCase):
         self.assertIn("cite the source", text)
         self.assertIn("Never invent", text)
         self.assertIn("say so plainly", text)
+
+    def test_a_refusal_in_a_remote_session_is_the_sites(self):
+        """test12: a --remote session read Wikimedia's own 403 and 400 as the egress proxy and told the
+        user it had no --remote; every text that said "a 403 is this install" now asks that first."""
+        research = " ".join(self.results["text"].split())
+        self.assertIn("The egress proxy refuses nothing in this session: a 403, 400 or error page is the site's own answer", research)
+        self.assertIn("Wikimedia refuses a script's default User-Agent", research)
+        egress = (ROOT / "templates/reference/egress.md").read_text()
+        self.assertTrue(egress.startswith("# A 403: this install, or the site?\n\n**First: was this session started with `pi --remote`?**"))
+        self.assertIn('Please set a user-agent and respect our robot policy', egress)
+        self.assertIn('Use thumbnail sizes listed on https://w.wiki/GHai', egress)
+        self.assertIn("The rest of this page is about a session **without** `--remote`.", egress)
+        agents = " ".join((ROOT / "templates/AGENTS.md").read_text().split())
+        self.assertIn("A `--remote` session (your prompt says so) refuses nothing: a 403 or error page is the site's answer - read it.", agents)
+        qwen = " ".join((ROOT / "templates/agents/qwen.md").read_text().split())
+        self.assertIn("In a `--remote` session nothing is refused: a 403 or error page is the site's answer - read it.", qwen)
+
+    def test_what_it_writes_is_researched_and_pictures_are_real(self):
+        """test9: a --remote site written from memory, with seven 'alpaca' photos from picsum.photos."""
+        text = " ".join(self.results["text"].split())
+        self.assertIn("What you write for the user is made of facts too", text)
+        self.assertIn("A `qwen` sub-agent has no web tools, so look them up before you hand out the writing", text)
+        self.assertIn("a number on two pages must be the same number", text)
+        self.assertIn("Special:FilePath/<name>?width=960", text)
+        # test13: a guessed file name came back 404; Commons' search gives exact names
+        self.assertIn("-d list=search -d srnamespace=6", text)
+        self.assertIn("never guess one", text)
+        self.assertIn("credit each on the page with its author and licence", text)
+        self.assertIn("Wikimedia Commons", text)
+        self.assertIn("Look at each one", text)
+        self.assertIn("picsum.photos", text)
 
 
 class RemoteResearchWiringTests(unittest.TestCase):
@@ -1457,18 +1580,392 @@ class RemoteResearchWiringTests(unittest.TestCase):
         self.assertEqual(1, self.launcher.count("PI_ELM_REMOTE=1"))
 
     def test_computer_use_is_flagged_for_the_top_level_session_only(self):
-        block = self.launcher.split('if [ "$REMOTE" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] && [ -f "$CU_EXT" ]; then', 1)[1]
+        block = self.launcher.split('if [ "$REMOTE" = "1" ] && [ "$COMPUTER_USE" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] && [ -f "$CU_EXT" ]; then', 1)[1]
         on, off = block.split("\nelse\n", 1)
         self.assertIn("export PI_ELM_COMPUTER_USE=1", on)
         self.assertIn("unset PI_ELM_COMPUTER_USE", off.split("\nfi\n", 1)[0])
 
     def test_fast_loads_it(self):
-        self.assertRegex(self.launcher, r"for e in todo skill-router remote-research; do")
+        self.assertRegex(self.launcher, r"for e in todo [^;\n]*\bremote-research\b[^;\n]*; do")
 
     def test_required_so_bootstrap_installs_it(self):
         required = json.loads((ROOT / "config/elm-pi.json").read_text())["requiredExtensions"]
         self.assertIn("remote-research.ts", required)
 
+
+
+# --- permission-mode.ts: /mode ---------------------------------------------------
+
+MODE_RUNNER = r"""
+import { pathToFileURL } from "node:url";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+const [file, casesPath, base] = process.argv.slice(1);
+const mod = await import(pathToFileURL(file).href);
+const cases = JSON.parse(readFileSync(casesPath, "utf8"));
+const out = {};
+const setEnv = (name, value) => { if (value === null) delete process.env[name]; else process.env[name] = value; };
+for (const c of cases) {
+  const agentDir = join(base, c.name);
+  const src = join(agentDir, "npm/node_modules/@gotgenes/pi-permission-system/src");
+  mkdirSync(join(src, "policy"), { recursive: true });
+  writeFileSync(join(src, "index.ts"), c.patched ? 'x === "yolo" // PI_ELM_PERMISSION_MODE === "yolo"' : "plain");
+  writeFileSync(join(src, "policy/permission-manager.ts"), c.patched ? '// PI_ELM_PERMISSION_MODE === "manual"' : "plain");
+  if (c.saved !== null) writeFileSync(join(agentDir, "permission-mode"), c.saved);
+  setEnv("PI_CODING_AGENT_DIR", agentDir);
+  setEnv("PI_ELM_PERMISSION_MODE", c.mode);
+  setEnv("PI_ELM_PERMISSION_DEFAULT", c.def);
+  const commands = {}, handlers = {};
+  mod.default({ on: (e, h) => { handlers[e] = h; }, registerCommand: (n, d) => { commands[n] = d; } });
+  const calls = { notify: [], status: [], select: [], confirm: [] };
+  const ctx = { hasUI: true, ui: {
+    notify: (m, level) => calls.notify.push([m, level]),
+    setStatus: (k, t) => calls.status.push([k, t]),
+    select: async (title, options) => { calls.select.push([title, options]); const i = c.select.shift(); return i === null || i === undefined ? undefined : options[i]; },
+    confirm: async (title, body) => { calls.confirm.push([title, body]); return c.confirm; },
+  } };
+  if (c.start) await handlers.session_start({}, ctx);
+  else await commands.mode.handler(c.args, ctx);
+  const saved = join(agentDir, "permission-mode");
+  out[c.name] = {
+    mode: process.env.PI_ELM_PERMISSION_MODE ?? null,
+    def: process.env.PI_ELM_PERMISSION_DEFAULT ?? null,
+    saved: existsSync(saved) ? readFileSync(saved, "utf8") : null,
+    savedPerms: existsSync(saved) ? statSync(saved).mode & 0o777 : null,
+    ...calls,
+  };
+}
+const complete = (prefix) => {
+  const commands = {};
+  mod.default({ on: () => {}, registerCommand: (n, d) => { commands[n] = d; } });
+  const items = commands.mode.getArgumentCompletions(prefix);
+  return items === null ? null : items.map((i) => i.value);
+};
+out.completions = { "": complete(""), "a": complete("a"), " Y": complete(" Y"), "z": complete("z") };
+out.choices = Object.fromEntries(["manual", "auto", "yolo"].map((m) => [m, mod.choicesFor(m)]));
+console.log(JSON.stringify(out));
+"""
+
+
+def mode_case(name, args="", mode="manual", default="manual", select=(), patched=True, saved=None, start=False):
+    """select: the answer picked at each menu in turn, by index; None is Escape."""
+    if not isinstance(select, (list, tuple)):
+        select = [select]
+    return {"name": name, "args": args, "mode": mode, "def": default, "select": list(select), "confirm": False,
+            "patched": patched, "saved": saved, "start": start}
+
+
+SESSION, DEFAULT, YOLO_SESSION = "Change for this session", "Change default mode", "Change for this session only"
+
+MODE_CASES = [
+    # bare /mode: a menu of the modes, then the same second menu as /mode <mode>
+    mode_case("menu_escaped", select=None),
+    mode_case("menu_marks_now_and_default", mode="auto", default="manual", select=None),
+    mode_case("menu_marks_both_on_one_line", select=None),
+    mode_case("menu_auto_for_this_session", select=[1, 0]),
+    mode_case("menu_auto_as_the_default", select=[1, 1]),
+    mode_case("menu_auto_then_escape", select=[1, None]),
+    mode_case("menu_yolo_for_this_session", select=[2, 0]),
+    mode_case("menu_yolo_then_escape", select=[2, None]),
+    mode_case("menu_current_mode_that_is_the_default", select=[0]),
+    mode_case("menu_on_an_unpatched_gate", patched=False, select=[1, 1]),
+    mode_case("unknown", args="turbo"),
+    mode_case("unpatched_gate_refuses", args="auto", patched=False, select=1),
+    # yolo: one answer, this session only, never saved
+    mode_case("yolo_for_this_session", args="yolo", select=0),
+    mode_case("yolo_escaped", args="yolo", select=None),
+    mode_case("yolo_from_an_auto_default_is_not_saved", args="yolo", mode="auto", default="auto", select=0,
+              saved="auto\n"),
+    mode_case("already_yolo", args="yolo", mode="yolo", select=0),
+    # manual and auto: for this session, or the default mode too
+    mode_case("auto_for_this_session", args="auto", select=0),
+    mode_case("auto_as_the_default", args="auto", select=1),
+    mode_case("auto_escaped", args="auto", select=None),
+    mode_case("manual_as_the_default_again", args="manual", mode="auto", default="auto", select=1, saved="auto\n"),
+    mode_case("manual_for_this_session_over_an_auto_default", args="manual", mode="auto", default="auto", select=0,
+              saved="auto\n"),
+    mode_case("auto_when_auto_is_already_the_default", args="auto", default="auto", select=0),
+    mode_case("manual_when_already_manual_and_the_default", args="manual", select=0),
+    mode_case("auto_by_flag_then_made_the_default", args="auto", mode="auto", select=1),
+    mode_case("leaving_yolo_for_auto", args="auto", mode="yolo", select=0),
+    mode_case("arguments_are_trimmed_and_lower_cased", args="  AUTO ", select=0),
+    mode_case("status_at_start", start=True, mode="yolo"),
+    mode_case("status_at_start_manual", start=True),
+]
+
+
+APPROVED_RUNNER = r"""
+import { pathToFileURL } from "node:url";
+const [file, casesJson] = process.argv.slice(1);
+const mod = await import(pathToFileURL(file).href);
+const out = {};
+for (const [name, env] of Object.entries(JSON.parse(casesJson))) {
+  for (const key of ["PI_SUBAGENT_CHILD", "PI_SUBAGENT_RUNNER_PID", "PI_ELM_PERMISSION_MODE", "PI_ELM_APPROVED_AGENTS"]) delete process.env[key];
+  for (const [key, value] of Object.entries(env)) process.env[key] = value === "SELF" ? String(process.pid) : value;
+  mod.default({ on: () => {}, registerCommand: () => {} });
+  out[name] = process.env.PI_ELM_PERMISSION_MODE ?? null;
+}
+console.log(JSON.stringify(out));
+"""
+
+RUNNER_ENV = {"PI_SUBAGENT_CHILD": "1", "PI_SUBAGENT_RUNNER_PID": "SELF", "PI_ELM_PERMISSION_MODE": "manual",
+              "PI_ELM_APPROVED_AGENTS": "auto"}
+APPROVED_CASES = {
+    "the_run_you_allowed_works_in_auto": (RUNNER_ENV, "auto"),
+    # a program an agent starts inherits PI_SUBAGENT_CHILD, not the runner's pid
+    "a_pi_started_from_an_agents_shell_stays_manual": ({**RUNNER_ENV, "PI_SUBAGENT_RUNNER_PID": "1"}, "manual"),
+    "the_setting_off_keeps_manual": ({**RUNNER_ENV, "PI_ELM_APPROVED_AGENTS": "manual"}, "manual"),
+    "an_unset_setting_keeps_manual": ({k: v for k, v in RUNNER_ENV.items() if k != "PI_ELM_APPROVED_AGENTS"}, "manual"),
+    "your_own_session_stays_manual": ({"PI_ELM_PERMISSION_MODE": "manual", "PI_ELM_APPROVED_AGENTS": "auto"}, "manual"),
+    "an_auto_sessions_run_is_left_auto": ({**RUNNER_ENV, "PI_ELM_PERMISSION_MODE": "auto"}, "auto"),
+    "a_yolo_sessions_run_is_left_yolo": ({**RUNNER_ENV, "PI_ELM_PERMISSION_MODE": "yolo"}, "yolo"),
+}
+
+
+WORKFLOW_RUNNER = r"""
+import { pathToFileURL } from "node:url";
+const [file, casesJson] = process.argv.slice(1);
+const mod = await import(pathToFileURL(file).href);
+const out = {};
+for (const [name, c] of Object.entries(JSON.parse(casesJson))) {
+  out[name] = mod.workflowRefusal(c.mode, c.input, { PI_ELM_APPROVED_AGENTS: c.approved ?? "auto" }) ?? null;
+}
+console.log(JSON.stringify(out));
+"""
+
+# test13's own script, cut down: setup that downloads, pages that are created, a stylesheet written
+TEST13_SCRIPT = ('export const meta = { name: "elephant-website" };\n'
+                 'const setupTask = `Create the website directory structure and download elephant images`;\n'
+                 'const css = await agent(`Write the shared stylesheet to website/styles.css`);')
+READ_ONLY_SCRIPT = ('export const meta = { name: "review" };\n'
+                    'const found = await parallel([() => agent("Find every place parse_stamp is called and report them"),\n'
+                    '  () => agent("Read the tests and report which cover parse_stamp. Do not modify any file.")]);\n'
+                    'return { found };')
+WORKFLOW_CASES = {
+    "test13_in_manual_is_refused": ({"mode": "manual", "input": {"script": TEST13_SCRIPT}}, True),
+    "the_same_in_auto_runs": ({"mode": "auto", "input": {"script": TEST13_SCRIPT}}, False),
+    "the_same_in_yolo_runs": ({"mode": "yolo", "input": {"script": TEST13_SCRIPT}}, False),
+    "a_reading_workflow_runs_in_manual": ({"mode": "manual", "input": {"script": READ_ONLY_SCRIPT}}, False),
+    "a_named_workflow_is_not_read": ({"mode": "manual", "input": {"name": "code-review"}}, False),
+}
+
+
+class ManualWorkflowTests(unittest.TestCase):
+    """permission-mode.ts: in manual, a workflow whose agents would write or run something is refused
+    before it starts - its agents cannot ask, so every such call of theirs would be refused (test13)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp()).resolve()
+        shutil.copy(EXTENSIONS / "permission-mode.ts", cls.tmp / "permission-mode.ts")
+        cases = {n: c for n, (c, _) in WORKFLOW_CASES.items()}
+        cases["setting_manual"] = {"mode": "manual", "input": {"script": TEST13_SCRIPT}, "approved": "manual"}
+        try:
+            cls.out = run_node(WORKFLOW_RUNNER, [cls.tmp / "permission-mode.ts", json.dumps(cases)],
+                               {"PATH": "/usr/bin:/bin", "HOME": str(cls.tmp)}, cls.tmp)
+        except BaseException:
+            shutil.rmtree(cls.tmp, ignore_errors=True)
+            raise
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_which_are_refused(self):
+        for name, (_, refused) in WORKFLOW_CASES.items():
+            with self.subTest(name):
+                self.assertEqual(refused, self.out[name] is not None, self.out[name])
+
+    def test_the_refusal_says_what_works_instead(self):
+        text = self.out["test13_in_manual_is_refused"]
+        self.assertIn("this session is in manual mode, and there a workflow agent can only read", text)
+        self.assertIn("fan out with `subagent` instead: allowing its launch lets its agents work in auto", text)
+        self.assertIn("`/mode auto`", text)
+        self.assertIn("its agents' writes and commands come to the user to allow", self.out["setting_manual"])
+
+
+class ApprovedAgentsTests(unittest.TestCase):
+    """permission-mode.ts: in a manual session, the process pi-subagents starts for a launch you
+    allowed switches to auto before its agents make a call, when permissionModes.approvedAgents is auto."""
+
+    def test_only_the_allowed_runs_own_process_is_switched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shutil.copy(EXTENSIONS / "permission-mode.ts", Path(tmp) / "permission-mode.ts")
+            out = run_node(APPROVED_RUNNER, [Path(tmp) / "permission-mode.ts",
+                                             json.dumps({n: env for n, (env, _) in APPROVED_CASES.items()})],
+                           {"PATH": "/usr/bin:/bin", "HOME": tmp}, Path(tmp))
+        for name, (_, want) in APPROVED_CASES.items():
+            with self.subTest(name):
+                self.assertEqual(want, out[name])
+
+    def test_the_setting_ships_on_and_reaches_the_launcher(self):
+        config = json.loads((ROOT / "config/elm-pi.json").read_text())
+        self.assertEqual("auto", config["permissionModes"]["approvedAgents"])
+        self.assertIn('"ELM_APPROVED_AGENTS": config["permissionModes"].get("approvedAgents", "manual")',
+                      (ROOT / "scripts/elm_config.py").read_text())
+        launcher = (ROOT / "pi").read_text()
+        self.assertIn('case "${ELM_APPROVED_AGENTS:-manual}" in auto) PI_ELM_APPROVED_AGENTS=auto ;; *) PI_ELM_APPROVED_AGENTS=manual ;; esac',
+                      launcher)
+        self.assertIn("export PI_ELM_APPROVED_AGENTS", launcher)
+        # a launch allowed in manual does not ask again for each of its children (pi-subagents' subagent_launch)
+        self.assertIn('PI_ELM_MANUAL_ALLOW="${PI_ELM_MANUAL_ALLOW:+$PI_ELM_MANUAL_ALLOW,}subagent_launch"', launcher)
+        self.assertLess(launcher.index('export PI_ELM_MANUAL_ALLOW="${ELM_MANUAL_NO_PROMPT:-}"'),
+                        launcher.index("subagent_launch\"\n  export PI_ELM_MANUAL_ALLOW"))
+        # no pi started through the launcher can pass for the process of an allowed launch
+        self.assertIn("\nunset PI_SUBAGENT_RUNNER_PID\n", launcher)
+
+
+class ModeCommandTests(unittest.TestCase):
+    """permission-mode.ts: /mode manual and /mode auto offer "Change for this
+    session" and "Change default mode" (agent/permission-mode); /mode yolo offers
+    only "Change for this session only", and is never saved."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp()).resolve()
+        try:
+            shutil.copy(EXTENSIONS / "permission-mode.ts", cls.tmp / "permission-mode.ts")
+            (cls.tmp / "cases.json").write_text(json.dumps(MODE_CASES))
+            (cls.tmp / "agents").mkdir()
+            cls.r = run_node(MODE_RUNNER, [cls.tmp / "permission-mode.ts", cls.tmp / "cases.json", cls.tmp / "agents"],
+                             {"PATH": "/usr/bin:/bin", "HOME": str(cls.tmp)}, cls.tmp)
+        except BaseException:
+            shutil.rmtree(cls.tmp, ignore_errors=True)
+            raise
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def said(self, name):
+        return "\n".join(message for message, _ in self.r[name]["notify"])
+
+    def outcome(self, name):
+        r = self.r[name]
+        return r["mode"], r["saved"], r["def"]
+
+    def offered(self, name):
+        return [options for _, options in self.r[name]["select"]]
+
+    def test_bare_mode_opens_a_menu_of_the_three(self):
+        [(title, labels)] = self.r["menu_escaped"]["select"]
+        self.assertEqual("Permission mode: manual now, new sessions start in manual", title)
+        self.assertEqual(["manual", "auto", "yolo"], [label.split(" - ")[0] for label in labels])
+        self.assertEqual(("manual", None, "manual"), self.outcome("menu_escaped"))
+        self.assertEqual([], self.r["menu_escaped"]["status"])
+
+    def test_the_menu_marks_this_sessions_mode_and_the_default(self):
+        labels = self.offered("menu_marks_now_and_default")[0]
+        self.assertEqual(["manual - asks before every command and edit (default)",
+                          "auto - the risky commands ask, the rest run (now)",
+                          "yolo - answers every ask yes, this session only"], labels)
+        self.assertTrue(self.offered("menu_marks_both_on_one_line")[0][0].endswith("(now, default)"))
+
+    def test_menu_then_auto_for_this_session(self):
+        self.assertEqual([SESSION, DEFAULT], self.offered("menu_auto_for_this_session")[1])
+        self.assertEqual(("auto", None, "manual"), self.outcome("menu_auto_for_this_session"))
+
+    def test_menu_then_auto_as_the_default(self):
+        self.assertEqual(("auto", "auto\n", "auto"), self.outcome("menu_auto_as_the_default"))
+
+    def test_menu_then_yolo_offers_this_session_only(self):
+        self.assertEqual([YOLO_SESSION], self.offered("menu_yolo_for_this_session")[1])
+        self.assertEqual(("yolo", None, "manual"), self.outcome("menu_yolo_for_this_session"))
+
+    def test_escape_at_the_second_menu_changes_nothing(self):
+        for name in ("menu_auto_then_escape", "menu_yolo_then_escape"):
+            with self.subTest(name=name):
+                self.assertEqual(2, len(self.offered(name)))
+                self.assertEqual(("manual", None, "manual"), self.outcome(name))
+
+    def test_picking_the_mode_already_in_use_and_default_says_so(self):
+        self.assertEqual(1, len(self.offered("menu_current_mode_that_is_the_default")))
+        self.assertIn("Already in manual mode", self.said("menu_current_mode_that_is_the_default"))
+
+    def test_an_unpatched_gate_says_so_instead_of_a_menu(self):
+        self.assertEqual([], self.offered("menu_on_an_unpatched_gate"))
+        self.assertIn("Permission mode: manual", self.said("menu_on_an_unpatched_gate"))
+        self.assertEqual(("manual", None, "manual"), self.outcome("menu_on_an_unpatched_gate"))
+
+    def test_an_unknown_mode_changes_nothing(self):
+        self.assertEqual("error", self.r["unknown"]["notify"][0][1])
+        self.assertEqual(("manual", None, "manual"), self.outcome("unknown"))
+
+    def test_an_unpatched_gate_refuses_before_asking(self):
+        self.assertEqual([], self.offered("unpatched_gate_refuses"))
+        self.assertEqual(("manual", None, "manual"), self.outcome("unpatched_gate_refuses"))
+        self.assertIn("does not apply the modes", self.said("unpatched_gate_refuses"))
+
+    def test_yolo_offers_this_session_only(self):
+        self.assertEqual([[YOLO_SESSION]], self.offered("yolo_for_this_session"))
+        title = self.r["yolo_for_this_session"]["select"][0][0]
+        self.assertIn("until this session ends", title)
+        self.assertIn("the next session starts in manual", title)
+        self.assertEqual(("yolo", None, "manual"), self.outcome("yolo_for_this_session"))
+        self.assertEqual(["permission-mode", "mode: yolo (this session)"], self.r["yolo_for_this_session"]["status"][-1])
+        self.assertEqual([], self.r["yolo_for_this_session"]["confirm"])
+
+    def test_escape_from_yolo_changes_nothing(self):
+        self.assertEqual(("manual", None, "manual"), self.outcome("yolo_escaped"))
+        self.assertEqual([], self.r["yolo_escaped"]["status"])
+
+    def test_yolo_leaves_a_saved_default_alone(self):
+        self.assertEqual(("yolo", "auto\n", "auto"), self.outcome("yolo_from_an_auto_default_is_not_saved"))
+
+    def test_already_yolo_asks_nothing(self):
+        self.assertEqual([], self.offered("already_yolo"))
+
+    def test_auto_and_manual_offer_this_session_or_the_default(self):
+        for name in ("auto_for_this_session", "manual_as_the_default_again", "auto_when_auto_is_already_the_default"):
+            with self.subTest(name=name):
+                self.assertEqual([[SESSION, DEFAULT]], self.offered(name))
+
+    def test_auto_for_this_session(self):
+        self.assertEqual(("auto", None, "manual"), self.outcome("auto_for_this_session"))
+        self.assertIn("New sessions start in manual", self.said("auto_for_this_session"))
+
+    def test_auto_as_the_default_is_saved_privately(self):
+        self.assertEqual(("auto", "auto\n", "auto"), self.outcome("auto_as_the_default"))
+        self.assertEqual(0o600, self.r["auto_as_the_default"]["savedPerms"])
+        self.assertIn("auto is now the default for new sessions", self.said("auto_as_the_default"))
+
+    def test_escape_changes_nothing(self):
+        self.assertEqual(("manual", None, "manual"), self.outcome("auto_escaped"))
+        self.assertEqual([], self.r["auto_escaped"]["status"])
+
+    def test_manual_can_be_made_the_default_again(self):
+        self.assertEqual(("manual", "manual\n", "manual"), self.outcome("manual_as_the_default_again"))
+
+    def test_manual_for_this_session_keeps_an_auto_default(self):
+        self.assertEqual(("manual", "auto\n", "auto"), self.outcome("manual_for_this_session_over_an_auto_default"))
+
+    def test_switching_to_the_default_mode_still_offers_both(self):
+        self.assertEqual(("auto", None, "auto"), self.outcome("auto_when_auto_is_already_the_default"))
+
+    def test_the_same_mode_and_default_asks_nothing(self):
+        self.assertEqual([], self.offered("manual_when_already_manual_and_the_default"))
+        self.assertIn("Already in manual mode", self.said("manual_when_already_manual_and_the_default"))
+
+    def test_a_flagged_mode_can_be_made_the_default(self):
+        self.assertEqual(("auto", "auto\n", "auto"), self.outcome("auto_by_flag_then_made_the_default"))
+
+    def test_leaving_yolo(self):
+        self.assertEqual(("auto", None, "manual"), self.outcome("leaving_yolo_for_auto"))
+
+    def test_arguments_are_trimmed_and_lower_cased(self):
+        self.assertEqual("auto", self.r["arguments_are_trimmed_and_lower_cased"]["mode"])
+
+    def test_the_footer_shows_the_mode_at_start(self):
+        self.assertEqual([["permission-mode", "mode: yolo (this session)"]], self.r["status_at_start"]["status"])
+        self.assertEqual([["permission-mode", "mode: manual"]], self.r["status_at_start_manual"]["status"])
+
+    def test_completions(self):
+        self.assertEqual({"": ["manual", "auto", "yolo"], "a": ["auto"], " Y": ["yolo"], "z": None},
+                         self.r["completions"])
+
+    def test_the_answers(self):
+        self.assertEqual({"manual": [SESSION, DEFAULT], "auto": [SESSION, DEFAULT], "yolo": [YOLO_SESSION]},
+                         self.r["choices"])
 
 if __name__ == "__main__":
     unittest.main()

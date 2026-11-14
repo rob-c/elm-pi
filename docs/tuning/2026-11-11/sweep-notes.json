@@ -1,0 +1,8 @@
+{
+ "run": "2026-11-11T20:22:35Z to 21:53:24Z, harness/ab6.py with harness/hard.py, three runs of every arm and task",
+ "installs": "four copies of one bootstrapped install, each bootstrapped in place, differing only in the swept temperature (sweep-arms.json); every arm ran each task at the same moment",
+ "held_fixed": "Qwen top_p 0.8, top_k 20, min_p 0, presence_penalty 1.5, thinking off; Mistral --thinking off, claim guard on; Llama top_p 0.9, each arm its own shim on its own port (8821-8823), SHIM_TEMPERATURE in its environment",
+ "restart": "Stopped at 20:47 after 22 task rows: every Llama request was failing through a shim bug (llama-shim-bug.json). Those Llama runs were set aside, the fixed shim put in all four installs, and the run resumed at 20:48 - Qwen and Mistral runs already done were kept (they do not use the shim), Llama ran all 75 rows again",
+ "rate_limit": "From about 21:10 ELM answered some Qwen requests with 429 rate_limit_exceeded (four Qwen arms at once); pi retried them, all four arms alike, so they cost time, not results",
+ "llama_replicates": "Temperature 0 has now been run four times on these 25 tasks: 41, 35 and 36 of 75 in tuning.json (the shim forced 0 in all three arms) and 33 here. The 0.3 arm's 41 is within that range, so it is not taken as better"
+}

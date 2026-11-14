@@ -36,18 +36,51 @@ model. For likelihood fits, MINOS errors or correlated parameters, use
 starting values from the data, not 1.0, and check the fit converged
 (`m.valid`, `m.fmin.is_valid`).
 
+A Poisson likelihood fit, the whole of it:
+
+```python
+from iminuit import Minuit
+def cash(N0, lam, B):                      # -2 ln L for counts n at times t, up to a constant
+    mu = N0 * np.exp(-lam * t) + B
+    return 2 * np.sum(mu - n * np.log(mu))
+m = Minuit(cash, N0=n[0], lam=np.log(2) / 130, B=n[-10:].mean())   # starts from the data
+m.errordef = 1                             # 1 for -2 ln L or chi-square; 0.5 for -ln L
+m.limits["N0"] = m.limits["lam"] = m.limits["B"] = (0, None)
+m.migrad(); m.hesse()
+assert m.valid, m.fmin                     # then m.values["lam"], m.errors["lam"], m.covariance
+```
+
+**Not `scipy.optimize.minimize` for a likelihood fit unless you check it.**
+Its "converged" is not proof: with parameters of very different sizes (N₀ ≈ 800
+beside λ ≈ 0.005) L-BFGS-B stopped almost where it started and said success -
+a decay fit reported 145.1 ± 1.3 s where the minimum was at 151.5 ± 2.7 s
+(2026-11-14). Use iminuit, which scales its steps and reports validity. With
+`minimize`, restart it from its own result with another method (Nelder-Mead)
+and keep the lower minimum; a parameter that hardly left its starting value,
+or a p-value below 0.05, is a fit to look into, not one to report.
+
 ## Judge the fit
 
 - **χ²/ndf** with ndf = points − free parameters. Expect 1 within about
   √(2/ndf). Far above: the model or the errors are wrong. Far below: errors
   overestimated or correlated. Neither is a "good fit". Give the p-value
   (`scipy.stats.chi2.sf(chi2, ndf)`).
+- **Fix the model, not the errors.** χ²/ndf far above 1 with structured
+  residuals means a term is missing: add it. Adding an "intrinsic scatter" in
+  quadrature until χ²/ndf ≈ 1 makes any model fit and hides the missing term - a
+  straight line through 50 years of CO₂, which grows faster than linearly, was
+  given 3 ppm of "scatter" that way (2026-11-13). A scatter term is only for a
+  known physical spread, stated with its cause.
 - **Residuals or pulls** (y − f)/σ: plot them. They should scatter as N(0, 1)
-  with no trend; structure means a missing term.
+  with no trend; structure means a missing term. A periodic term of period T is
+  cos(2πt/T) and sin(2πt/T): a yearly cycle's harmonics have T = 1, 1/2, 1/3 yr.
 - **Correlations**: report the correlation matrix when parameters are
   correlated (|ρ| > 0.5 is common for slope/intercept, amplitude/width).
 - **Stability**: refit from different starting values and, if it matters, with
   one point removed. A result that moves is not a result.
+- **Several σ from a known value**: suspect the fit before the apparatus. Check
+  it reached its minimum (another minimiser, another start) before naming dead
+  time or an offset - the 145.1 s above was explained that way, and was the fit.
 
 ## Derived quantities
 

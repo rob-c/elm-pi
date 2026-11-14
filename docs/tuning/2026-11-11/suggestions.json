@@ -1,0 +1,466 @@
+{
+ "rows": [
+  {
+   "session": "a real session of the user's (not kept): private-research",
+   "qwen": [
+    {
+     "seconds": 6.02,
+     "error": null,
+     "shown": true
+    },
+    {
+     "seconds": 6.18,
+     "error": null,
+     "shown": true
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 0.27,
+     "error": "400 {\"error\":{\"message\":\"Not the same number of function calls and responses\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}}",
+     "shown": false
+    },
+    {
+     "seconds": 0.27,
+     "error": "400 {\"error\":{\"message\":\"Not the same number of function calls and responses\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}}",
+     "shown": false
+    }
+   ]
+  },
+  {
+   "session": "a real session of the user's (not kept): private-chat",
+   "qwen": [
+    {
+     "seconds": 0.92,
+     "error": null,
+     "shown": true
+    },
+    {
+     "seconds": 1.88,
+     "error": null,
+     "shown": true
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 0.84,
+     "error": null,
+     "shown": true
+    },
+    {
+     "seconds": 0.61,
+     "error": null,
+     "shown": true
+    }
+   ]
+  },
+  {
+   "session": "generated project, task find (Qwen's run)",
+   "messages": 7,
+   "qwen": [
+    {
+     "seconds": 0.44,
+     "raw": "Where is parse_stamp called?",
+     "shown": "Where is parse_stamp called?",
+     "prompt_tokens": 5780
+    },
+    {
+     "seconds": 0.47,
+     "raw": "Where is parse_stamp called?",
+     "shown": "Where is parse_stamp called?",
+     "prompt_tokens": 5780
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 0.88,
+     "raw": "Read the one that uses parse_stamp.",
+     "shown": "Read the one that uses parse_stamp.",
+     "prompt_tokens": 5731
+    },
+    {
+     "seconds": 0.64,
+     "raw": "Where does this function get used in the codebase?",
+     "shown": "Where does this function get used in the codebase?",
+     "prompt_tokens": 5731
+    }
+   ]
+  },
+  {
+   "session": "generated project, task rename (Qwen's run)",
+   "messages": 11,
+   "qwen": [
+    {
+     "seconds": 0.53,
+     "raw": "Run the full test suite.",
+     "shown": "Run the full test suite.",
+     "prompt_tokens": 6195
+    },
+    {
+     "seconds": 0.61,
+     "raw": "Run the full test suite.",
+     "shown": "Run the full test suite.",
+     "prompt_tokens": 6195
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 0.69,
+     "raw": "Run the repository’s test suite too",
+     "shown": "Run the repository’s test suite too",
+     "prompt_tokens": 6051
+    },
+    {
+     "seconds": 0.69,
+     "raw": "Run full test suite",
+     "shown": "Run full test suite",
+     "prompt_tokens": 6051
+    }
+   ]
+  },
+  {
+   "session": "generated project, task bugfix (Qwen's run)",
+   "messages": 10,
+   "qwen": [
+    {
+     "seconds": 0.47,
+     "raw": "What was the bug?",
+     "shown": "What was the bug?",
+     "prompt_tokens": 6090
+    },
+    {
+     "seconds": 1.48,
+     "raw": "Great, thanks!",
+     "shown": "Great, thanks!",
+     "prompt_tokens": 6090
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 0.66,
+     "raw": "Add a variance function to src/stats.py",
+     "shown": "Add a variance function to src/stats.py",
+     "prompt_tokens": 5985
+    },
+    {
+     "seconds": 0.59,
+     "raw": "Run the project’s full test suite next",
+     "shown": "Run the project’s full test suite next",
+     "prompt_tokens": 5985
+    }
+   ]
+  },
+  {
+   "session": "generated project, task function (Qwen's run)",
+   "messages": 7,
+   "qwen": [
+    {
+     "seconds": 0.85,
+     "raw": "Add a test for weighted_mean in tests/test_stats.py",
+     "shown": "Add a test for weighted_mean in tests/test_stats.py",
+     "prompt_tokens": 6155
+    },
+    {
+     "seconds": 0.81,
+     "raw": "Add tests for weighted_mean in tests/test_stats.py",
+     "shown": "Add tests for weighted_mean in tests/test_stats.py",
+     "prompt_tokens": 6155
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 0.86,
+     "raw": "Test the new weighted_mean function",
+     "shown": "Test the new weighted_mean function",
+     "prompt_tokens": 6118
+    },
+    {
+     "seconds": 0.69,
+     "raw": "Add tests for the new weighted_mean in the test suite.",
+     "shown": "Add tests for the new weighted_mean in the test suite.",
+     "prompt_tokens": 6118
+    }
+   ]
+  },
+  {
+   "session": "generated project, task data (Qwen's run)",
+   "messages": 5,
+   "qwen": [
+    {
+     "seconds": 8.93,
+     "raw": "What is the standard deviation of the counts?",
+     "shown": "What is the standard deviation of the counts?",
+     "prompt_tokens": 5727
+    },
+    {
+     "seconds": 0.51,
+     "raw": "What is the standard deviation of the counts?",
+     "shown": "What is the standard deviation of the counts?",
+     "prompt_tokens": 5727
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 0.88,
+     "raw": "Plot decay.csv with uncertainties.",
+     "shown": "Plot decay.csv with uncertainties.",
+     "prompt_tokens": 5719
+    },
+    {
+     "seconds": 0.62,
+     "raw": "Show me the full distribution or a time-series plot",
+     "shown": "Show me the full distribution or a time-series plot",
+     "prompt_tokens": 5719
+    }
+   ]
+  },
+  {
+   "session": "generated project, task tests (Qwen's run)",
+   "messages": 5,
+   "qwen": [
+    {
+     "seconds": 0.52,
+     "raw": "Fix the mean function in src/stats.py",
+     "shown": "Fix the mean function in src/stats.py",
+     "prompt_tokens": 6066
+    },
+    {
+     "seconds": 0.81,
+     "raw": "Fix the mean function in src/stats.py and re-run the tests.",
+     "shown": "Fix the mean function in src/stats.py and re-run the tests.",
+     "prompt_tokens": 6066
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 1.11,
+     "raw": "Show failing test and source so I can fix them",
+     "shown": "Show failing test and source so I can fix them",
+     "prompt_tokens": 6075
+    },
+    {
+     "seconds": 0.58,
+     "raw": "Fix the mean function.",
+     "shown": "Fix the mean function.",
+     "prompt_tokens": 6075
+    }
+   ]
+  },
+  {
+   "session": "generated project, task summarise (Qwen's run)",
+   "messages": 5,
+   "qwen": [
+    {
+     "seconds": 0.7,
+     "raw": "Fix the negative count filtering logic.",
+     "shown": "Fix the negative count filtering logic.",
+     "prompt_tokens": 5881
+    },
+    {
+     "seconds": 1.05,
+     "raw": "Summarise the CSV at data/radiation.csv to out/summary.json",
+     "shown": "Summarise the CSV at data/radiation.csv to out/summary.json",
+     "prompt_tokens": 5881
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 0.48,
+     "raw": "Run it on a CSV and tell me the output.",
+     "shown": "Run it on a CSV and tell me the output.",
+     "prompt_tokens": 5875
+    },
+    {
+     "seconds": 0.74,
+     "raw": "Run the pipeline on data/measurements_2024.csv",
+     "shown": "Run the pipeline on data/measurements_2024.csv",
+     "prompt_tokens": 5875
+    }
+   ]
+  },
+  {
+   "session": "generated project, task json (Qwen's run)",
+   "messages": 7,
+   "qwen": [
+    {
+     "seconds": 0.71,
+     "raw": "List the CSV files you found.",
+     "shown": "List the CSV files you found.",
+     "prompt_tokens": 5754
+    },
+    {
+     "seconds": 5.22,
+     "raw": "Show me the contents of the CSV files.",
+     "shown": "Show me the contents of the CSV files.",
+     "prompt_tokens": 5754
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 0.47,
+     "raw": "Read EMF13.pdf from the thesis files.",
+     "shown": "Read EMF13.pdf from the thesis files.",
+     "prompt_tokens": 5709
+    },
+    {
+     "seconds": 0.64,
+     "raw": "Verify the file was written correctly.",
+     "shown": "Verify the file was written correctly.",
+     "prompt_tokens": 5709
+    }
+   ]
+  },
+  {
+   "session": "generated project, task crossfile (Qwen's run)",
+   "messages": 9,
+   "qwen": [
+    {
+     "seconds": 0.65,
+     "raw": "Which other files import from src/units.py?",
+     "shown": "Which other files import from src/units.py?",
+     "prompt_tokens": 6150
+    },
+    {
+     "seconds": 0.79,
+     "raw": "Which module imports from src/geometry.py?",
+     "shown": "Which module imports from src/geometry.py?",
+     "prompt_tokens": 6150
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 0.68,
+     "raw": "Show how `report.py` produces its output line-by-line.",
+     "shown": "Show how `report.py` produces its output line-by-line.",
+     "prompt_tokens": 6093
+    },
+    {
+     "seconds": 0.6,
+     "raw": "Show how speed_line is used in the project",
+     "shown": "Show how speed_line is used in the project",
+     "prompt_tokens": 6093
+    }
+   ]
+  },
+  {
+   "session": "generated project, task every (Qwen's run)",
+   "messages": 33,
+   "qwen": [
+    {
+     "seconds": 0.77,
+     "raw": "Show me the updated file.",
+     "shown": "Show me the updated file.",
+     "prompt_tokens": 8973
+    },
+    {
+     "seconds": 0.36,
+     "raw": "Show me the updated file.",
+     "shown": "Show me the updated file.",
+     "prompt_tokens": 8973
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 0.72,
+     "raw": "Check the tests still pass.",
+     "shown": "Check the tests still pass.",
+     "prompt_tokens": 8106
+    },
+    {
+     "seconds": 0.62,
+     "raw": "Run the tests for src/helpers.py",
+     "shown": "Run the tests for src/helpers.py",
+     "prompt_tokens": 8106
+    }
+   ]
+  }
+ ],
+ "blind_order": [
+  [
+   "qwen",
+   "mistral"
+  ],
+  [
+   "mistral",
+   "qwen"
+  ],
+  [
+   "qwen",
+   "mistral"
+  ],
+  [
+   "mistral",
+   "qwen"
+  ],
+  [
+   "mistral",
+   "qwen"
+  ],
+  [
+   "mistral",
+   "qwen"
+  ],
+  [
+   "qwen",
+   "mistral"
+  ],
+  [
+   "mistral",
+   "qwen"
+  ],
+  [
+   "mistral",
+   "qwen"
+  ],
+  [
+   "mistral",
+   "qwen"
+  ],
+  [
+   "mistral",
+   "qwen"
+  ],
+  [
+   "qwen",
+   "mistral"
+  ]
+ ],
+ "blind_verdict_written_before_unblinding": {
+  "0": "A",
+  "1": "tie",
+  "2": "A",
+  "3": "tie",
+  "4": "tie",
+  "5": "B",
+  "6": "tie",
+  "7": "B",
+  "8": "A",
+  "9": "B",
+  "10": "A",
+  "11": "B"
+ },
+ "rerun_of_row_0_without_the_failed_reply": [
+  {
+   "qwen": [
+    {
+     "seconds": 8.25,
+     "shown": true
+    },
+    {
+     "seconds": 16.92,
+     "shown": true
+    }
+   ],
+   "mistral": [
+    {
+     "seconds": 4.7,
+     "shown": true
+    },
+    {
+     "seconds": 1.91,
+     "shown": true
+    }
+   ]
+  }
+ ]
+}
