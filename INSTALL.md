@@ -781,7 +781,7 @@ or `→` takes it, typing hides it, `Esc` dismisses it until the next reply. It
 asks the session's own model - ELM, nothing else, no key or provider of its
 own - by resending the request pi just sent plus one short instruction, so the
 prompt cache covers almost all of it. It is still one extra Qwen request per
-finished reply, charged to the allocation like any other, and the suggestion
+finished reply, on the gateway every ELM user shares, and the suggestion
 arrives a few seconds after the reply. It runs only in the interactive TUI:
 `pi -p`, sub-agents and workflow agents never trigger it. One file, no
 dependencies; to drop it, remove it from `templates/settings.json` and
@@ -917,9 +917,9 @@ hardware, and Qwen scales cleanly to 12 concurrent requests. **Splitting a fan-o
 across both models is slower than sending it all to Qwen** — the Llama half sets
 the wall time.
 
-Llama still has its uses — a fallback when Qwen is rate-limited, and possibly a
-cheaper allocation charge (ELM's `guidanceCost` is only visible in the web UI, so
-that is unverified). It is reached with:
+Llama still has its uses — a fallback when Qwen is rate-limited. (Neither costs
+anything: the University's own models are free for staff and students.) It is
+reached with:
 
 ```bash
 pi --llama -p "..."                                    # via the shim

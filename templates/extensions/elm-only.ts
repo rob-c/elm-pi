@@ -2,9 +2,8 @@
  * elm-only: restrict this pi install to the university's self-hosted models.
  *
  * Why: staff are funded at industry token rates, which does not buy a meaningful
- * amount of commercial-model usage. ELM's university-hosted models are metered
- * against the department's allocation instead, so they are the models this
- * install is for. Leaving 1,300+ commercial models one `/model` keypress away
+ * amount of commercial-model usage. ELM's university-hosted models are free for
+ * staff and students to use, so they are the models this install is for. Leaving 1,300+ commercial models one `/model` keypress away
  * invites accidental spend and support questions this team cannot answer.
  *
  * What it does: pi ships ~40 built-in providers (anthropic, openai, google,

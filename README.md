@@ -319,10 +319,11 @@ dependency-update and generated-configuration workflow.
 
 ## Cost and policy
 
-The ELM key is university-issued and metered: Qwen carries a `guidanceCost` of 2
-per unit against your department's allocation. Cheaper than commercial models and
-running on university hardware (ELM flags it "Climate Sensitive" and "University
-Hosted") — but not free.
+The models this install uses are the University's own, hosted on its hardware
+(ELM flags them "Climate Sensitive" and "University Hosted"), and they are free
+to use for staff and students: nothing is charged to you or to your department.
+The ELM key is university-issued, and the service is shared by everyone who uses
+it.
 
 A coding agent's usage profile is nothing like the ELM chat UI: whole source
 files, long loops, retries. If your key was approved for a different stated

@@ -248,8 +248,8 @@ reads and what a scorer runs against, so do not clean one up before reading it.
   Homebrew. After a batch, read the test install's `agent/installs.log` and
   report anything outside the project. Ask before undoing it.
 - **The key is never printed**, logged, or put in a file that is committed.
-  `ELM_PI_ENV_FILE` is copied, not read. Every session spends the owner's
-  allocation: say what a batch is expected to cost before a large one.
+  `ELM_PI_ENV_FILE` is copied, not read. Every session runs on the owner's key
+  and the gateway every ELM user shares: say how large a batch is before a large one.
 - **Three multi-agent sessions at once saturate the gateway.** ELM rate-limits
   at about four Qwen sessions in flight; a batch of three ten-agent sites spent
   30 minutes each in 429 retries, and the same sites alone took 7 to 13. Use

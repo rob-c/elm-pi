@@ -7,7 +7,7 @@
 #   TREADMILL_WORK   test installs and project folders (default ~/sandbox)
 #   TREADMILL_OUT    logs, reports and summaries (default $TREADMILL_WORK/treadmill-out)
 #   ELM_PI_ENV_FILE  a .env holding ELM_API_KEY, copied (mode 600) into the test install and never printed.
-#                    Required: every session here spends that key's ELM allocation.
+#                    Required: every session here runs on that key, on the gateway every ELM user shares.
 #   TREADMILL_FROM  optional: reuse an existing install's dependencies with dev-setup.sh; templates
 #                    and the Python launcher still come from this working tree, without downloads.
 #   TREADMILL_EXTENSION  optional: a harness extension (../cache/cache_log.ts) copied into the test install's

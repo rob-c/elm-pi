@@ -4,8 +4,8 @@
 
 Staff are allocated **$500 at industry token rates**. Against a commercial coding
 agent that is a few weeks of real use, after which work stops until someone finds
-more budget. The university's ELM gateway bills a departmental allocation at a
-fraction of that for a 397B model on its own GPUs, and it is the thing this
+more budget. The university's own models on ELM - a 397B model among them, on
+its own GPUs - are free for staff and students to use, and they are what this
 install exists to use.
 
 Leaving 1,357 commercial models one `/model` keypress away produces exactly two
