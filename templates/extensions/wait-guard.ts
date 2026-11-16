@@ -30,7 +30,8 @@
  * driven session (auto01, 2026-11-13). So the launcher no longer offers `bg_wait` to
  * an interactive session at all, and this guard is what is left: the launch result's
  * one status check is allowed, and after it a second check, a sleep or a read of the run's files
- * in the same turn is the refused wait.
+ * in the same turn is the refused wait. A successful async launch arms sleep detection too:
+ * checking the wrong status tool must not be a way around the instruction to end the turn.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -126,11 +127,19 @@ export default function (pi: ExtensionAPI) {
 	let same = 0; // how many times in a row it has been made
 	let told = false; // this turn, a wait has been refused once already
 	let checked = false; // this turn, the one status check has been made
+	let detached = false; // this turn, an async subagent launch succeeded
 	let refused = 0; // waits refused this turn
 	pi.on("agent_start", () => {
 		told = false;
 		checked = false;
+		detached = false;
 		refused = 0;
+	});
+	pi.on("tool_result", (event, ctx) => {
+		if (!ctx.hasUI || event.toolName !== "subagent" || event.isError) return;
+		// python-before parallel.1 (2026-11-15) used the wrong status tools, then polled and changed
+		// running children's files. A successful async launch itself is enough to make sleeping a wait.
+		if (event.content.some((part) => part.type === "text" && /^Async\b[^\n[]*\[[0-9a-f-]{36}\]/im.test(part.text))) detached = true;
 	});
 	pi.on("tool_call", async (event, ctx) => {
 		if (!ctx.hasUI) return undefined;
@@ -165,7 +174,7 @@ export default function (pi: ExtensionAPI) {
 		// After the one check, any other wait is the refused one: auto02 (2026-11-13, manual) followed its
 		// status check with `sleep 10 && cat .../async-subagent-runs/<id>/output-0.log`, which the user was
 		// then asked to allow.
-		if ((told || checked) && waiting(event.toolName, input)) return refuse();
+		if ((told || checked || detached) && waiting(event.toolName, input)) return refuse();
 		return undefined;
 	});
 }

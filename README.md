@@ -226,6 +226,9 @@ wrapper's fault?".
 | Flag | |
 |---|---|
 | `--fast` | skip the npm package set, which is most of the startup time. The policy extensions and the permission gate still load. No sub-agents, web search or anchor editing; pi's built-in `edit` still works. Right for one-shot questions, wrong for multi-step work. |
+| `--offline` | the ELM gateway and nothing else: no web tools, no PyPI, no package registries, and the OS allows no packet beyond this install's egress proxy. For work that should not leave the building. |
+| `--trusted-remote` | **the default.** The gateway, the package sources and the web search providers `proxyAllow` names, through this install's proxy. The OS restricts direct network access; the host-side proxy resolves allowed destinations using the host's DNS settings. |
+| `/network` (inside pi) | shows the network mode and changes it: a tighter one for the running session, any of the three as the default for new sessions. On a machine that cannot make the OS fence (Ubuntu's AppArmor default, WSL 1) a session starts unfenced behind its proxy and opens with a WARNING; `--offline` is refused there. |
 | `--llama` | Llama 3.3 70B via the local shim. A fallback, **not** a speed-up — Qwen is faster here. |
 | `--mistral` | Mistral Small 4 119B (6.5B active per token), on ELM directly: tool calling, images, reasoning on by default. About twice as fast as Qwen; on small agent tasks it passed 46 of 51 where Qwen passed all, so Qwen stays the default and runs the sub-agents. Also in `/model`. Measurements in [INSTALL.md](INSTALL.md#mistral-small-4-the-other-model-with-tools-and-images). |
 | `--with-all` | every optional extra, without `--remote`: sets up the agent's Python and the offline PyPI index if missing (once, ~2 GB, recorded so `pi update` keeps them), and offers every tool otherwise left out for size, the `workflow` tools included. The web, the open proxy and computer use stay off. |
@@ -238,6 +241,22 @@ wrapper's fault?".
 | `--auto` | permission mode for this run: the gate's rules as written. The default stays as it is |
 | `--yolo` | permission mode for this run only: every ask answered yes; refusals still apply. Never the default |
 | `--help` | the launcher's flags and environment, then pi's own help, run with this install's config, offline and with credentials scrubbed |
+
+**DNS follows the host.** The egress proxy runs outside the network isolation
+and uses the operating system's resolver, including site/VPN DNS and local
+host mappings. There is no hard-coded public DNS server or fallback. The
+isolated session sends destination names to the proxy; it needs no direct DNS
+access. If an upstream corporate proxy is configured, the host resolves that
+proxy's name and the upstream resolves destination names.
+
+**Local web previews remain available.** An agent can bind a development server
+to `127.0.0.1:$ELM_PI_PREVIEW_PORT` and give you the matching
+`http://127.0.0.1:<port>/` URL. On macOS that is ordinary host loopback. On
+Linux elm-pi bridges only that one host-loopback port through a private Unix
+socket into the otherwise route-less network namespace. It is never bound to
+the LAN, creates no outbound route, and follows the session's lifetime. Set
+`ELM_PI_PREVIEW_PORT` before starting pi to request a particular port; when it
+is unset Linux chooses a free one for concurrent sessions.
 
 A session started at a terminal opens with a "Powered by ELM" banner and the
 service's address, <https://elm.edina.ac.uk/elm>; `PI_ELM_BANNER=0` leaves it out.

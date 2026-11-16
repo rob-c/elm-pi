@@ -15,7 +15,7 @@ OpenAI-compatible tool calling by prompt engineering:
 Models that already support tools natively (Qwen, the OpenAI ones) are passed
 through untouched.
 """
-import glob, http.client, http.server, json, os, re, socket, socketserver, ssl, sys, threading, time, urllib.error, urllib.request, uuid
+import glob, http.client, http.server, json, os, re, socket, socketserver, ssl, sys, threading, time, urllib.error, urllib.parse, urllib.request, uuid
 
 UPSTREAM = os.environ.get("ELM_BASE_URL", "https://elm.edina.ac.uk/api/v1")
 PORT     = int(os.environ.get("SHIM_PORT", "8811"))
@@ -85,14 +85,14 @@ def resolve_proxy(force=False):
     """The proxy to use now, or None if there is no live one to use."""
     global _proxy_cached
     with _proxy_lock:
-        if not force and _proxy_cached and _accepting(_proxy_cached):
+        if not force and _proxy_cached and _is_egress(_proxy_cached):
             return _proxy_cached
         seen = set()
         for url in _proxy_candidates():
             if url in seen:
                 continue
             seen.add(url)
-            if _accepting(url):
+            if _is_egress(url):
                 _proxy_cached = url
                 return url
         _proxy_cached = None
@@ -117,18 +117,28 @@ _CALLER_PROXY = re.compile(r"\s*http://(?:127\.0\.0\.1|localhost):(\d{1,5})/?\s*
 def _is_egress(url):
     """True if url is an elm-pi egress proxy that answers its health route."""
     try:
-        port = int(url.rsplit(":", 1)[1].rstrip("/"))
+        parsed = urllib.parse.urlsplit(url if "://" in url else "http://" + url)
+        if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost"):
+            return False
+        port = parsed.port
+        if not port or parsed.username or parsed.password or parsed.path not in ("", "/"):
+            return False
         with socket.create_connection(("127.0.0.1", port), 0.5) as sock:
             sock.settimeout(0.5)
             sock.sendall(f"GET {EGRESS_HEALTH} HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n".encode())
             reply = b""
-            while len(reply) < 4096:
-                chunk = sock.recv(1024)
+            while len(reply) <= 131072:
+                chunk = sock.recv(65536)
                 if not chunk:
                     break
                 reply += chunk
-        return b"elm-pi-egress" in reply
-    except (OSError, ValueError, IndexError):
+        head, separator, body = reply.partition(b"\r\n\r\n")
+        status = head.split(b"\r\n", 1)[0].split()
+        if not separator or len(status) < 2 or status[1] != b"200" or len(reply) > 131072:
+            return False
+        document = json.loads(body.decode("utf-8"))
+        return isinstance(document, dict) and document.get("proxy") == "elm-pi-egress"
+    except (OSError, UnicodeDecodeError, ValueError, IndexError):
         return False
 
 

@@ -252,7 +252,7 @@ class SubcommandRefusalTests(BatchTest):
     flags put it, with a pointer to what to use instead; as prompt text it is not."""
 
     CASES = SUB_CASES
-    PARSE = block(LAUNCHER, "FAST=0; LLAMA=0; REMOTE=0;", "# --- ELM-only policy")
+    PARSE = block(LAUNCHER, "FAST=0; OFFLINE=0; TRUSTED_REMOTE=0;", "# --- ELM-only policy")
 
     @classmethod
     def prelude(cls):

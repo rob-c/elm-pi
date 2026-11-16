@@ -18,6 +18,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.extension_harness import run_extension
+
 ROOT = Path(__file__).resolve().parents[1]
 REPEAT = ROOT / "templates/extensions/repeat-guard.ts"
 ULTRA = ROOT / "templates/extensions/ultracode-note.ts"
@@ -258,7 +260,7 @@ class RunGuardTests(unittest.TestCase):
     def test_both_are_required_and_the_guard_is_in_fast(self):
         self.assertIn("repeat-guard.ts", CONFIG["requiredExtensions"])
         self.assertIn("ultracode-note.ts", CONFIG["requiredExtensions"])
-        self.assertIn(" claim-guard repeat-guard server-reaper report-guard date-note; do", (ROOT / "pi").read_text())
+        self.assertIn(" claim-guard repeat-guard server-reaper report-guard date-note; do", (ROOT / "pi.bash").read_text())
 
 
 class PackageTextTests(unittest.TestCase):
@@ -478,11 +480,75 @@ class WaitGuardTests(unittest.TestCase):
             out = json.loads(run.stdout)
         first, again = "bg_wait is not used in an interactive se", "Still waiting is still not needed: nothi"
         self.assertEqual([None, first, again, None, first, first, None, first, None], out)
-        launcher = (ROOT / "pi").read_text()
+        launcher = (ROOT / "pi.bash").read_text()
         self.assertIn('XT_LIST="${XT_LIST:+$XT_LIST,}bg_wait"', launcher)
 
     def test_it_is_loaded(self):
         self.assertIn("wait-guard.ts", CONFIG["requiredExtensions"])
+
+    def test_async_launch_arms_the_wait_guard_without_a_valid_status_check(self):
+        """python-before parallel.1: invalid alternate status calls, then sleep/list polls while children wrote."""
+        got = run_extension(self, "wait-guard", '''
+            const call = async (toolName, input) =>
+                (await registered.handlers.tool_call[0]({ toolName, input }, ctx)) ?? null;
+            const result = { toolName: "subagent", isError: false, content: [{ type: "text",
+                text: "Run fan-out: 0/64 used\\nAsync workflow [1ffbbbcd-29ec-4f7a-ab9e-826a67ff2231]\\nDetached. Return control now." }] };
+            await registered.handlers.agent_start[0]({}, ctx);
+            for (const handler of registered.handlers.tool_result ?? []) await handler(result, ctx);
+            await call("subagent_supervisor", { action: "status", id: "1ffbbbcd" });
+            await call("workflow_control", { action: "status", runId: "1ffbbbcd" });
+            const poll = await call("bash", { command: 'sleep 5 && ls -la *.py' });
+            const work = await call("bash", { command: 'python3 check_independent_file.py' });
+            const read = await call("read", { path: "README.md" });
+            await registered.handlers.agent_start[0]({}, ctx);
+            const nextTurn = await call("bash", { command: "sleep 5" });
+            out({ poll, work, read, nextTurn });
+        ''')
+        self.assertIsNotNone(got["poll"])
+        self.assertTrue(got["poll"]["block"])
+        self.assertIn("End your turn now", got["poll"]["reason"])
+        self.assertEqual([None, None, None], [got["work"], got["read"], got["nextTurn"]])
+
+    def test_async_launch_keeps_one_status_check_and_holds_without_aborting(self):
+        got = run_extension(self, "wait-guard", '''
+            let aborted = 0;
+            ctx.abort = () => { aborted++; };
+            ctx.hasPendingMessages = () => true;
+            const result = { toolName: "subagent", isError: false, content: [{ type: "text",
+                text: "Async workflow [1ffbbbcd-29ec-4f7a-ab9e-826a67ff2231]" }] };
+            for (const handler of registered.handlers.tool_result ?? []) await handler(result, ctx);
+            const call = async (toolName, input) =>
+                (await registered.handlers.tool_call[0]({ toolName, input }, ctx)) ?? null;
+            const status = await call("subagent", { action: "status", id: "1ffbbbcd" });
+            const waits = [];
+            for (const seconds of [5, 10, 15]) waits.push(await call("bash", { command: `sleep ${seconds} && ls *.py` }));
+            out({ status, waits, aborted, notice: ext.HELD_NOTICE });
+        ''')
+        self.assertIsNone(got["status"])
+        self.assertTrue(all(item["block"] for item in got["waits"]))
+        self.assertEqual(got["notice"], got["waits"][-1]["reason"])
+        self.assertEqual(0, got["aborted"])
+
+    def test_only_a_successful_async_launch_with_a_ui_arms_waiting(self):
+        got = run_extension(self, "wait-guard", '''
+            const cases = [
+                [true, true, "subagent", "Async workflow [1ffbbbcd-29ec-4f7a-ab9e-826a67ff2231]"],
+                [true, false, "subagent", "Validation succeeded"],
+                [true, false, "bash", "Async workflow [1ffbbbcd-29ec-4f7a-ab9e-826a67ff2231]"],
+                [false, false, "subagent", "Async workflow [1ffbbbcd-29ec-4f7a-ab9e-826a67ff2231]"],
+            ];
+            const results = [];
+            for (const [hasUI, isError, toolName, text] of cases) {
+                ctx.hasUI = hasUI;
+                await registered.handlers.agent_start[0]({}, ctx);
+                for (const handler of registered.handlers.tool_result ?? [])
+                    await handler({ toolName, isError, content: [{ type: "text", text }] }, ctx);
+                results.push((await registered.handlers.tool_call[0]({ toolName: "bash",
+                    input: { command: `sleep ${results.length + 5} && ls *.py` } }, ctx)) ?? null);
+            }
+            out(results);
+        ''')
+        self.assertEqual([None] * 4, got)
 
 
 class OpenServerTests(unittest.TestCase):
@@ -521,6 +587,8 @@ class OpenServerTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(refused, denial is not None)
         self.assertIn("--bind 127.0.0.1", result["reason"])
+        self.assertIn("$ELM_PI_PREVIEW_PORT", result["reason"])
+        self.assertIn("http://127.0.0.1:$ELM_PI_PREVIEW_PORT/", result["reason"])
         self.assertIn("kill <PID>", result["reason"])
 
 

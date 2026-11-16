@@ -21,6 +21,7 @@ the proxy dials instead of them.
 """
 
 import contextlib
+import errno
 import importlib.util
 import io
 import json
@@ -616,7 +617,7 @@ REFUSALS = [
     ("connect_nonstandard_port", b"CONNECT evil.com:8443 HTTP/1.1\r\n\r\n",
      "REJECTED evil.com:8443 not on the allowlist"),
     ("connect_port_zero", b"CONNECT evil.com:0 HTTP/1.1\r\n\r\n",
-     "REJECTED evil.com:0 not on the allowlist"),
+     "REJECTED evil.com:0 malformed port"),
     ("connect_ipv6_loopback", b"CONNECT [::1]:443 HTTP/1.1\r\n\r\n",
      "REJECTED ::1:443 not on the allowlist"),
     ("connect_ipv6_global", b"CONNECT [2a04:4e42::223]:443 HTTP/1.1\r\n\r\n",
@@ -634,7 +635,7 @@ REFUSALS = [
     ("connect_anthropic", b"CONNECT api.anthropic.com:443 HTTP/1.1\r\n\r\n",
      "REJECTED api.anthropic.com:443 not on the allowlist"),
     ("connect_userinfo_trick", b"CONNECT pypi.org@evil.com:443 HTTP/1.1\r\n\r\n",
-     "REJECTED pypi.org@evil.com:443 not on the allowlist"),
+     "REJECTED pypi.org@evil.com:443 malformed host"),
     ("connect_without_version", b"CONNECT evil.io:443\r\n\r\n",
      "REJECTED evil.io:443 not on the allowlist"),
     ("connect_extra_tokens", b"CONNECT evil.com:443 HTTP/1.1 extra\r\n\r\n",
@@ -679,7 +680,7 @@ REFUSALS = [
     ("absolute_non_numeric_port", b"GET http://evil.com:abc/ HTTP/1.1\r\n\r\n",
      "REJECTED evil.com:abc:80 not on the allowlist"),
     ("absolute_userinfo_trick", b"GET http://pypi.org@evil.com/ HTTP/1.1\r\n\r\n",
-     "REJECTED pypi.org@evil.com:80 not on the allowlist"),
+     "REJECTED pypi.org@evil.com:80 malformed host"),
     ("absolute_lookalike", b"GET http://pypi.org.evil.com/simple/ HTTP/1.1\r\n\r\n",
      "REJECTED pypi.org.evil.com:80 not on the allowlist"),
     ("absolute_without_path", b"GET http://evil.com HTTP/1.1\r\n\r\n",
@@ -997,9 +998,19 @@ class TunnelTests(unittest.TestCase):
 
     def test_non_numeric_port_on_an_allowed_host_fails_without_dialling(self):
         proxy = proxy_for(["127.0.0.1"])
-        self.assertEqual(b"", exchange(proxy, b"CONNECT 127.0.0.1:https HTTP/1.1\r\n\r\n"))
+        reply = exchange(proxy, b"CONNECT 127.0.0.1:https HTTP/1.1\r\n\r\n")
+        self.assertEqual("HTTP/1.1 403 Forbidden", split_response(reply)[0])
         [line] = log_lines(proxy)
-        self.assertTrue(line.startswith("FAILED   127.0.0.1:https unexpected ValueError("), line)
+        self.assertEqual("REJECTED 127.0.0.1:https malformed port", line)
+
+    def test_out_of_range_port_on_an_allowed_host_is_a_clear_refusal(self):
+        for port in ("0", "65536"):
+            with self.subTest(port=port):
+                proxy = proxy_for(["127.0.0.1"])
+                reply = exchange(proxy, ("CONNECT 127.0.0.1:%s HTTP/1.1\r\n\r\n" % port).encode())
+                self.assertEqual("HTTP/1.1 403 Forbidden", split_response(reply)[0])
+                self.assertEqual(["REJECTED 127.0.0.1:%s malformed port" % port],
+                                 log_lines(proxy))
 
 
 class OpenModeTests(unittest.TestCase):
@@ -1210,7 +1221,18 @@ class UpstreamTests(unittest.TestCase):
         up = Upstream(reply=(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",), hang_up=True)
         head = b"GET http://pypi.org/simple/ HTTP/1.1\r\nHost: pypi.org\r\n\r\n"
         exchange(self.chain(up), head)
-        self.assertEqual(head, up.wait())
+        # Absolute form, as sent - and asked to close: one request per connection, so that a second
+        # one on it cannot ride past the allowlist (tests/test_port_review.py).
+        self.assertEqual(head[:-2] + b"Connection: close\r\nProxy-Connection: close\r\n\r\n", up.wait())
+
+    def test_plain_http_exchange_closes_its_upstream_socket(self):
+        client, client_peer = socket.socketpair()
+        server, server_peer = socket.socketpair()
+        self.addCleanup(client.close)
+        self.addCleanup(client_peer.close)
+        server_peer.close()
+        proxy_for(SHIPPED).one_exchange(client, server, 0, "pypi.org:80")
+        self.assertEqual(-1, server.fileno())
 
     def test_unreachable_upstream_is_logged(self):
         proxy = proxy_for(SHIPPED, ("127.0.0.1", free_port()))
@@ -1487,12 +1509,16 @@ class PrunePortFileTests(unittest.TestCase):
         egress.prune_stale_port_files(self.own)
         self.assertTrue(path.exists())
 
-    def test_older_than_a_day_is_removed_even_if_owner_lives(self):
-        path = self.port_file(os.getppid(), "1", age=86400 + 60)
+    def test_older_than_a_day_is_kept_when_the_proxy_still_listens(self):
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        self.addCleanup(listener.close)
+        path = self.port_file(os.getppid(), str(listener.getsockname()[1]), age=86400 + 60)
         egress.prune_stale_port_files(self.own)
-        self.assertFalse(path.exists())
+        self.assertTrue(path.exists())
 
-    def test_custom_max_age(self):
+    def test_old_dead_port_with_reused_live_pid_is_removed(self):
         path = self.port_file(os.getppid(), "1", age=120)
         egress.prune_stale_port_files(self.own, max_age_s=60)
         self.assertFalse(path.exists())
@@ -1533,6 +1559,213 @@ class PrunePortFileTests(unittest.TestCase):
         egress.prune_stale_port_files(str(self.dir / "gone" / "elm-pi-egress-1.port"))
 
 
+# == the proxy's own limit, where the kernel has none ==============================
+
+def tcp_pair(case):
+    """Two connected TCP sockets on loopback with small buffers: what a tunnel's are.
+
+    Not socket.socketpair(): on WSL 1 a Unix socket's send waits for room even when the
+    socket is non-blocking (2026-11-16), and a tunnel is never one.
+    """
+    listener = socket.socket()
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8192)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    near = socket.socket()
+    near.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 8192)
+    near.connect(listener.getsockname())
+    far, _ = listener.accept()
+    listener.close()
+    for sock in (near, far):
+        case.addCleanup(sock.close)
+    return near, far
+
+
+def needs_back_pressure(case):
+    """Skip where loopback goes on taking data with nobody reading, so an upload that
+    stalls cannot be staged: WSL 1 took 50 MB in 0.15 s (2026-11-16), pausing now and
+    then and carrying on. Elsewhere a pair with 8 kB buffers stops inside the first
+    megabyte and stays stopped, which is what half a second without progress shows.
+
+    WSL 1 is also named outright: its loopback has been seen to stop for longer than
+    that and then take four more megabytes, so no probe of it can be believed."""
+    if os.uname().release.endswith("-Microsoft"):
+        case.skipTest("WSL 1's loopback takes data with nobody reading: a stall cannot be staged")
+    near, _ = tcp_pair(case)
+    near.setblocking(False)
+    taken, last = 0, time.monotonic()
+    while taken < 16_000_000:
+        try:
+            taken += near.send(b"x" * 65536)
+            last = time.monotonic()
+        except BlockingIOError:
+            if time.monotonic() - last > 0.5:
+                return                         # full, and staying full
+            time.sleep(0.01)
+    case.skipTest("this system's loopback has no back-pressure (WSL 1): a stall cannot be staged")
+
+
+class SendDeadlineTests(unittest.TestCase):
+    """send_within: the backup for a system without TCP_USER_TIMEOUT (WSL 1).
+
+    A TCP pair whose far end does not read stands in for an upload the gateway has
+    stopped acknowledging: the kernel's buffer fills and takes no more.
+    """
+
+    def pair(self):
+        return tcp_pair(self)
+
+    def test_an_upload_nobody_takes_is_given_up_after_the_limit(self):
+        needs_back_pressure(self)
+        near, _ = self.pair()
+        began = time.monotonic()
+        with self.assertRaises(egress.Stalled) as caught:
+            egress.send_within(near, b"x" * 4_000_000, limit=0.4)
+        took = time.monotonic() - began
+        self.assertTrue(0.4 <= took < 5, took)
+        self.assertIn("no data taken for 0.4 s", str(caught.exception))
+        self.assertIsInstance(caught.exception, OSError)          # splice's handler logs it
+
+    def test_all_of_it_arrives_when_the_other_end_reads(self):
+        near, far = self.pair()
+        payload = bytes(range(256)) * 4000
+        got = []
+
+        def read():
+            while sum(map(len, got)) < len(payload):
+                got.append(far.recv(65536))
+        reader = threading.Thread(target=read, daemon=True)
+        reader.start()
+        egress.send_within(near, payload, limit=5)
+        reader.join(10)
+        self.assertEqual(payload, b"".join(got))
+
+    def test_a_slow_connection_that_is_still_moving_is_left_alone(self):
+        # Longer in all than the limit; never that long without something being taken.
+        near, far = self.pair()
+        payload = b"y" * 200_000
+        got = []
+
+        def read():
+            while sum(map(len, got)) < len(payload):
+                time.sleep(0.05)
+                got.append(far.recv(16384))
+        reader = threading.Thread(target=read, daemon=True)
+        reader.start()
+        began = time.monotonic()
+        egress.send_within(near, payload, limit=0.4)
+        reader.join(10)
+        self.assertGreater(time.monotonic() - began, 0.4)
+        self.assertEqual(len(payload), sum(map(len, got)))
+
+    def test_a_far_end_that_has_gone_is_an_error_at_once_not_a_wait(self):
+        near, far = self.pair()
+        far.close()
+        began = time.monotonic()
+        with self.assertRaises(OSError) as caught:
+            for _ in range(200):               # the first send can still be taken (it is, on WSL 1)
+                egress.send_within(near, b"x" * 100_000, limit=30)
+                time.sleep(0.01)
+        self.assertNotIsInstance(caught.exception, egress.Stalled)
+        self.assertLess(time.monotonic() - began, 5)
+
+    def test_the_limit_holds_even_when_the_socket_is_never_reported_writable(self):
+        # The send is retried on the clock, not on select's word.
+        needs_back_pressure(self)
+        near, _ = self.pair()
+        with mock.patch.object(egress.select, "select", side_effect=lambda r, w, x, t=None: (time.sleep(min(t or 0, 0.05)), ([], [], []))[1]):
+            began = time.monotonic()
+            with self.assertRaises(egress.Stalled):
+                egress.send_within(near, b"x" * 4_000_000, limit=0.4)
+        self.assertLess(time.monotonic() - began, 5)
+
+    def test_the_socket_is_left_as_it_was_found(self):
+        near, far = self.pair()
+        for before in (None, 7.0):
+            near.settimeout(before)
+            egress.send_within(near, b"abc", limit=5)
+            self.assertEqual(before, near.gettimeout())
+        far.settimeout(5)
+        got = b""
+        while len(got) < 6:                    # TCP hands the two sends over as it likes
+            got += far.recv(10)
+        self.assertEqual(b"abcabc", got)
+
+    def test_the_limit_is_the_one_the_kernel_would_have_kept(self):
+        import inspect
+        self.assertIsNone(inspect.signature(egress.send_within).parameters["limit"].default)
+        self.assertEqual(120, egress.UNACKED_TIMEOUT_S)
+
+    def test_nothing_to_send_is_nothing_to_wait_for(self):
+        near, _ = self.pair()
+        egress.send_within(near, b"", limit=0.01)
+
+
+class SpliceDeadlineTests(unittest.TestCase):
+    """Which limit a tunnel runs under: the kernel's first, the proxy's own only without it."""
+
+    def tunnel(self, kernel_limit, limit=0.4):
+        client, proxy_client = tcp_pair(self)
+        proxy_server, server = tcp_pair(self)
+        log = fresh_log()
+        proxy = egress.Proxy(["elm.example"], log)
+        sent_with = []
+        real = egress.send_within
+        patches = [mock.patch.object(egress, "tune_keepalive", return_value=kernel_limit),
+                   mock.patch.object(egress, "UNACKED_TIMEOUT_S", limit),
+                   mock.patch.object(egress, "send_within",
+                                     side_effect=lambda *a, **k: sent_with.append(1) or real(*a, **k))]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        worker = threading.Thread(target=proxy.splice, args=(proxy_client, proxy_server, "elm.example:443"),
+                                  daemon=True)
+        worker.start()
+        return client, server, worker, log, sent_with
+
+    def test_without_the_kernels_limit_a_stalled_upload_is_dropped_and_logged(self):
+        needs_back_pressure(self)
+        client, server, worker, log, sent_with = self.tunnel(kernel_limit=False)
+        client.settimeout(5)
+        try:
+            client.sendall(b"u" * 2_000_000)                # the server never reads
+        except OSError:
+            pass                                             # the tunnel closed under the upload
+        worker.join(10)
+        self.assertFalse(worker.is_alive(), "the tunnel is still waiting on a server that takes nothing")
+        self.assertTrue(sent_with)
+        text = Path(log).read_text()
+        self.assertIn("DROPPED", text)
+        self.assertIn("elm.example:443 no data taken for 0.4 s", text)
+        try:                                                 # and the client is told: a close, which
+            self.assertEqual(b"", client.recv(1))            # Linux reports as a reset when data it
+        except ConnectionError:                              # sent was never read
+            pass
+
+    def test_without_it_an_ordinary_exchange_still_goes_both_ways(self):
+        client, server, worker, log, sent_with = self.tunnel(kernel_limit=False, limit=5)
+        client.sendall(b"request")
+        self.assertEqual(b"request", server.recv(100))
+        server.sendall(b"response")
+        self.assertEqual(b"response", client.recv(100))
+        client.close()
+        server.close()
+        worker.join(10)
+        self.assertEqual(2, len(sent_with))
+        self.assertNotIn("DROPPED", Path(log).read_text() if Path(log).exists() else "")
+
+    def test_with_the_kernels_limit_the_proxys_own_is_not_used(self):
+        client, server, worker, _, sent_with = self.tunnel(kernel_limit=True)
+        client.sendall(b"request")
+        self.assertEqual(b"request", server.recv(100))
+        server.sendall(b"response")
+        self.assertEqual(b"response", client.recv(100))
+        client.close()
+        server.close()
+        worker.join(10)
+        self.assertEqual([], sent_with)
+
+
 # == sockets and limits ===========================================================
 
 class SocketTuningTests(unittest.TestCase):
@@ -1564,16 +1797,54 @@ class SocketTuningTests(unittest.TestCase):
     def test_unacknowledged_data_drops_the_connection_after_two_minutes(self):
         """2026-11-13: an upload the gateway stopped acknowledging held a session 921 s, until the kernel gave up."""
         if hasattr(socket, "TCP_USER_TIMEOUT"):
-            self.assertEqual(120000, self.option("TCP_USER_TIMEOUT"))
+            try:
+                self.assertEqual(120000, self.option("TCP_USER_TIMEOUT"))
+            except OSError as problem:
+                # Defined and not there: WSL 1 answers ENOPROTOOPT (2026-11-16). The proxy
+                # is then told so, and keeps the limit itself (SendDeadlineTests).
+                self.assertEqual(errno.ENOPROTOOPT, problem.errno)
+                self.assertFalse(egress.tune_keepalive(self.tuned()))
         elif sys.platform == "darwin":
             self.assertEqual(120, self.tuned().getsockopt(socket.IPPROTO_TCP, egress.TCP_RXT_CONNDROPTIME))
         else:
             self.skipTest("no per-connection retransmission limit on this platform")
 
+    def test_the_kernels_limit_is_reported_only_when_it_took(self):
+        took = egress.tune_unacked(self.tuned())
+        if hasattr(socket, "TCP_USER_TIMEOUT") or sys.platform == "darwin":
+            option = getattr(socket, "TCP_USER_TIMEOUT", egress.TCP_RXT_CONNDROPTIME)
+            try:
+                there = self.tuned().getsockopt(socket.IPPROTO_TCP, option) > 0
+            except OSError:
+                there = False
+            self.assertEqual(there, took)
+        else:
+            self.assertFalse(took)
+
+    def test_a_system_that_refuses_or_ignores_the_option_is_not_believed(self):
+        class Refuses:
+            def setsockopt(self, *args):
+                if args[0] == socket.IPPROTO_TCP:
+                    raise OSError(errno.ENOPROTOOPT, "Protocol not available")
+
+            def getsockopt(self, *args):
+                raise OSError(errno.ENOPROTOOPT, "Protocol not available")
+
+        class Ignores(Refuses):
+            def setsockopt(self, *args):
+                pass
+
+            def getsockopt(self, *args):
+                return 0
+
+        self.assertFalse(egress.tune_unacked(Refuses()))
+        self.assertFalse(egress.tune_keepalive(Refuses()))
+        self.assertFalse(egress.tune_unacked(Ignores()))
+
     def test_closed_socket_is_harmless(self):
         s = socket.socket()
         s.close()
-        self.assertIsNone(egress.tune_keepalive(s))
+        self.assertFalse(egress.tune_keepalive(s))      # no kernel limit on it, and no error
 
     def test_unix_socket_is_harmless(self):
         a, b = socket.socketpair()

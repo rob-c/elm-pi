@@ -122,5 +122,128 @@
    ],
    "pycache_in_either_project": false
   }
+ },
+ "twenty_problem_batch": {
+  "what": "ten sessions, twenty stock coding problems each (the ten of the batch above plus count_distinct_characters, count_vowels, remove_vowels, longest_word, sum_positive, is_sorted, rotate_left, unique_in_order, count_words, median), one file per problem under solutions/, prompts rotated by two each session so every problem sits in every position once",
+  "check": "imports all twenty files and runs the cases each prompt states; proved on the seed (0/20) and on a reference solution (20/20)",
+  "runs": [
+   {
+    "id": "c20.1",
+    "passed": 20,
+    "wall": "10 min 21 s",
+    "input": 1513324,
+    "requests": 62,
+    "commands": 21
+   },
+   {
+    "id": "c20.2",
+    "passed": 20,
+    "wall": "10 min 56 s",
+    "input": 1586851,
+    "requests": 62,
+    "commands": 21
+   },
+   {
+    "id": "c20.3",
+    "passed": 20,
+    "wall": "11 min 44 s",
+    "input": 1627892,
+    "requests": 62,
+    "commands": 21
+   },
+   {
+    "id": "c20.4",
+    "passed": 20,
+    "wall": "12 min 12 s",
+    "input": 1664079,
+    "requests": 62,
+    "commands": 21
+   },
+   {
+    "id": "c20.5",
+    "passed": 20,
+    "wall": "9 min 59 s",
+    "input": 1430669,
+    "requests": 60,
+    "commands": 20
+   },
+   {
+    "id": "c20.6",
+    "passed": 20,
+    "wall": "10 min 6 s",
+    "input": 957850,
+    "requests": 41,
+    "commands": 0
+   },
+   {
+    "id": "c20.7",
+    "passed": 20,
+    "wall": "9 min 24 s",
+    "input": 925462,
+    "requests": 40,
+    "commands": 0
+   },
+   {
+    "id": "c20.8",
+    "passed": 20,
+    "wall": "11 min 50 s",
+    "input": 1429514,
+    "requests": 60,
+    "commands": 20
+   },
+   {
+    "id": "c20.9",
+    "passed": 20,
+    "wall": "15 min 41 s",
+    "input": 1778439,
+    "requests": 63,
+    "commands": 22
+   },
+   {
+    "id": "c20.10",
+    "passed": 20,
+    "wall": "10 min 48 s",
+    "input": 1529170,
+    "requests": 62,
+    "commands": 21
+   }
+  ],
+  "totals": {
+   "problems_solved": 200,
+   "problems_asked": 200,
+   "input_tokens": 14443050,
+   "dialogs": 0,
+   "children": 0,
+   "sessions_that_ended_normally": 10,
+   "sessions_that_never_executed_anything": 2
+  },
+  "floor_tokens": 19084,
+  "finding": "c20.6 and c20.7 wrote twenty files each and executed none, replying 'Done.' twenty times: 40 and 41 requests where the other eight sessions needed 60-63, and 0.93M and 0.96M tokens against 1.43-1.78M. Both passed the check, so nothing failed and no guard fired - the defect is invisible in a result and visible only in the transcript. Fixed by templates/extensions/verify-guard.ts",
+  "second_finding": "eight of the ten sessions spent one request and one tool error on a read of the file they were about to create ([E_NOT_FOUND]); after it they never did it again. 19k tokens each, and an error line in every report",
+  "noise": "the same ten sessions, same prompts in a different rotation: 200/200. Across four sessions of the ten-problem set (two batches) it was 40/40. So this set can no longer show a difference of one or two problems - it is at its ceiling, and a harder set is needed to score anything",
+  "not_litter": "the __pycache__ that appears in these project folders is from this author's own scoring runs (22:22, after the sessions ended at 22:03); the install's fix held - c20.7 ran no python at all and still shows one only because the scorer wrote it",
+  "guard_probe": {
+   "what": "the same twenty-problem sessions run again on the tree carrying verify-guard (bootstrap: 41 extensions loaded, 0 failed)",
+   "runs": [
+    {
+     "id": "c20.1",
+     "passed": 20,
+     "wall": "12 min 48 s",
+     "requests": 60,
+     "input": 1782032,
+     "commands": 20
+    },
+    {
+     "id": "c20.2",
+     "passed": 20,
+     "wall": "11 min 37 s",
+     "requests": 62,
+     "input": 1587075,
+     "commands": 21
+    }
+   ],
+   "notes_sent": 0,
+   "result": "it loaded in a real install and stayed silent in both sessions, which ran one command per problem - the no-false-positive half. The firing half is held by tests/test_ext_verify_guard.py (8 cases, including the two-note cap); the behaviour it catches is intermittent (2 of 10 sessions), so two sessions did not reproduce it"
+  }
  }
 }

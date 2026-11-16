@@ -19,9 +19,21 @@ follows are in `templates/AGENTS.md`; this file is only for work on the repo.)
   the install you run on, `agent/` rendered from `templates/` - so the tests
   can load extensions and `scripts/check-extension` works. Run it again after
   changing a template, to put the change in this clone's `agent/`.
-- The source is `templates/`, `config/`, `scripts/`, `lib/`, `tests/`, `pi` and
-  `bootstrap.sh`. `agent/`, `node_modules/` and `.node/` are generated: never
-  edit them.
+- The source is `templates/`, `config/`, `scripts/`, `lib/`, `tests/`, `pi`,
+  `pi.bash`, `python/`, `bootstrap.sh` and `bootstrap.bash`. `agent/`, `node_modules/` and
+  `.node/` are generated: never edit them.
+- The launcher is Python: `pi` finds the install and hands over to `python/pi`,
+  which starts `python/elmpi` with no `PYTHON*` variable, no site-packages and
+  no import from outside the install. `python/README.md` says what each module
+  decides. `pi.bash` is the bash implementation it replaced - the reference,
+  not installed - and `tests/test_python_launcher.py` runs both on the same
+  install and compares every decision, so a change to either must be made to
+  both.
+- The installer is Python too: `bootstrap.sh` finds an interpreter and hands
+  over to `python/elmboot`. `bootstrap.bash` is the bash installer it replaced,
+  the reference `tests/test_bootstrap_python.py` and
+  `tests/test_bootstrap_installer.py` hold it to: a change to what an install
+  does is made to both.
 
 ## A new extension, step by step
 

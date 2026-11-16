@@ -25,6 +25,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def shipped_docs(root):
+    # Local development notes are not shipped documentation. Prefer the source
+    # inventory; copied fixtures have neither Git nor an install manifest, so
+    # use this repo's uppercase root-doc convention and the shim's doc folder.
+    if (root / ".git").exists():
+        result = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
+                                capture_output=True, text=True, check=True)
+        names = result.stdout.split("\0")
+    elif (root / ".elm-pi-source-manifest").is_file():
+        names = (root / ".elm-pi-source-manifest").read_text().splitlines()
+    else:
+        names = [p.relative_to(root).as_posix()
+                 for p in [*root.glob("*.md"), *root.glob("shim/*.md")]
+                 if p.parent != root or p.stem.isupper()]
+    return sorted(name for name in names if Path(name).suffix == ".md"
+                  and Path(name).parent in (Path("."), Path("shim"))
+                  and (root / name).is_file())
+
+
 def from_an_install(rel):
     """rel (".node/bin/node", "agent/bin/jq") from an elm-pi install: this checkout, when it is one;
     $ELM_PI_INSTALL_DIR; the default prefix; then ~/sandboxes/elm-pi. None when none has it - the
@@ -34,8 +53,8 @@ def from_an_install(rel):
              Path.home() / "sandboxes/elm-pi"]
     return next((str(Path(r) / rel) for r in roots if r and (Path(r) / rel).is_file()), None)
 CONFIG = json.loads((ROOT / "config/elm-pi.json").read_text())
-LAUNCHER = (ROOT / "pi").read_text()
-BOOTSTRAP = (ROOT / "bootstrap.sh").read_text()
+LAUNCHER = (ROOT / "pi.bash").read_text()
+BOOTSTRAP = (ROOT / "bootstrap.bash").read_text()
 
 
 def block(source, start, end):
@@ -213,7 +232,7 @@ class ComputerUseTests(unittest.TestCase):
         ext = here / "agent/npm/node_modules/@injaneity/pi-computer-use/extensions/computer-use.ts"
         ext.parent.mkdir(parents=True)
         ext.write_text("")
-        script = (f'HERE="$1"; REMOTE="$2"; COMPUTER_USE="$3"; PRE=()\n{self.SNIPPET}\n'
+        script = (f'HERE="$1"; REMOTE="$2"; COMPUTER_USE="$3"; PRE=(); NETWORK_MODE=$([ "$REMOTE" = "1" ] && echo yolo || echo trusted-remote)\n{self.SNIPPET}\n'
                   'printf "%s\\n" "${PRE[@]+"${PRE[@]}"}" "SIGN=${PI_COMPUTER_USE_CODESIGN_IDENTITY:-}" '
                   '"APP=${PI_COMPUTER_USE_HELPER_APP_PATH:-}"')
         env = {k: v for k, v in os.environ.items() if not k.startswith("PI_COMPUTER_USE") and k != "PI_ELM_CHILD"}
@@ -741,8 +760,29 @@ class FixedPromptTests(unittest.TestCase):
         self.assertIn("do not\nanswer from memory, ask first, or offer to read it", where)
         for pattern in ("@AGENT_DIR@/reference/*.md", "@AGENT_DIR@/skills/*/SKILL.md"):
             self.assertIn(pattern, where)
-        shipped = sorted(p.relative_to(ROOT).as_posix() for p in [*ROOT.glob("*.md"), *ROOT.glob("shim/*.md")])
+        shipped = shipped_docs(ROOT)
         self.assertEqual([], [doc for doc in shipped if f"`{doc}`" not in where])
+
+    def test_shipped_docs_use_source_inventory_and_ignore_local_notes(self):
+        for inventory in ("git", "manifest", "copied"):
+            with self.subTest(inventory=inventory), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "shim").mkdir()
+                for name in ("README.md", "shim/README.md", "OPERATIONS.md", "usage.md", "working-notes.md"):
+                    (root / name).write_text("Documentation\n")
+                if inventory == "git":
+                    if not shutil.which("git"):     # AlmaLinux and Ubuntu as installed have none
+                        self.skipTest("needs git")
+                    subprocess.run(["git", "init", "-q", str(root)], check=True)
+                    subprocess.run(["git", "-C", str(root), "add", "README.md", "shim/README.md",
+                                    "OPERATIONS.md", "usage.md"], check=True)
+                elif inventory == "manifest":
+                    (root / ".elm-pi-source-manifest").write_text(
+                        "README.md\nshim/README.md\nOPERATIONS.md\nusage.md\ninstall.sh\n")
+                expected = ["OPERATIONS.md", "README.md", "shim/README.md"]
+                if inventory != "copied":
+                    expected.append("usage.md")
+                self.assertEqual(expected, shipped_docs(root))
 
     def test_sizes_do_not_creep_back(self):
         # 10,000 until 2026-11-12, when the user asked for images to be used unasked and often:
@@ -823,7 +863,7 @@ class DiskSpaceTests(unittest.TestCase):
         self.assertNotIn("new install", r.stdout)
 
     def bootstrap(self, free_kb=50_000_000, setup="", python=0, index=0, **env):
-        source = (ROOT / "bootstrap.sh").read_text()
+        source = (ROOT / "bootstrap.bash").read_text()
         prelude = f'HERE="$T"; WITH_PYTHON={python}; WITH_PYPI_INDEX={index}; {setup}'
         return self.run_block(source, "# --- disk space", "# --- 1. Node", prelude, free_kb, **env)[0]
 
@@ -841,7 +881,7 @@ class DiskSpaceTests(unittest.TestCase):
         self.assertEqual(1, full.returncode)
 
     def test_both_scripts_use_the_same_figures(self):
-        bootstrap = (ROOT / "bootstrap.sh").read_text()
+        bootstrap = (ROOT / "bootstrap.bash").read_text()
         self.assertIn("DISK_BASE_MB=1000; DISK_PYTHON_MB=1000; DISK_PYPI_KEPT_MB=400; DISK_PYPI_TEMP_MB=1000", bootstrap)
         for figure in ("DISK_KEEP=1000;", "DISK_KEEP + 1000", "DISK_KEEP + 400", "DISK_TEMP=1000"):
             self.assertIn(figure, self.INSTALLER)

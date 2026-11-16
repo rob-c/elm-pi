@@ -123,8 +123,10 @@ class NewExtensionTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.repo = self.tmp / "elm-pi"
+        # No git at all on AlmaLinux and Ubuntu as installed (2026-11-16): an install there is
+        # a copied tree, the same as one that is not a checkout.
         files = subprocess.run(["git", "ls-files", "-co", "--exclude-standard"], cwd=ROOT, capture_output=True,
-                               text=True).stdout.splitlines()
+                               text=True).stdout.splitlines() if shutil.which("git") else []
         if not files:   # not a git checkout: copy what the tests read
             files = [str(p.relative_to(ROOT)) for p in ROOT.rglob("*") if p.is_file() and not any(
                 part in ("node_modules", ".node", "agent", ".git", "__pycache__") for part in p.relative_to(ROOT).parts)]
@@ -298,6 +300,11 @@ class HarnessCaseTests(unittest.TestCase):
         the guides give it a timeout it fits in."""
         if not shutil.which("git"):
             self.skipTest("needs git")
+        # An install from the source tarball has git's files and is no repository, and there
+        # `git check-ignore` answers nothing at all (the macOS VM, 2026-11-16).
+        if subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=ROOT,
+                          capture_output=True).returncode != 0:
+            self.skipTest("needs a git checkout: this tree is a copy of one")
         names = [".elm-pi-verify.8NLWk3", "node_modules.dev-setup-partial", ".elm-pi-stage-core.abc123/x"]
         ignored = subprocess.run(["git", "check-ignore", "--no-index", *names], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(sorted(names), sorted(ignored.stdout.split()))

@@ -16,12 +16,15 @@ and lets it die with pi. Allowed hosts are spliced through untouched. Everything
 else gets 403 and a line in the log, which is the point: the log tells you what
 tried to leave, so the call can be stopped at source later.
 
-WHAT THIS IS NOT: enforcement. Proxy environment variables are honoured by
-well-behaved clients - curl, npm, pip, requests, git over HTTPS - and ignored by
-git over SSH, raw sockets, and anything that unsets the variable. The bash tool
-can do all three. This stops accidents and tells you about attempts; only a
-firewall, or a Linux network namespace with no other route out, stops intent.
-See LOCKDOWN.md.
+This process runs on the host, outside the session's OS network fence.
+Destination names go unchanged to create_connection below: the host's
+system resolver must handle site/VPN DNS and local host mappings. No public
+resolver or fallback is selected here. With a corporate upstream, only its
+name is resolved here; it receives the original target name to resolve itself.
+
+The proxy alone cannot fence a client that ignores its environment variables.
+The launcher adds that restriction with macOS sandbox-exec or a Linux network
+namespace in offline/trusted-remote modes. See LOCKDOWN.md for the scope.
 
     egress.py --allow elm.edina.ac.uk --port-file /tmp/p --log agent/egress.log
               [--parent-pid N] [--upstream http://proxy:3128]
@@ -56,6 +59,11 @@ CONNECT_TIMEOUT = 15
 # Answered locally and never forwarded, so the launcher's heartbeat can tell a
 # live proxy of ours from a dead port or a stranger holding it.
 HEALTH_PATH = "/__elm_pi_egress__/health"
+# POST <this>?allow=host,host - keep only these hosts, each of which the proxy
+# must already allow. /network uses it to make a running session offline. It
+# can only take hosts away, which is why it needs no secret: a session cannot
+# be given one its own agent could not read, so nothing here can widen a list.
+NARROW_PATH = "/__elm_pi_egress__/narrow"
 KEEPALIVE_IDLE_S = 60
 KEEPALIVE_INTVL_S = 15
 KEEPALIVE_CNT = 4
@@ -100,11 +108,15 @@ def raise_fd_limit():
 
 
 def tune_keepalive(sock):
-    """Keep a live connection up, and notice a dead one in minutes not hours."""
+    """Keep a live connection up, and notice a dead one in minutes not hours.
+
+    True when the kernel has taken the limit on unacknowledged data
+    (tune_unacked); False when the proxy has to keep that limit itself.
+    """
     try:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     except OSError:
-        return
+        return False
     for name, value in (("TCP_KEEPIDLE", KEEPALIVE_IDLE_S),    # Linux
                         ("TCP_KEEPALIVE", KEEPALIVE_IDLE_S),   # macOS
                         ("TCP_KEEPINTVL", KEEPALIVE_INTVL_S),
@@ -116,25 +128,139 @@ def tune_keepalive(sock):
             sock.setsockopt(socket.IPPROTO_TCP, opt, value)
         except OSError:
             pass  # a platform that will not tune it still keepalives
-    tune_unacked(sock)
+    return tune_unacked(sock)
 
 
 def tune_unacked(sock):
-    """Drop a connection whose sent data has gone unacknowledged for UNACKED_TIMEOUT_S."""
+    """Drop a connection whose sent data has gone unacknowledged for
+    UNACKED_TIMEOUT_S. True when the kernel will do it.
+
+    The kernel's own limit is the one to have: it sees data it is holding as
+    well as data the proxy is still trying to hand it. It is read back after it
+    is set, because a system can define the option and not have it: WSL 1
+    answers "Protocol not available" (measured 2026-11-16). Where this is
+    False, splice() keeps the limit itself, with send_within().
+    """
     if hasattr(socket, "TCP_USER_TIMEOUT"):                 # Linux: milliseconds
         option, value = socket.TCP_USER_TIMEOUT, UNACKED_TIMEOUT_S * 1000
     elif sys.platform == "darwin":                          # macOS: seconds
         option, value = TCP_RXT_CONNDROPTIME, UNACKED_TIMEOUT_S
     else:
-        return
+        return False
     try:
         sock.setsockopt(socket.IPPROTO_TCP, option, value)
+        return sock.getsockopt(socket.IPPROTO_TCP, option) == value
     except OSError:
-        pass  # left to the system's own limit
+        return False
+
+
+SEND_RETRY_S = 1.0
+
+
+class Stalled(OSError):
+    """The other end took no data for the whole of the limit."""
+
+
+def send_within(sock, data, limit=None):
+    """sendall, given up once `sock` has taken nothing for `limit` seconds.
+
+    The backup for a system without TCP_USER_TIMEOUT. An upload the far end
+    has stopped acknowledging fills the kernel's send buffer, and sendall()
+    then waits as long as the kernel keeps retransmitting - 921 s in the
+    session of 2026-11-13 that the kernel option was added for. Here the wait
+    is for room in that buffer, and it starts again each time some is taken,
+    so a slow connection that is still moving is left alone, as it is by the
+    kernel's limit. What this cannot see is data the kernel already holds: a
+    request small enough to fit the buffer whole is the kernel's to give up on.
+    """
+    limit = UNACKED_TIMEOUT_S if limit is None else limit
+    view = memoryview(data)
+    # The limit is kept by the clock, since the last byte taken - not by
+    # select() alone: a socket can be reported writable and then take nothing
+    # (a Unix socket on macOS does, with less room than its low-water mark),
+    # and a loop that trusted the report never gave up.
+    last_taken = time.monotonic()
+    # Non-blocking for the length of this call, and put back after: a blocking
+    # send() waits until all of it is queued, which is the wait this function
+    # exists to bound - and MSG_DONTWAIT is not enough to stop it everywhere
+    # (on macOS a send so flagged still waited on a full Unix socket).
+    before = sock.gettimeout()
+    sock.setblocking(False)
+    try:
+        while view:
+            # The send first, and the wait only when it takes nothing: a far
+            # end that has gone is then an error at once, as it is to sendall,
+            # whatever select() makes of such a socket - and the usual case,
+            # room in the buffer, is one call.
+            try:
+                sent = sock.send(view)
+            except (BlockingIOError, InterruptedError):
+                sent = 0
+            except OSError as problem:
+                if problem.errno != errno.ENOBUFS:
+                    raise
+                sent = 0
+            if sent:
+                view = view[sent:]
+                last_taken = time.monotonic()
+                continue
+            left = limit - (time.monotonic() - last_taken)
+            if left <= 0:
+                raise Stalled("no data taken for %g s (this proxy's own limit: the system "
+                              "has no per-connection one)" % limit)
+            # A second at most, then the send is tried again whatever was
+            # reported: the clock keeps the limit, not select().
+            began = time.monotonic()
+            select.select([], [sock], [sock], min(left, SEND_RETRY_S))
+            if time.monotonic() - began < 0.01:
+                time.sleep(0.01)               # "ready", and it took nothing: do not spin
+    finally:
+        try:
+            sock.settimeout(before)
+        except OSError:
+            pass                               # closed under us: nothing to put back
 
 
 def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# RFC 3986's reg-name (unreserved, pct-encoded, sub-delims) plus the colons of
+# an IPv6 literal. What is missing is what changes the authority's meaning -
+# "@", "/", "?", "#", whitespace - so "u:p@exa.ai", userinfo dressed as a host,
+# is refused rather than matched by suffix and dialled as written (found by
+# adding exa.ai to proxyAllow).
+HOST_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789._~%!$&'()*+,;=:-")
+
+
+def is_host(host):
+    return bool(host) and all(character.lower() in HOST_CHARS for character in host)
+
+
+def one_request_body(head):
+    """How many body bytes follow this request head, or None if it does not say.
+
+    A chunked body ends where its own framing says, which this proxy does not
+    parse; forwarding one would mean forwarding whatever followed it.
+    """
+    length = 0
+    for line in head.split("\r\n")[1:]:
+        name, _, value = line.partition(":")
+        name = name.strip().lower()
+        if name == "transfer-encoding":
+            return None
+        if name == "content-length":
+            if not value.strip().isdigit():
+                return None
+            length = int(value.strip())
+    return length
+
+
+def closing(head):
+    """The request head asking the next hop to close after its response."""
+    lines = [line for line in head.rstrip("\r\n").split("\r\n")
+             if line.partition(":")[0].strip().lower() not in ("connection", "proxy-connection", "keep-alive")]
+    return "\r\n".join(lines + ["Connection: close", "Proxy-Connection: close"]) + "\r\n\r\n"
 
 
 class Proxy:
@@ -202,6 +328,10 @@ class Proxy:
                 self.serve_health(client)
                 return
 
+            if method == "POST" and target.split("?", 1)[0] == NARROW_PATH:
+                self.serve_narrow(client, target.partition("?")[2])
+                return
+
             if method != "CONNECT":
                 # Plain HTTP, which arrives as an absolute-form request line:
                 #   GET http://host/path HTTP/1.1
@@ -219,6 +349,12 @@ class Proxy:
                 # its last colon is inside the brackets, not a port separator.
                 host, port = target, "443"
             host = host.strip("[]")
+            if not is_host(host):
+                self.deny(client, f"{host}:{port}", "malformed host")
+                return
+            if not port.isdigit() or not 0 < int(port) < 65536:
+                self.deny(client, f"{host}:{port}", "malformed port")
+                return
 
             if not self.allowed(host):
                 self.deny(client, f"{host}:{port}", "not on the allowlist")
@@ -291,6 +427,49 @@ class Proxy:
         except OSError:
             pass  # the heartbeat will simply try again
 
+    def narrow(self, hosts):
+        """Keep only `hosts`; returns why not, or "" when it is done.
+
+        Every host asked for must be one this proxy already allows, so the
+        list after is never wider than the list before - from "*" too, which
+        allows them all and is itself never kept.
+        """
+        wanted = []
+        for host in hosts:
+            host = host.strip().lower().strip(".")
+            if host and host not in wanted:
+                wanted.append(host)
+        if not wanted:
+            return "no hosts named"
+        for host in wanted:
+            if host == "*" or not is_host(host):
+                return "not a host name: %s" % host[:80]
+            if not self.allowed(host):
+                return "%s is not on this proxy's list, and a list is only ever narrowed" % host
+        # One assignment each: handle() runs on other threads and reads these.
+        self.allow = wanted
+        self.open_mode = False
+        self.log("NARROWED", ",".join(wanted))
+        return ""
+
+    def serve_narrow(self, client, query):
+        hosts = []
+        for part in query.split("&"):
+            name, _, value = part.partition("=")
+            if name == "allow":
+                hosts += value.split(",")
+        problem = self.narrow(hosts)
+        body = json.dumps({"proxy": "elm-pi-egress", "allow": self.allow,
+                           "upstream": bool(self.upstream),
+                           **({"error": problem} if problem else {})}).encode()
+        status = b"403 Forbidden" if problem else b"200 OK"
+        try:
+            client.sendall(b"HTTP/1.1 " + status + b"\r\nContent-Type: application/json\r\n"
+                           b"Content-Length: " + str(len(body)).encode() + b"\r\n"
+                           b"Connection: close\r\n\r\n" + body)
+        except OSError:
+            pass
+
     def deny(self, client, host, detail):
         """Refuse, and say whose refusal it is.
 
@@ -348,6 +527,9 @@ class Proxy:
             port = "80"                # "pypi.org:" - RFC 3986: an empty port is the default
         elif not port.isdigit():
             host, port = authority.strip("[]"), "80"
+        if not is_host(host):
+            self.deny(client, f"{host}:{port}", "malformed host")
+            return
         if not self.allowed(host):
             self.deny(client, f"{host}:{port}", "not on the allowlist")
             return
@@ -363,13 +545,61 @@ class Proxy:
         request = (origin_line + "\r\n" + tail).encode("latin-1", "replace") + pending
 
         if self.upstream:
+            # One request, and the connection is over. The host checked above is
+            # this request's; spliced to the campus proxy for as long as the
+            # client kept the connection, every later request on it - to any
+            # host, CONNECT included - went out unchecked and unlogged.
+            length = one_request_body(head)
+            if length is None:
+                self.deny(client, f"{host}:{port}", "plain HTTP with a body of unstated length")
+                return
             up_host, up_port = self.upstream
             server = socket.create_connection((up_host, up_port), CONNECT_TIMEOUT)
-            server.sendall(head.encode("latin-1") + pending)   # upstream wants it as-sent
+            server.sendall(closing(head).encode("latin-1") + pending[:length])
+            self.one_exchange(client, server, length - len(pending[:length]), f"{host}:{port}")
+            return
         else:
             server = socket.create_connection((host, int(port)), CONNECT_TIMEOUT)
             server.sendall(request)
         self.splice(client, server, f"{host}:{port}")
+
+    def one_exchange(self, client, server, body_left, target):
+        """The rest of one request's body up, and its response down, then close.
+
+        Anything the client sends past the body it declared is a second
+        request, which has to come back on a new connection to be checked.
+        """
+        client.settimeout(None)
+        server.settimeout(None)
+        watching = [client, server]
+        try:
+            while server in watching:
+                readable, _, errored = select.select(watching, [], watching, 60)
+                if errored:
+                    break
+                for src in readable:
+                    data = src.recv(BUF)
+                    if src is server:
+                        if not data:
+                            return
+                        client.sendall(data)
+                    elif not data:
+                        watching.remove(client)
+                    elif body_left > 0:
+                        server.sendall(data[:body_left])
+                        body_left -= len(data[:body_left])
+                    else:
+                        # Not forwarded, and not read again; the first request's
+                        # response is still owed to the client.
+                        self.log("REJECTED", target, "a second request on a plain-HTTP connection")
+                        watching.remove(client)
+        except OSError as err:
+            self.log("DROPPED", target, str(err))
+        finally:
+            try:
+                server.close()
+            except OSError:
+                pass
 
     def connect_through(self, client, host, port, head, pending=b""):
         if self.upstream:
@@ -405,8 +635,9 @@ class Proxy:
         # the socket down underneath the pool, which surfaced in pi as
         # "Connection error" on the next request that reused it. Idleness now
         # just goes round again; only a close or an error ends the tunnel.
-        for sock in (a, b):
-            tune_keepalive(sock)
+        # The kernel's limit on unacknowledged data where it has one; this
+        # proxy's own, on each send, for a socket it would not take it on.
+        unlimited = [sock for sock in (a, b) if not tune_keepalive(sock)]
         # The sides still sending. An EOF is a half-close, not a hang-up: a
         # client that shuts its write side once the request is out (nc -N,
         # shutdown(SHUT_WR)) still wants the response, and ending both
@@ -431,7 +662,12 @@ class Proxy:
                             return             # the other side is gone too
                         continue
                     try:
-                        dst.sendall(data)
+                        if dst in unlimited:
+                            send_within(dst, data)
+                        else:
+                            dst.sendall(data)
+                    except Stalled:
+                        raise                  # said in the log, half-closed or not
                     except OSError:
                         if dst in sending:
                             raise
@@ -540,10 +776,10 @@ def prune_stale_port_files(port_file, max_age_s=86400):
     by testing the advertised ports in turn, so every leftover file costs it a
     connect attempt, and they accumulate for as long as the machine is up.
 
-    A file is removed when the session that owns it is gone *and* nothing answers
-    on its port. Both conditions, because either alone can be temporarily true of
-    a live proxy: a pid can be reused, and a port stops accepting for the moment
-    between a proxy being killed and its heartbeat rebinding it.
+    A file is removed when nothing answers on its port and either its owner is
+    gone or the file is old enough to be PID reuse. A temporarily dead port for
+    a fresh live session is kept while its watchdog rebinds it; any listening
+    long-running proxy is kept regardless of the file's age.
     """
     pattern = os.path.join(os.path.dirname(port_file) or ".", "elm-pi-egress-*.port")
     now = time.time()
@@ -551,22 +787,24 @@ def prune_stale_port_files(port_file, max_age_s=86400):
         if os.path.abspath(path) == os.path.abspath(port_file):
             continue                        # ours; we are about to write it
         try:
-            if now - os.path.getmtime(path) > max_age_s:
-                os.unlink(path)
-                continue
+            old = now - os.path.getmtime(path) > max_age_s
             owner = int(os.path.basename(path)[len("elm-pi-egress-"):-len(".port")])
             try:
                 os.kill(owner, 0)
-                continue                    # session still running: keep it
+                owner_alive = True
             except OSError:
-                pass
+                owner_alive = False
             with open(path, encoding="utf-8") as fh:
                 port = int(fh.read().strip())
             try:
                 with socket.create_connection(("127.0.0.1", port), 0.2):
-                    continue                # something still serves it: keep it
+                    continue                # a long-running proxy still serves it: keep it
             except OSError:
-                os.unlink(path)
+                # A fresh file owned by a live session can sit briefly between
+                # a killed proxy and the watchdog rebinding its port. An old
+                # dead port with a live PID is PID reuse, not a live session.
+                if not owner_alive or old:
+                    os.unlink(path)
         except (OSError, ValueError):
             pass
 

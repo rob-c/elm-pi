@@ -1,0 +1,1499 @@
+{
+  "date": "2026-11-15",
+  "source_commit": "e889977bf88423aeddd513ef45d7d0676d984efc",
+  "source_was_dirty": true,
+  "verification_snapshot": "guarded: frozen source plus the empty-seed harness, enforced child-scratch rule, saved-test guidance, macOS test fixture correction, and monotonic driver deadlines",
+  "concurrent_edits": "Network-mode and jail changes arrived in the shared checkout during its full suite. The completed full-suite result here is from the isolated snapshot and does not cover those independent changes.",
+  "model": "Qwen/Qwen3.5-397B-A17B-FP8",
+  "installs": [
+    "baseline: frozen initial source",
+    "fixed: launcher and UI fixes",
+    "final: also waiting and child-scratch guidance",
+    "verification: isolated full-suite copy",
+    "guarded: enforced child-scratch rule and saved-test guidance"
+  ],
+  "dependencies": {
+    "baseline": {
+      "core": {
+        "@earendil-works/pi-coding-agent": "1.5.2",
+        "mupdf": "1.28.6",
+        "typebox": "1.4.6",
+        "typescript": "7.0.2"
+      },
+      "packages": {
+        "@gotgenes/pi-permission-system": "42.0.0",
+        "@henryqw/pi-auto-compact": "5.3.0",
+        "@henryqw/pi-task-models": "9.4.0",
+        "@injaneity/pi-computer-use": "0.5.1",
+        "@juicesharp/rpiv-ask-user-question": "2.15.0",
+        "@pify/btw": "0.6.0",
+        "@quintinshaw/pi-dynamic-workflows": "3.15.1",
+        "@tmustier/pi-ralph-wiggum": "0.2.5",
+        "@xl0/pi-lovely-notebook": "0.1.0",
+        "awesome-pi-themes": "1.2.19",
+        "cc-safety-net": "2.7.10",
+        "pi-hashline-edit-pro": "7.1.1",
+        "pi-next-prompt": "0.1.3",
+        "pi-python": "0.3.2",
+        "pi-subagents": "0.88.0",
+        "pi-web-access": "0.47.0"
+      }
+    },
+    "fixed": {
+      "core": {
+        "@earendil-works/pi-coding-agent": "1.5.2",
+        "mupdf": "1.28.6",
+        "typebox": "1.4.6",
+        "typescript": "7.0.2"
+      },
+      "packages": {
+        "@gotgenes/pi-permission-system": "42.0.0",
+        "@henryqw/pi-auto-compact": "5.3.0",
+        "@henryqw/pi-task-models": "9.4.0",
+        "@injaneity/pi-computer-use": "0.5.1",
+        "@juicesharp/rpiv-ask-user-question": "2.15.0",
+        "@pify/btw": "0.6.0",
+        "@quintinshaw/pi-dynamic-workflows": "3.15.1",
+        "@tmustier/pi-ralph-wiggum": "0.2.5",
+        "@xl0/pi-lovely-notebook": "0.1.0",
+        "awesome-pi-themes": "1.2.19",
+        "cc-safety-net": "2.7.10",
+        "pi-hashline-edit-pro": "7.1.1",
+        "pi-next-prompt": "0.1.3",
+        "pi-python": "0.3.2",
+        "pi-subagents": "0.88.0",
+        "pi-web-access": "0.47.0"
+      }
+    },
+    "final": {
+      "core": {
+        "@earendil-works/pi-coding-agent": "1.5.2",
+        "mupdf": "1.28.6",
+        "typebox": "1.4.6",
+        "typescript": "7.0.2"
+      },
+      "packages": {
+        "@gotgenes/pi-permission-system": "42.0.0",
+        "@henryqw/pi-auto-compact": "5.3.0",
+        "@henryqw/pi-task-models": "9.4.0",
+        "@injaneity/pi-computer-use": "0.5.1",
+        "@juicesharp/rpiv-ask-user-question": "2.15.0",
+        "@pify/btw": "0.6.0",
+        "@quintinshaw/pi-dynamic-workflows": "3.15.1",
+        "@tmustier/pi-ralph-wiggum": "0.2.5",
+        "@xl0/pi-lovely-notebook": "0.1.0",
+        "awesome-pi-themes": "1.2.19",
+        "cc-safety-net": "2.7.10",
+        "pi-hashline-edit-pro": "7.1.1",
+        "pi-next-prompt": "0.1.3",
+        "pi-python": "0.3.2",
+        "pi-subagents": "0.88.0",
+        "pi-web-access": "0.47.0"
+      }
+    },
+    "guarded": {
+      "core": {
+        "@earendil-works/pi-coding-agent": "1.5.2",
+        "mupdf": "1.28.6",
+        "typebox": "1.4.6",
+        "typescript": "7.0.2"
+      },
+      "packages": {
+        "@gotgenes/pi-permission-system": "42.0.0",
+        "@henryqw/pi-auto-compact": "5.3.0",
+        "@henryqw/pi-task-models": "9.4.0",
+        "@injaneity/pi-computer-use": "0.5.1",
+        "@juicesharp/rpiv-ask-user-question": "2.15.0",
+        "@pify/btw": "0.6.0",
+        "@quintinshaw/pi-dynamic-workflows": "3.15.1",
+        "@tmustier/pi-ralph-wiggum": "0.2.5",
+        "@xl0/pi-lovely-notebook": "0.1.0",
+        "awesome-pi-themes": "1.2.19",
+        "cc-safety-net": "2.7.10",
+        "pi-hashline-edit-pro": "7.1.1",
+        "pi-next-prompt": "0.1.3",
+        "pi-python": "0.3.2",
+        "pi-subagents": "0.88.0",
+        "pi-web-access": "0.47.0"
+      }
+    }
+  },
+  "bootstrap_evidence": {
+    "baseline": {
+      "sha256": "06baaad122c1f77eba27d6dfa1d723380b5f2308e693f2bcad7cacfcd2f977a7",
+      "completed": true,
+      "extensions": [
+        "44 extensions loaded, 0 failed"
+      ],
+      "model_smoke": true
+    },
+    "fixed": {
+      "sha256": "fb20892a6e5b20f6a78d58c0b1202fbe1156a751f1829c3fe402391935875998",
+      "completed": true,
+      "extensions": [
+        "44 extensions loaded, 0 failed"
+      ],
+      "model_smoke": true
+    },
+    "final": {
+      "sha256": "390607a62fdad72b1075bb7c43ebadaba89c286fcb06b54ac8a484456512d264",
+      "completed": true,
+      "extensions": [
+        "44 extensions loaded, 0 failed"
+      ],
+      "model_smoke": true
+    },
+    "verification": {
+      "sha256": "30b5c68972eb827dbc74bb0f681f5ad12b423fb2ea4647c1023a3509cbe0a64b",
+      "completed": true,
+      "extensions": [
+        "44 extensions loaded, 0 failed"
+      ],
+      "model_smoke": true
+    },
+    "guarded": {
+      "sha256": "9adaafb7af54d55c0eda25fd200e0b7767a5efabcce0003cda9d6a45f1eb636c",
+      "completed": true,
+      "extensions": [
+        "44 extensions loaded, 0 failed"
+      ],
+      "model_smoke": true
+    }
+  },
+  "software_install_logs": {
+    "baseline": [
+      "2026-11-15T12:59:47Z\t<scratch>/python-before-parallel.1\tpytest from PyPI\tthe Python environment of pip\tremove: pip uninstall pytest",
+      "2026-11-15T12:59:47Z\t<scratch>/python-before-parallel.1\tpytest from PyPI\tthe Python environment of pip\tremove: pip uninstall pytest",
+      "2026-11-15T13:01:32Z\t<scratch>/python-before-parallel.1\tpytest from PyPI\tthe Python environment of pip\tremove: pip uninstall pytest"
+    ],
+    "fixed": [],
+    "final": [
+      "2026-11-15T13:11:48Z\t<scratch>/python-after-parallel.1\tpytest from PyPI\tthe Python environment of pip\tremove: pip uninstall pytest",
+      "2026-11-15T13:11:51Z\t<scratch>/python-after-parallel.1\tpytest from PyPI\tthe Python environment of pip\tremove: pip uninstall pytest"
+    ],
+    "guarded": [
+      "2026-11-15T13:18:50Z\t<scratch>/python-guarded-parallel.1\tpytest from PyPI\tthe Python environment of pip\tremove: pip uninstall pytest",
+      "2026-11-15T13:19:02Z\t<scratch>/python-guarded-parallel.1\tpytest from PyPI\tthe Python environment of pip\tremove: pip uninstall pytest",
+      "2026-11-15T13:20:45Z\t<scratch>/python-guarded-parallel.1\tpytest from PyPI\tthe Python environment of pip\tremove: pip uninstall pytest"
+    ]
+  },
+  "runs_specification": [
+    {
+      "id": "numerics.1",
+      "seed": "<scratch>/coding/seeds/numerics",
+      "flags": [
+        "--auto",
+        "--no-computer-use"
+      ],
+      "prompts": [
+        "example.py should print about 2.449, the scatter of those timestamps, but it prints 0.0 or crashes with a math domain error depending on the data. Fix spread() so it is right for readings like these, including when they are floats."
+      ],
+      "max": 600
+    },
+    {
+      "id": "log-parser.1",
+      "seed": "<scratch>/coding/seeds/log-parser",
+      "flags": [
+        "--auto",
+        "--no-computer-use"
+      ],
+      "prompts": [
+        "Write the parser FORMAT.md describes in runlog.py: parse_line(line) returning (seconds, level, fields), and parse_lines(lines) returning (records, n_invalid) where records is the list of those tuples."
+      ],
+      "max": 600
+    },
+    {
+      "id": "parallel.1",
+      "flags": [
+        "--auto",
+        "--no-computer-use"
+      ],
+      "prompts": [
+        "Use two Qwen subagents in parallel: one should create numbers.py with clamp(x, low, high), inclusive at both bounds and raising ValueError for low > high; the other should create words.py with initials(text), returning the uppercase first letter of each whitespace-separated word, empty string for empty input. Each agent should add and run tests for its module. After both finish, run both test files yourself and report the actual results.",
+        "Add integration_test.py using unittest that imports both modules and checks clamp(len(initials(\"Ada Lovelace\")), 0, 1) == 1, and run it."
+      ],
+      "max": 900
+    },
+    {
+      "id": "text-tools.1",
+      "flags": [
+        "--auto",
+        "--no-computer-use"
+      ],
+      "prompts": [
+        "/help bash",
+        "Create a todo with this exact two-line text: \"Check café — 日本語\nReview αβγ results\", then list the todos and mark it complete. Write greeting.txt containing exactly: café — 日本語 — αβγ\nRead it back, verify the UTF-8 contents, and report the result in a small Markdown table."
+      ],
+      "max": 500
+    }
+  ],
+  "hidden_checks_proved": {
+    "log-parser": {
+      "seed_pass": false,
+      "reference_pass": true
+    },
+    "numerics": {
+      "seed_pass": false,
+      "reference_pass": true
+    }
+  },
+  "hidden_check_hashes": {
+    "log-parser": "0663b6ed08c42d3245d3c00f02c56e18158fbbe12afa2132f997b16995859580",
+    "numerics": "d3bbf9373af1861152ea12c8261eec3d7e694cd63ef7c0fe4a67bf9258c6d458"
+  },
+  "runs": [
+    {
+      "arm": "python-before",
+      "run": "log-parser.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": false,
+      "wall_seconds": 257.4,
+      "original_scorer_pass": false,
+      "scoring": {
+        "version": 6,
+        "functional_pass": false,
+        "functional_exit": 1,
+        "functional_failure": "AssertionError: accepted an invalid line: '25:00:00 INFO a=1'",
+        "workflow_checks": {},
+        "workflow_pass": null,
+        "overall_pass": false,
+        "diagnostics": {},
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 255,
+        "last_stop_reason": "stop",
+        "parent_requests": 8,
+        "parent_input": 216116,
+        "parent_output": 5985,
+        "parent_tool_errors": {
+          "bash": 2
+        },
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "2 min 41 s",
+        "total_tokens_including_children": 222101,
+        "child_summaries": [],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/python-before/log-parser.1/report.md",
+      "session_pass": false
+    },
+    {
+      "arm": "python-before",
+      "run": "numerics.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "wall_seconds": 214.3,
+      "original_scorer_pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": 0,
+        "functional_failure": null,
+        "workflow_checks": {},
+        "workflow_pass": null,
+        "overall_pass": true,
+        "diagnostics": {},
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 210,
+        "last_stop_reason": "stop",
+        "parent_requests": 19,
+        "parent_input": 476130,
+        "parent_output": 5783,
+        "parent_tool_errors": {
+          "bash": 4
+        },
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "1 min 58 s",
+        "total_tokens_including_children": 481913,
+        "child_summaries": [],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/python-before/numerics.1/report.md",
+      "session_pass": true
+    },
+    {
+      "arm": "python-before",
+      "run": "parallel.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": false,
+      "wall_seconds": 290.4,
+      "original_scorer_pass": false,
+      "scoring": {
+        "version": 6,
+        "functional_pass": false,
+        "functional_exit": 1,
+        "functional_failure": "ImportError: cannot import name 'clamp' from 'numbers' (/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/lib/python3.15/numbers.py)",
+        "workflow_checks": {
+          "two_qwen_parallel_launch_succeeded": true,
+          "requested_numbers_module_present": false,
+          "requested_words_module_present": true,
+          "at_least_two_retained_module_test_files": true,
+          "test_numbers.py_executed_and_passed": false,
+          "test_words.py_executed_and_passed": false,
+          "integration_test_present": true,
+          "integration_test_executed_and_passed": true
+        },
+        "workflow_pass": false,
+        "overall_pass": false,
+        "diagnostics": {
+          "retained_module_tests": {
+            "test_numbers.py": {
+              "command": [
+                "/opt/homebrew/opt/python@3.15/bin/python3.15",
+                "-B",
+                "-m",
+                "pytest",
+                "-p",
+                "no:cacheprovider",
+                "test_numbers.py",
+                "-v"
+              ],
+              "exit": 1,
+              "framework": "pytest",
+              "passed": false,
+              "environment": {
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": null
+              },
+              "tests_passed": 0,
+              "output_file": "<scratch>/reports/python-before/parallel.1/module-test-output/test_numbers.txt",
+              "failure": "/opt/homebrew/opt/python@3.15/bin/python3.15: No module named pytest"
+            },
+            "test_words.py": {
+              "command": [
+                "/opt/homebrew/opt/python@3.15/bin/python3.15",
+                "-B",
+                "-m",
+                "pytest",
+                "-p",
+                "no:cacheprovider",
+                "test_words.py",
+                "-v"
+              ],
+              "exit": 1,
+              "framework": "pytest",
+              "passed": false,
+              "environment": {
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": null
+              },
+              "tests_passed": 0,
+              "output_file": "<scratch>/reports/python-before/parallel.1/module-test-output/test_words.txt",
+              "failure": "/opt/homebrew/opt/python@3.15/bin/python3.15: No module named pytest"
+            }
+          }
+        },
+        "successful_parallel_run_ids": [
+          "1ffbbbcd-29ec-4f7a-ab9e-826a67ff2231"
+        ],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 290,
+        "last_stop_reason": "stop",
+        "parent_requests": 41,
+        "parent_input": 1319051,
+        "parent_output": 4246,
+        "parent_tool_errors": {
+          "subagent": 1,
+          "subagent_supervisor": 1,
+          "bash": 3,
+          "replace_match": 4
+        },
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "3 min 16 s",
+        "total_tokens_including_children": 1859001,
+        "child_summaries": [
+          "- qwen 1f5fb1fe exit=0 turns=9 in=126,200 out=1,335 errors=3",
+          "- qwen f9efaedf exit=0 turns=23 in=404,899 out=3,270 errors=8"
+        ],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/python-before/parallel.1/report.md",
+      "session_pass": false
+    },
+    {
+      "arm": "python-before",
+      "run": "text-tools.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "wall_seconds": 140.4,
+      "original_scorer_pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": null,
+        "functional_failure": null,
+        "workflow_checks": {
+          "todo_created_exact_multiline": true,
+          "todo_listed_before_completion": true,
+          "same_todo_completed": true,
+          "final_markdown_table": true
+        },
+        "workflow_pass": true,
+        "overall_pass": true,
+        "diagnostics": {
+          "table_contains_expected_text": true
+        },
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 140,
+        "last_stop_reason": "stop",
+        "parent_requests": 6,
+        "parent_input": 123958,
+        "parent_output": 346,
+        "parent_tool_errors": {},
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "0 min 44 s",
+        "total_tokens_including_children": 124304,
+        "child_summaries": [],
+        "help_notifications": [
+          "Nothing here matches \"bash\"."
+        ]
+      },
+      "report": "<scratch>/reports/python-before/text-tools.1/report.md",
+      "session_pass": true
+    },
+    {
+      "arm": "bash-reference",
+      "run": "log-parser.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "wall_seconds": 310.5,
+      "original_scorer_pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": 0,
+        "functional_failure": null,
+        "workflow_checks": {},
+        "workflow_pass": null,
+        "overall_pass": true,
+        "diagnostics": {},
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 310,
+        "last_stop_reason": "stop",
+        "parent_requests": 18,
+        "parent_input": 547930,
+        "parent_output": 10176,
+        "parent_tool_errors": {
+          "bash": 3
+        },
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "3 min 36 s",
+        "total_tokens_including_children": 558106,
+        "child_summaries": [],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/bash-reference/log-parser.1/report.md",
+      "session_pass": true
+    },
+    {
+      "arm": "bash-reference",
+      "run": "numerics.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "wall_seconds": 210.3,
+      "original_scorer_pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": 0,
+        "functional_failure": null,
+        "workflow_checks": {},
+        "workflow_pass": null,
+        "overall_pass": true,
+        "diagnostics": {},
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 210,
+        "last_stop_reason": "stop",
+        "parent_requests": 15,
+        "parent_input": 351759,
+        "parent_output": 4682,
+        "parent_tool_errors": {
+          "bash": 1
+        },
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "1 min 56 s",
+        "total_tokens_including_children": 356441,
+        "child_summaries": [],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/bash-reference/numerics.1/report.md",
+      "session_pass": true
+    },
+    {
+      "arm": "bash-behavior",
+      "run": "parallel.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": 0,
+        "functional_failure": null,
+        "workflow_checks": {
+          "two_qwen_parallel_launch_succeeded": true,
+          "requested_numbers_module_present": true,
+          "requested_words_module_present": true,
+          "at_least_two_retained_module_test_files": true,
+          "test_numbers.py_executed_and_passed": true,
+          "test_words.py_executed_and_passed": true,
+          "integration_test_present": true,
+          "integration_test_executed_and_passed": true
+        },
+        "workflow_pass": true,
+        "overall_pass": true,
+        "diagnostics": {
+          "retained_module_tests": {
+            "test_numbers.py": {
+              "command": [
+                "/opt/homebrew/opt/python@3.15/bin/python3.15",
+                "-B",
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                ".",
+                "-p",
+                "test_numbers.py",
+                "-v"
+              ],
+              "exit": 0,
+              "framework": "unittest",
+              "passed": true,
+              "environment": {
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": "<scratch>/bash-behavior-parallel.1"
+              },
+              "tests_passed": 7,
+              "output_file": "<scratch>/reports/bash-behavior/parallel.1/module-test-output/test_numbers.txt",
+              "failure": null
+            },
+            "test_words.py": {
+              "command": [
+                "/opt/homebrew/opt/python@3.15/bin/python3.15",
+                "-B",
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                ".",
+                "-p",
+                "test_words.py",
+                "-v"
+              ],
+              "exit": 0,
+              "framework": "unittest",
+              "passed": true,
+              "environment": {
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": "<scratch>/bash-behavior-parallel.1"
+              },
+              "tests_passed": 7,
+              "output_file": "<scratch>/reports/bash-behavior/parallel.1/module-test-output/test_words.txt",
+              "failure": null
+            }
+          }
+        },
+        "successful_parallel_run_ids": [
+          "d4284b7a-2b4d-4536-a026-bf2bc8750991"
+        ],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "wall_seconds": 255.6,
+      "original_scorer_pass": true,
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 255,
+        "last_stop_reason": "stop",
+        "parent_requests": 13,
+        "parent_input": 374400,
+        "parent_output": 1497,
+        "parent_tool_errors": {
+          "subagent": 1,
+          "bash": 1
+        },
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "2 min 42 s",
+        "total_tokens_including_children": 593043,
+        "child_summaries": [
+          "- qwen 862d3a71 exit=0 turns=9 in=134,174 out=2,070 errors=3",
+          "- qwen f04e4e2b exit=0 turns=6 in=80,016 out=886 errors=1"
+        ],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/bash-behavior/parallel.1/report.md",
+      "session_pass": true
+    },
+    {
+      "arm": "bash-behavior",
+      "run": "text-tools.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": null,
+        "functional_failure": null,
+        "workflow_checks": {
+          "todo_created_exact_multiline": true,
+          "todo_listed_before_completion": true,
+          "same_todo_completed": true,
+          "final_markdown_table": true
+        },
+        "workflow_pass": true,
+        "overall_pass": true,
+        "diagnostics": {
+          "table_contains_expected_text": true
+        },
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "wall_seconds": 135.3,
+      "original_scorer_pass": true,
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 135,
+        "last_stop_reason": "stop",
+        "parent_requests": 7,
+        "parent_input": 145038,
+        "parent_output": 451,
+        "parent_tool_errors": {},
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "0 min 40 s",
+        "total_tokens_including_children": 145489,
+        "child_summaries": [],
+        "help_notifications": [
+          "Nothing here matches \"bash\"."
+        ]
+      },
+      "report": "<scratch>/reports/bash-behavior/text-tools.1/report.md",
+      "session_pass": true
+    },
+    {
+      "arm": "python-after",
+      "run": "log-parser.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": 0,
+        "functional_failure": null,
+        "workflow_checks": {},
+        "workflow_pass": null,
+        "overall_pass": true,
+        "diagnostics": {},
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "wall_seconds": 206.4,
+      "original_scorer_pass": true,
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 205,
+        "last_stop_reason": "stop",
+        "parent_requests": 8,
+        "parent_input": 202149,
+        "parent_output": 4319,
+        "parent_tool_errors": {
+          "bash": 1
+        },
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "1 min 49 s",
+        "total_tokens_including_children": 206468,
+        "child_summaries": [],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/python-after/log-parser.1/report.md",
+      "session_pass": true
+    },
+    {
+      "arm": "python-after",
+      "run": "numerics.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": 0,
+        "functional_failure": null,
+        "workflow_checks": {},
+        "workflow_pass": null,
+        "overall_pass": true,
+        "diagnostics": {},
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "wall_seconds": 211.1,
+      "original_scorer_pass": true,
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 210,
+        "last_stop_reason": "stop",
+        "parent_requests": 16,
+        "parent_input": 377064,
+        "parent_output": 4776,
+        "parent_tool_errors": {},
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "1 min 58 s",
+        "total_tokens_including_children": 381840,
+        "child_summaries": [],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/python-after/numerics.1/report.md",
+      "session_pass": true
+    },
+    {
+      "arm": "python-after",
+      "run": "parallel.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": 0,
+        "functional_failure": null,
+        "workflow_checks": {
+          "two_qwen_parallel_launch_succeeded": true,
+          "requested_numbers_module_present": true,
+          "requested_words_module_present": true,
+          "at_least_two_retained_module_test_files": true,
+          "test_numbers.py_executed_and_passed": false,
+          "test_words.py_executed_and_passed": true,
+          "integration_test_present": true,
+          "integration_test_executed_and_passed": true
+        },
+        "workflow_pass": false,
+        "overall_pass": false,
+        "diagnostics": {
+          "retained_module_tests": {
+            "test_numbers.py": {
+              "command": [
+                "<scratch>/python-after-parallel.1/.pi/tmp/venv/bin/pytest",
+                "-p",
+                "no:cacheprovider",
+                "test_numbers.py",
+                "-v"
+              ],
+              "exit": 2,
+              "framework": "pytest",
+              "passed": false,
+              "environment": {
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": null
+              },
+              "tests_passed": 0,
+              "output_file": "<scratch>/reports/python-after/parallel.1/module-test-output/test_numbers.txt",
+              "failure": "=============================== 1 error in 0.06s ==============================="
+            },
+            "test_words.py": {
+              "command": [
+                "<scratch>/python-after-parallel.1/.pi/tmp/venv/bin/pytest",
+                "-p",
+                "no:cacheprovider",
+                "test_words.py",
+                "-v"
+              ],
+              "exit": 0,
+              "framework": "pytest",
+              "passed": true,
+              "environment": {
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": null
+              },
+              "tests_passed": 4,
+              "output_file": "<scratch>/reports/python-after/parallel.1/module-test-output/test_words.txt",
+              "failure": null
+            }
+          }
+        },
+        "successful_parallel_run_ids": [
+          "3ea798cd-a8d8-4ee0-968f-3750cefa88b8"
+        ],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "wall_seconds": 275.3,
+      "original_scorer_pass": true,
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 275,
+        "last_stop_reason": "stop",
+        "parent_requests": 13,
+        "parent_input": 394412,
+        "parent_output": 2656,
+        "parent_tool_errors": {
+          "subagent": 1,
+          "bash": 2
+        },
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "3 min 3 s",
+        "total_tokens_including_children": 784606,
+        "child_summaries": [
+          "- qwen b11acd57 exit=0 turns=10 in=139,638 out=1,422 errors=4",
+          "- qwen e82280cf exit=0 turns=15 in=242,888 out=3,590 errors=6"
+        ],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/python-after/parallel.1/report.md",
+      "session_pass": false
+    },
+    {
+      "arm": "python-after",
+      "run": "text-tools.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": null,
+        "functional_failure": null,
+        "workflow_checks": {
+          "todo_created_exact_multiline": true,
+          "todo_listed_before_completion": true,
+          "same_todo_completed": true,
+          "final_markdown_table": true
+        },
+        "workflow_pass": true,
+        "overall_pass": true,
+        "diagnostics": {
+          "table_contains_expected_text": false
+        },
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "wall_seconds": 125.2,
+      "original_scorer_pass": true,
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 125,
+        "last_stop_reason": "stop",
+        "parent_requests": 7,
+        "parent_input": 145036,
+        "parent_output": 393,
+        "parent_tool_errors": {},
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "0 min 34 s",
+        "total_tokens_including_children": 145429,
+        "child_summaries": [],
+        "help_notifications": [
+          "\nTools offered now: bash, python"
+        ]
+      },
+      "report": "<scratch>/reports/python-after/text-tools.1/report.md",
+      "session_pass": true
+    },
+    {
+      "arm": "python-guarded",
+      "run": "log-parser.1",
+      "driver_exit": 1,
+      "analysis_exit": 0,
+      "pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": 0,
+        "functional_failure": null,
+        "workflow_checks": {},
+        "workflow_pass": null,
+        "overall_pass": true,
+        "diagnostics": {},
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "wall_seconds": 276.5,
+      "original_scorer_pass": true,
+      "session": {
+        "finish": "time limit",
+        "driver_elapsed_seconds": 634,
+        "last_stop_reason": "stop",
+        "parent_requests": 11,
+        "parent_input": 290377,
+        "parent_output": 6266,
+        "parent_tool_errors": {
+          "replace_match": 1
+        },
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "3 min 50 s",
+        "total_tokens_including_children": 296643,
+        "child_summaries": [],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/python-guarded/log-parser.1/report.md",
+      "session_pass": false
+    },
+    {
+      "arm": "python-guarded",
+      "run": "numerics.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": 0,
+        "functional_failure": null,
+        "workflow_checks": {},
+        "workflow_pass": null,
+        "overall_pass": true,
+        "diagnostics": {},
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "wall_seconds": 251.0,
+      "original_scorer_pass": true,
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 250,
+        "last_stop_reason": "stop",
+        "parent_requests": 14,
+        "parent_input": 323455,
+        "parent_output": 3752,
+        "parent_tool_errors": {
+          "bash": 1
+        },
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "2 min 36 s",
+        "total_tokens_including_children": 327207,
+        "child_summaries": [],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/python-guarded/numerics.1/report.md",
+      "session_pass": true
+    },
+    {
+      "arm": "python-guarded",
+      "run": "parallel.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": 0,
+        "functional_failure": null,
+        "workflow_checks": {
+          "two_qwen_parallel_launch_succeeded": true,
+          "requested_numbers_module_present": true,
+          "requested_words_module_present": true,
+          "at_least_two_retained_module_test_files": true,
+          "test_numbers.py_executed_and_passed": true,
+          "test_words.py_executed_and_passed": true,
+          "integration_test_present": true,
+          "integration_test_executed_and_passed": true
+        },
+        "workflow_pass": true,
+        "overall_pass": true,
+        "diagnostics": {
+          "retained_module_tests": {
+            "test_numbers.py": {
+              "command": [
+                "<scratch>/python-guarded-parallel.1/.pi/tmp/child.AgXTxk/venv/bin/pytest",
+                "-p",
+                "no:cacheprovider",
+                "test_numbers.py",
+                "-v"
+              ],
+              "exit": 0,
+              "framework": "pytest",
+              "passed": true,
+              "environment": {
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": null
+              },
+              "tests_passed": 16,
+              "output_file": "<scratch>/reports/python-guarded/parallel.1/module-test-output/test_numbers.txt",
+              "failure": null
+            },
+            "test_words.py": {
+              "command": [
+                "<scratch>/python-guarded-parallel.1/.pi/tmp/child.AgXTxk/venv/bin/pytest",
+                "-p",
+                "no:cacheprovider",
+                "test_words.py",
+                "-v"
+              ],
+              "exit": 0,
+              "framework": "pytest",
+              "passed": true,
+              "environment": {
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": null
+              },
+              "tests_passed": 20,
+              "output_file": "<scratch>/reports/python-guarded/parallel.1/module-test-output/test_words.txt",
+              "failure": null
+            }
+          }
+        },
+        "successful_parallel_run_ids": [
+          "d8ff49d2-6c57-494c-84d2-ceaed1a999e7"
+        ],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "wall_seconds": 315.4,
+      "original_scorer_pass": true,
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 672,
+        "last_stop_reason": "stop",
+        "parent_requests": 15,
+        "parent_input": 451885,
+        "parent_output": 1589,
+        "parent_tool_errors": {
+          "subagent": 1,
+          "bash": 6
+        },
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "3 min 55 s",
+        "total_tokens_including_children": 927185,
+        "child_summaries": [
+          "- qwen 0b40a35f exit=0 turns=15 in=261,860 out=4,366 errors=5",
+          "- qwen 9b463aad exit=0 turns=13 in=205,133 out=2,352 errors=4"
+        ],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/python-guarded/parallel.1/report.md",
+      "session_pass": true
+    },
+    {
+      "arm": "python-guarded",
+      "run": "text-tools.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": true,
+      "scoring": {
+        "version": 6,
+        "functional_pass": true,
+        "functional_exit": null,
+        "functional_failure": null,
+        "workflow_checks": {
+          "todo_created_exact_multiline": true,
+          "todo_listed_before_completion": true,
+          "same_todo_completed": true,
+          "final_markdown_table": true
+        },
+        "workflow_pass": true,
+        "overall_pass": true,
+        "diagnostics": {
+          "table_contains_expected_text": true
+        },
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "wall_seconds": 125.2,
+      "original_scorer_pass": true,
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 484,
+        "last_stop_reason": "stop",
+        "parent_requests": 7,
+        "parent_input": 145305,
+        "parent_output": 379,
+        "parent_tool_errors": {},
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "6 min 33 s",
+        "total_tokens_including_children": 145684,
+        "child_summaries": [],
+        "help_notifications": [
+          "\nTools offered now: bash, python"
+        ]
+      },
+      "report": "<scratch>/reports/python-guarded/text-tools.1/report.md",
+      "session_pass": true
+    },
+    {
+      "arm": "python-timer",
+      "run": "log-parser.1",
+      "driver_exit": 0,
+      "analysis_exit": 0,
+      "pass": false,
+      "scoring": {
+        "version": 6,
+        "functional_pass": false,
+        "functional_exit": 1,
+        "functional_failure": "AssertionError: accepted an invalid line: '25:00:00 INFO a=1'",
+        "workflow_checks": {},
+        "workflow_pass": null,
+        "overall_pass": false,
+        "diagnostics": {},
+        "successful_parallel_run_ids": [],
+        "check_interpreter": "/opt/homebrew/opt/python@3.15/bin/python3.15"
+      },
+      "wall_seconds": 150.3,
+      "session": {
+        "finish": "done",
+        "driver_elapsed_seconds": 150,
+        "last_stop_reason": "stop",
+        "parent_requests": 6,
+        "parent_input": 143388,
+        "parent_output": 2378,
+        "parent_tool_errors": {},
+        "retry_starts": 0,
+        "driver_errors": [],
+        "dialogs": 0,
+        "parent_duration": "0 min 56 s",
+        "total_tokens_including_children": 145766,
+        "child_summaries": [],
+        "help_notifications": []
+      },
+      "report": "<scratch>/reports/python-timer/log-parser.1/report.md",
+      "session_pass": false
+    }
+  ],
+  "scoring": {
+    "version": 6,
+    "artifact": "python_port_score.py",
+    "sha256": "9eb35fba154a6f31ab9282c7752a4502ced7a7bf638b9dfa3d513280a1e8f22e",
+    "meaning": "Functionality is checked independently; workflow combines recorded accepted launches and todo operations with reproducibility of retained test files. Pytest uses the installed console entry without injected PYTHONPATH. It does not prove historical execution by each child."
+  },
+  "captured_launches": [
+    {
+      "arm": "python-before",
+      "timed_out": true,
+      "elapsed": 15.013,
+      "exit": 0,
+      "qwen_listed": true,
+      "stderr": "permission mode: auto for this session; new sessions start in manual (/mode auto can change that).\npi: this machine is busy - load 95.48 across 18 threads, 0 sub-agent runner(s) live.\n    Starting anyway; it may take longer than usual to come up."
+    },
+    {
+      "arm": "bash",
+      "timed_out": false,
+      "elapsed": 5.979,
+      "exit": 0,
+      "qwen_listed": true,
+      "stderr": "permission mode: auto for this session; new sessions start in manual (/mode auto can change that).\npi: this machine is busy - load 97.07 across 18 threads, 0 sub-agent runner(s) live.\n    Starting anyway; it may take longer than usual to come up."
+    },
+    {
+      "arm": "python-after",
+      "timed_out": false,
+      "elapsed": 13.722,
+      "exit": 0,
+      "qwen_listed": true,
+      "stderr": "permission mode: auto for this session; new sessions start in manual (/mode auto can change that).\npi: this machine is busy - load 93.46 across 18 threads, 0 sub-agent runner(s) live.\n    Starting anyway; it may take longer than usual to come up."
+    }
+  ],
+  "clock_jump_evidence": {
+    "log-parser.1": {
+      "old_driver_wall_seconds": 634,
+      "runner_monotonic_seconds": 276.5
+    },
+    "parallel.1": {
+      "old_driver_wall_seconds": 672,
+      "runner_monotonic_seconds": 315.4
+    },
+    "text-tools.1": {
+      "old_driver_wall_seconds": 484,
+      "runner_monotonic_seconds": 125.2
+    }
+  },
+  "mcp": {
+    "returncode": 2,
+    "stderr": "pi: `pi mcp` is not available in this install.\n    pi's MCP support is switched off here: an MCP server is a program or a remote service\n    outside the reviewed set and the egress policy (<scratch>/final/LOCKDOWN.md, -builtin:mcp).\n"
+  },
+  "validation": [
+    "Ran 11128 tests in 572.916s",
+    "OK (skipped=37)"
+  ],
+  "additional_checks": {
+    "wait_guard_extension": "1184 tests, OK; loads and types pass",
+    "command_guard_extension": "check-extension: templates/extensions/command-guard.ts\n  events: session_start, session_shutdown, tool_call\n  load: ok, with pi's own loader\n  tests naming it: test_child_scratch, test_guard_vs_bash, test_matchers_agree, test_permission_mode_policy, test_permission_modes, test_permission_rules, test_read_only_auto, test_run_guards, test_self_development\n  tests: Ran 2559 tests in 20.806s OK (skipped=6)\n  types: ok\n\nok: command-guard.ts loads, registers 3 things, and is registered, documented and tested\n",
+    "treadmill_including_clock_fix": "12 tests in 18.238s, OK on Python 3.9; clock-jump regression also failed against former Date.now logic",
+    "launcher": "112 tests, OK with genuine Bash/Python differential fixtures",
+    "syntax_types_shellcheck": "pass"
+  },
+  "renderer_replay": {
+    "before_rows": 111,
+    "after_rows": 5,
+    "terminal_widths_checked": [
+      10,
+      40,
+      80
+    ]
+  },
+  "final_parallel_observations": {
+    "child_scratch_directories": [
+      ".pi/tmp/child.qvUsGf",
+      ".pi/tmp/child.AgXTxk"
+    ],
+    "parent_saved_test_counts": [
+      16,
+      20
+    ],
+    "parent_integration_test_count": 1,
+    "shared_scratch_guard_fired_live": false,
+    "guard_evidence": "35 deterministic command cases; the final live children directly chose separate scratch directories"
+  },
+  "isolated_source_check": {
+    "changed_python_modules": [
+      "python/elmpi/interpreter.py",
+      "python/elmpi/proxy.py",
+      "python/elmpi/tools.py"
+    ],
+    "config_proxy_shim_unchanged_from_baseline": true,
+    "concurrent_network_modules_absent": true
+  },
+  "changes": [
+    {
+      "file": "python/elmpi/proxy.py",
+      "change": "Detach watchdog standard streams so captured launches return EOF.",
+      "sha256": "c06b327ec321c3e9718e02a10989542d219f2a6c4c392233884f42a62da13c40"
+    },
+    {
+      "file": "python/elmpi/interpreter.py",
+      "change": "Handle arbitrary failed interpreter probe statuses without KeyError.",
+      "sha256": "6289b57174182b154595fae24bb62c86370a999bc490d9a7c1bfcc4be7969a30"
+    },
+    {
+      "file": "python/elmpi/tools.py",
+      "change": "Preserve argument ordering when tool exclusions are empty.",
+      "sha256": "9a21e8eee98da4dec5cdcccd4d68449da3d61b88cf4f1fd4ede156848b878291"
+    },
+    {
+      "file": "pi.bash",
+      "change": "Document equivalent existing watchdog and argument behavior in the reference.",
+      "sha256": "a37ffdbe243d7c1370fe7f9b74a40ba38b93d7c3995809eac5b6b4bb08bedaf5"
+    },
+    {
+      "file": "lib/sandbox.sh",
+      "change": "Document the existing interpreter fallback behavior used as reference.",
+      "sha256": "a030b2ecfc81eaa0718f614d5f2703d95d81004bca86ca72533ca347c57f5b51"
+    },
+    {
+      "file": "bootstrap.sh",
+      "change": "Retain failed model-list status and stdout, including missing-credential diagnostics.",
+      "sha256": "d5274c4a04b5dd0251e060fdd5badabd90175d6a529e1e9ad8b425359c5848de"
+    },
+    {
+      "file": "templates/extensions/help.ts",
+      "change": "List and search active tools, including their descriptions.",
+      "sha256": "dec6a483e67057c14237517df4244573be664ff809629eb1b33d6e5d9aaa2acd"
+    },
+    {
+      "file": "templates/extensions/empty-state.ts",
+      "change": "Suppress new-session greeting on a resumed conversation.",
+      "sha256": "47cb2da5d8b627f558450d4c87948ba2ba609e47099b1da1c6223cf9d62e3732"
+    },
+    {
+      "file": "templates/extensions/status-line.ts",
+      "change": "Refresh the footer immediately on model selection.",
+      "sha256": "aa29ae717085f8c8b1902ad1e443353818da55bbe81f330b3edb33f3df7cdeae"
+    },
+    {
+      "file": "templates/extensions/todo.ts",
+      "change": "Bound actual terminal rows and sanitize display text without altering stored todos; handle partial calls.",
+      "sha256": "b94b807d81e7e97e0a4eddc301d4182466511e25f5751c2f39043ef670ef432c"
+    },
+    {
+      "file": "templates/extensions/command-output.ts",
+      "change": "Narrow unknown metadata before adding colour, preserving existing structured output.",
+      "sha256": "357a9a465baa350904b129b4e884f0b0db1c8e1e5999a1eeedd541fe07ae5827"
+    },
+    {
+      "file": "templates/extensions/command-guard.ts",
+      "change": "Refuse a child creating or deleting the shared .pi/tmp/venv while allowing preprepared environment use.",
+      "sha256": "0351dce1ecfdc097452ed80bd2d8dc2d73a91b70ffdd9d19771b1fdfebc6942e"
+    },
+    {
+      "file": "templates/extensions/wait-guard.ts",
+      "change": "Arm polling detection on successful async launches without aborting notification delivery.",
+      "sha256": "54a475305c0d77f6f5e4983e00e53aa2436c89578bd8670d9bd8400e6e0f952a"
+    },
+    {
+      "file": "templates/agents/qwen.md",
+      "change": "Require separate scratch directories, cleanup confined to each child, and runnable saved tests.",
+      "sha256": "c74c9c7a5f6ffb34cf7ace304520b2882973af891b1a97a859e0457c8d51b39a"
+    },
+    {
+      "file": "templates/agents/llama.md",
+      "change": "Require separate scratch directories, cleanup confined to each child, and runnable saved tests within its assigned scope.",
+      "sha256": "962051e62c9d4c466043f3fd4c59c1eef6493eebd0831ec79fffd0b914156819"
+    },
+    {
+      "file": "templates/skills/elm-delegation/SKILL.md",
+      "change": "Include separate scratch directories in the parent delegation brief.",
+      "sha256": "ad151cafc745748675fb1e150f7930ff08c6c4c58554f89b58783d25c5baf189"
+    },
+    {
+      "file": "templates/skills/changing-code/SKILL.md",
+      "change": "Require retained, runnable tests and repair import/runner failures rather than substitute inline assertions.",
+      "sha256": "0eae18fd47e992898ccba5003adf90da02b7eed5559b1749f8cf862689cd599b"
+    },
+    {
+      "file": "docs/tuning/harness/treadmill/batch.sh",
+      "change": "Reuse installed dependencies optionally; propagate bootstrap and session failures.",
+      "sha256": "f83b0b8e95fef2e62b8b6e327bfe49246ef67168b06a7bdc889a2c6b21cf6178"
+    },
+    {
+      "file": "docs/tuning/harness/treadmill/drive.mjs",
+      "change": "Detect failed launches, preserve UTF-8, log extension errors, clean up the process group, and use monotonic deadlines.",
+      "sha256": "ef788a94a342ca681a74a77d538f64f18de287806913425ef93a7b3b33ba5086"
+    },
+    {
+      "file": "docs/tuning/harness/treadmill/analyze.py",
+      "change": "Keep startup diagnostics when no session transcript exists.",
+      "sha256": "521fdb842c0ba8cbbe2aa6efd89e32798368f0e4cff2d22f6e687b95cd43c48f"
+    },
+    {
+      "file": "docs/tuning/harness/treadmill/summary.py",
+      "change": "Include driver and assistant failures in error counts.",
+      "sha256": "90686d4a9552365fbccf7a026031e539313669e2b16088bb40d89d5d2d9bba81"
+    },
+    {
+      "file": "docs/tuning/harness/treadmill/score.py",
+      "change": "Use the recorded interpreter when the optional analysis environment is absent.",
+      "sha256": "fc5df3aecd3766e9f862aa4746efefff2e1efb34c6ccfd9130ab4d07d72a6fd9"
+    },
+    {
+      "file": "tests/test_python_launcher.py",
+      "change": "Use an independent Bash fixture and pin the three launcher regressions.",
+      "sha256": "eaf10da2e6c2aade153bce6f2e0205985419e61a853e8224fa04c7c7c56f12e8"
+    },
+    {
+      "file": "tests/test_treadmill.py",
+      "change": "Exercise driver failure, decoding, cleanup, batch, and scorer behavior with local processes.",
+      "sha256": "a81d6fbe3d1a6b4670ca2df16338a4290e5811dc9de696248135a6e0e2e46898"
+    },
+    {
+      "file": "tests/test_bootstrap_verification.py",
+      "change": "Pin missing-credential, failed-launch, and model-policy diagnostics.",
+      "sha256": "756154f3ea936a15efbb808a9c0d08846022b829dd1fcb182a92553cd866d046"
+    },
+    {
+      "file": "tests/test_ext_help.py",
+      "change": "Check active-tool listing and searches.",
+      "sha256": "44325bf7ba2172ea50d05665d4200fb50dc35b8b399c7c12d09d65d45e79c512"
+    },
+    {
+      "file": "tests/test_ext_empty_state.py",
+      "change": "Check resumed startup suppression.",
+      "sha256": "968f50a0753ff549a85010b5698fa0a87d7c68de7ddb14a9a3143dd193bd3bd6"
+    },
+    {
+      "file": "tests/test_ext_status_line.py",
+      "change": "Check model-selection refresh.",
+      "sha256": "990a96d8ceafbc009bd79693f4e93773283f179f25014cdb17f2fe3698e9f453"
+    },
+    {
+      "file": "tests/test_ext_todo_widget.py",
+      "change": "Exercise real installed TUI rendering at narrow widths and partial tool calls.",
+      "sha256": "afa56453ca0b3859a66d69161e609a200c18aff1e7bc04e95aeca70de01ef710"
+    },
+    {
+      "file": "tests/test_run_guards.py",
+      "change": "Replay waiting immediately after an async launch.",
+      "sha256": "f1613120398b9f9dd089a78d25af2b668bba79c626cff709f17d51402e06ba59"
+    },
+    {
+      "file": "tests/test_child_scratch.py",
+      "change": "Replay child virtualenv creation and cleanup with shell parsing and allowed-use controls.",
+      "sha256": "d22093b857d993a686f0a7a88c528755ab6e549278f930ff48828dc089779725"
+    },
+    {
+      "file": "tests/test_prompts.py",
+      "change": "Pin separate child scratch and saved-test instructions.",
+      "sha256": "cf1646160c6d4d99533c0b61b857eba69f93a535e736c4828d25fd0fc1b10509"
+    },
+    {
+      "file": "tests/test_session_regressions.py",
+      "change": "Record the sessions and replays that motivated the fixes.",
+      "sha256": "8b62d48994b735c90de14c22a677f48a6dc058cf4b132a995c71ac31b46d2cae"
+    },
+    {
+      "file": "tests/test_agent_environment.py",
+      "change": "Use shipped-source inventories rather than local scratch notes for documentation checks.",
+      "sha256": "7c3283ff1cf729b444f0598e87a6331a6855e4f4304bbef31d4d6c5d37525421"
+    },
+    {
+      "file": "tests/test_project.py",
+      "change": "Give the bytecode probe an isolated HOME; Apple Python 3.9 otherwise changes behavior before launcher settings are evaluated.",
+      "sha256": "2cab82743012601186d24c9004f4392ffcc2105374b7ac94c4a9b0ff8a135aed"
+    },
+    {
+      "file": "INSTALL.md",
+      "change": "Describe corrected extension behavior.",
+      "sha256": "e6f48402243700d18bcb2d39336b3d838854fa2a677473247e1019c489dd7d30"
+    },
+    {
+      "file": "docs/tuning/TREADMILL.md",
+      "change": "Document failure reporting, cleanup, dependency reuse, and scorer fallback.",
+      "sha256": "c343047b530b147ac9e3c7250c9e1f25640519ca70b1d9c25a73062f37b56d10"
+    }
+  ],
+  "limits": [
+    "One run per task per arm; these are regression and discovery runs, not statistical evidence of higher general model accuracy.",
+    "Bash has the same four matched tasks in two batches, plus a successful real Qwen one-shot smoke test.",
+    "Heavy concurrent host load invalidates speed comparisons; the captured-output EOF regression is independent of speed.",
+    "The first final parser run completed its task but the wall clock jumped about 358 seconds; the Date.now-based driver then timed it out. That failed driver result is preserved and a repeat uses monotonic deadlines. Legacy wall_seconds fields are measured by the runner with time.monotonic().",
+    "RPC text checks and deterministic installed-TUI renderer checks are separate evidence.",
+    "External MCP is disabled by project policy and was not exercised.",
+    "The optional analysis Python environment was not installed; model tasks used system Python or project virtualenvs.",
+    "The child scratch guard targets observed direct commands against .pi/tmp/venv; it is not exhaustive shell ownership enforcement.",
+    "The development installs omit the optional analysis environment. Some model runs tried unavailable commands or global pip before recovering with a project virtualenv; those tool errors remain in the recorded counts.",
+    "The final monotonic-driver parser repeat still accepted 25:00:00 and failed its functional check despite receiving changing-code guidance. General Qwen coding accuracy is not demonstrated to exceed the Bash baseline."
+  ]
+}

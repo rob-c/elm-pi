@@ -57,7 +57,8 @@ const pi = {
   registerFlag: (name, flag) => { registered.flags[name] = flag; },
   getFlag: () => undefined,
   on: (event, handler) => { (registered.handlers[event] ??= []).push(handler); },
-  getActiveTools: () => [], getAllTools: () => [], setActiveTools: () => {},
+  getActiveTools: () => globalThis.__active ?? [], getAllTools: () => globalThis.__tools ?? [],
+  getCommands: () => globalThis.__commands ?? [], setActiveTools: () => {},
   sendMessage: () => {}, sendUserMessage: () => {}, appendEntry: () => {},
   exec: async () => ({ stdout: "", stderr: "", code: 0, killed: false }),
 };

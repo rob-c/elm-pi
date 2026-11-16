@@ -398,7 +398,8 @@ export default function commandOutput(pi: ExtensionAPI) {
 		const structured = event.structuredContent as { output?: unknown } | undefined;
 		const structuredContent =
 			structured && typeof structured.output === "string" ? { ...structured, output: separate(structured.output).plain } : event.structuredContent;
-		return { content, structuredContent, details: colour ? { ...details, colour } : details };
+		const metadata = details !== null && typeof details === "object" ? details : {};
+		return { content, structuredContent, details: colour ? { ...metadata, colour } : details };
 	});
 
 	pi.registerToolRenderer((toolName, next) => {

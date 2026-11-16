@@ -23,7 +23,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LAUNCHER = (ROOT / "pi").read_text()
+LAUNCHER = (ROOT / "pi.bash").read_text()
 CONFIG = json.loads((ROOT / "config/elm-pi.json").read_text())
 # The launcher must run under macOS's bash 3.2 as well as a modern one; /bin/bash
 # is the 3.2 one there, and the system one on Linux.
@@ -33,7 +33,7 @@ ALWAYS = ",".join(CONFIG["excludedTools"]["always"])
 WEB = ",".join(CONFIG["webTools"])
 WF = ",".join(CONFIG["excludedTools"]["workflows"])
 # The workflow tools are offered by default since 2026-11-13; --no-workflows leaves them out.
-DEFAULT_XT = f"{ALWAYS},{WEB}"
+DEFAULT_XT = ALWAYS   # trusted-remote is the default: the web tools are offered
 LLAMA = "meta-llama/Llama-3.3-70B-Instruct"
 MISTRAL = "mistralai/Mistral-Small-4-119B-2603"
 QWEN = "Qwen/Qwen3.5-397B-A17B-FP8"
@@ -288,7 +288,7 @@ FLAG_CASES = (
       pre=lambda h: cu(h) + xt(ALWAYS), rest=["-p", "x"],
       vars={"REMOTE": "1", "PI_ELM_WEB": "1", "ELM_PI_PROXY_ALLOW": "*",
             "PI_COMPUTER_USE_CODESIGN_IDENTITY": "-"},
-      err_has=["--remote - web tools on", "computer use is on"], err_lacks="pi-web-access is not installed"),
+      err_has=["--remote/--yolo - the egress proxy is recording", "computer use is on"], err_lacks="pi-web-access is not installed"),
     C("remote_adds_to_a_given_allow_list", ["--remote"], env={"ELM_PI_PROXY_ALLOW": "api.exa.ai"},
       vars={"ELM_PI_PROXY_ALLOW": "api.exa.ai,*"}),
     C("remote_without_packages_says_there_are_no_web_tools", ["--remote"], variant="bare",
@@ -299,22 +299,22 @@ FLAG_CASES = (
     # without the screen is now a flag (and an environment switch).
     C("remote_without_computer_use_opens_the_web_only", ["--remote", "--no-computer-use", "-p", "x"],
       pre=fixed(xt(ALWAYS)), rest=["-p", "x"], vars={"REMOTE": "1", "PI_ELM_WEB": "1", "PI_COMPUTER_USE_CODESIGN_IDENTITY": None},
-      err_has="--remote - web tools on", err_lacks="computer use is on"),
+      err_has="--remote/--yolo - the egress proxy is recording", err_lacks="computer use is on"),
     C("remote_with_computer_use_switched_off_in_the_environment", ["--remote", "-p", "x"], env={"PI_ELM_COMPUTER_USE": "0"},
       pre=fixed(xt(ALWAYS)), rest=["-p", "x"], vars={"PI_COMPUTER_USE_CODESIGN_IDENTITY": None}, err_lacks="computer use is on"),
     C("remote_merges_the_callers_exclusion", ["--remote", "-xt", "bash"],
       pre=lambda h: cu(h) + xt(ALWAYS, "bash"), rest=[]),
     C("plain_session_does_not_load_computer_use", ["-p", "x"], vars={"PI_COMPUTER_USE_CODESIGN_IDENTITY": None},
       err_lacks="computer use"),
-    C("workflows_flag_offers_the_workflow_tools", ["--workflows"], pre=fixed(xt(ALWAYS, WEB)),
+    C("workflows_flag_offers_the_workflow_tools", ["--workflows"], pre=fixed(xt(ALWAYS)),
       vars={"WORKFLOWS": "1"}, rest=[]),
-    C("no_workflows_flag_leaves_them_out", ["--no-workflows", "-p", "x"], pre=fixed(xt(ALWAYS, WEB, WF)),
+    C("no_workflows_flag_leaves_them_out", ["--no-workflows", "-p", "x"], pre=fixed(xt(ALWAYS, WF)),
       vars={"WORKFLOWS": "0"}, rest=["-p", "x"]),
-    C("workflows_off_from_the_environment", [], env={"PI_ELM_WORKFLOWS": "0"}, pre=fixed(xt(ALWAYS, WEB, WF)),
+    C("workflows_off_from_the_environment", [], env={"PI_ELM_WORKFLOWS": "0"}, pre=fixed(xt(ALWAYS, WF)),
       vars={"WORKFLOWS": "0"}),
     C("workflows_flag_overrides_the_environment", ["--workflows"], env={"PI_ELM_WORKFLOWS": "0"},
-      pre=fixed(xt(ALWAYS, WEB)), vars={"WORKFLOWS": "1"}),
-    C("any_other_environment_value_offers_them", [], env={"PI_ELM_WORKFLOWS": "yes"}, pre=fixed(xt(ALWAYS, WEB)),
+      pre=fixed(xt(ALWAYS)), vars={"WORKFLOWS": "1"}),
+    C("any_other_environment_value_offers_them", [], env={"PI_ELM_WORKFLOWS": "yes"}, pre=fixed(xt(ALWAYS)),
       vars={"WORKFLOWS": "1"}),
     C("web_env_with_workflows_leaves_only_the_always_list", ["--workflows"], env={"PI_ELM_WEB": "1"},
       pre=fixed(xt(ALWAYS))),
@@ -342,7 +342,7 @@ FLAG_CASES = (
     C("equals_exclusion_is_not_pis_syntax", ["--exclude-tools=bash"], pre=fixed(xt(DEFAULT_XT)),
       rest=["--exclude-tools=bash"]),
     C("launcher_flags_anywhere_in_the_line", ["-p", "x", "--fast", "--workflows"],
-      pre=lambda h: fastpre(h) + xt(ALWAYS, WEB), rest=["-p", "x"]),
+      pre=lambda h: fastpre(h) + xt(ALWAYS), rest=["-p", "x"]),
     C("a_repeated_flag_counts_once", ["--fast", "--fast"], pre=lambda h: fastpre(h) + xt(DEFAULT_XT), rest=[]),
     C("flag_with_a_value_is_not_the_launchers", ["--fast=1"], vars={"FAST": "0"}, rest=["--fast=1"],
       pre=fixed(xt(DEFAULT_XT))),
@@ -373,9 +373,9 @@ FLAG_CASES = (
       err_has="`pi auth` is not available"),
     C("auth_as_prompt_text_is_not_refused", ["-p", "auth"], rest=["-p", "auth"]),
     C("mcp_after_double_dash_is_prompt_text", ["--", "mcp"], rest=["--", "mcp"]),
-    C("older_runtime_env_without_the_always_list", [], env={"ELM_EXCLUDED_TOOLS": ""}, pre=fixed(xt(WEB))),
+    C("older_runtime_env_without_the_always_list", [], env={"ELM_EXCLUDED_TOOLS": ""}, pre=fixed([])),
     C("no_workflow_tools_listed_leaves_no_trailing_comma", ["--no-workflows"], env={"ELM_WORKFLOW_TOOLS": ""},
-      pre=fixed(xt(ALWAYS, WEB))),
+      pre=fixed(xt(ALWAYS))),
     # After --, the launcher's own flags are prompt text, kept in the prompt:
     # `pi -p -- --remote` must not open the network.
     C("remote_after_double_dash_is_prompt_text", ["-p", "--", "--remote"],
@@ -392,7 +392,7 @@ class LauncherFlagTests(BatchTest):
     """--fast/--llama/--remote/--workflows/--with-all, -ne, -xt, and pi install."""
 
     CASES = FLAG_CASES
-    PARSE = block(LAUNCHER, "FAST=0; LLAMA=0; REMOTE=0;", "# --- ELM-only policy")
+    PARSE = block(LAUNCHER, "FAST=0; OFFLINE=0; TRUSTED_REMOTE=0;", "# --- ELM-only policy")
     PRE = block(LAUNCHER, "# --- --remote: let this run", "# --- no update work at launch")
 
     @classmethod
@@ -422,7 +422,7 @@ class LauncherFlagTests(BatchTest):
         return "\n".join([
             "set -euo pipefail", f"HERE={q(cls.tmp / case.kw.get('variant', 'full'))}", exports(env),
             setargs(case.args), cls.PARSE, cls.PRE,
-            "_v FAST LLAMA MISTRAL REMOTE WORKFLOWS WITH_ALL MODE_FLAG PI_ELM_WEB ELM_PI_PROXY_ALLOW PI_COMPUTER_USE_CODESIGN_IDENTITY",
+            "_v FAST OFFLINE TRUSTED_REMOTE LLAMA MISTRAL REMOTE WORKFLOWS WITH_ALL MODE_FLAG NETWORK_MODE PI_ELM_WEB PI_ELM_REMOTE PI_ELM_NETWORK ELM_PI_PROXY_ALLOW PI_COMPUTER_USE_CODESIGN_IDENTITY",
             '_a PRE ${PRE[@]+"${PRE[@]}"}', '_a ARG "$@"'])
 
     def check(self, case, r):
@@ -780,7 +780,9 @@ class WithAllSetupTests(BatchTest):
                 touch(h / "agent/pypi-index.db", "")
             touch(h / "bootstrap.sh", '#!/bin/sh\necho "$*" >> "$(dirname "$0")/calls"\n'
                   'echo "${PI_OFFLINE-unset}" >> "$(dirname "$0")/offline"\nexit "${STUB_EXIT:-0}"\n', 0o755)
-            touch(h / "pi", '#!/bin/sh\necho "RELAUNCH ${ELM_PI_WITH_ALL_SET_UP-} $*"\n', 0o755)
+            # The reference re-executes itself: $HERE/pi.bash, as the old file did
+            # with $HERE/pi.
+            touch(h / "pi.bash", '#!/bin/sh\necho "RELAUNCH ${ELM_PI_WITH_ALL_SET_UP-} $*"\n', 0o755)
 
     @classmethod
     def body(cls, case):
@@ -866,7 +868,7 @@ class ProxyEnvironmentTests(BatchTest):
           vars={"ELM_HOST": "gw.example"}),
         C("gateway_without_a_scheme", [], env={"ELM_BASE_URL": "gw.example/api"}, vars={"ELM_HOST": "gw.example"}),
         C("gateway_scheme_in_capitals", [], env={"ELM_BASE_URL": "HTTPS://Upper.Example/v1"},
-          vars={"ELM_HOST": "Upper.Example"}),
+          vars={"ELM_HOST": "upper.example"}),
         C("empty_base_url_means_the_default", [], env={"ELM_BASE_URL": ""}, vars={"ELM_HOST": "elm.edina.ac.uk"}),
         C("a_base_url_with_no_host_is_refused", [], env={"ELM_BASE_URL": "https:///v1"}, rc=1,
           err_has="REFUSED could not work out the ELM host"),
@@ -891,12 +893,13 @@ class ProxyEnvironmentTests(BatchTest):
           vars={"PROXY_UPSTREAM": "http://127.0.0.2:3128"}),
         C("no_proxy_in_the_environment", [], vars={"PROXY_UPSTREAM": "", "ELM_PI_UPSTREAM_PROXY": None}),
     )
-    BLOCK = block(LAUNCHER, 'ELM_HOST="$(printf', "# --- is a proxy of ours alive")
+    BLOCK = block(LAUNCHER, 'ELM_HOST="$("$PYBIN" -E -S -c', "# --- is a proxy of ours alive")
 
     @classmethod
     def body(cls, case):
         env = {"ELM_PROXY_ALLOW": PYPI, **case.env}
-        return "\n".join(["set -euo pipefail", 'refuse_unproxied() { echo "REFUSED $1" >&2; exit 1; }',
+        return "\n".join(["set -euo pipefail", "PYBIN=" + q(sys.executable),
+                          'refuse_unproxied() { echo "REFUSED $1" >&2; exit 1; }',
                           "unset ELM_BASE_URL ELM_PI_PROXY_ALLOW HTTPS_PROXY https_proxy ELM_PI_UPSTREAM_PROXY",
                           exports(env), cls.BLOCK,
                           "_v ELM_HOST PROXY_ALLOW PROXY_UPSTREAM INHERITED_PROXY ELM_PI_UPSTREAM_PROXY"])
@@ -1260,14 +1263,14 @@ class BannerTests(unittest.TestCase):
         plain = re.sub(r"\x1b\[[0-9;]*m", "", shown)
         self.assertIn("Powered by ELM:", plain)
         self.assertIn("   o_.--'--._o     EEEEEEE  LLLLLLL  MM     MM", plain)
-        self.assertIn("Thank you to the ELM team at EDINA and Information", plain)
+        self.assertIn("Thank you to the ELM team at EDINA.", plain)
         self.assertIn("https://elm.edina.ac.uk/elm", plain)
         self.assertIn("Powered by ELM:", self.run_block(["--remote", "--auto"], {"COLUMNS": "120"}))
 
     def test_the_box_is_the_same_everywhere_it_is_drawn(self):
         """256-colour palette entries, not the 16 a theme redefines; every line the same width, reset at its end."""
         lines = [l for l in self.run_block([], {"COLUMNS": "120"}).split("\n") if self.BOX in l]
-        self.assertEqual(14, len(lines))
+        self.assertEqual(13, len(lines))      # one line shorter since the credit was cut to a sentence
         self.assertEqual({74}, {len(re.sub(r"\x1b\[[0-9;]*m", "", l)) for l in lines})
         for line in lines:
             self.assertTrue(line.startswith(self.BOX) and line.endswith("\033[0m"), repr(line))

@@ -255,6 +255,18 @@ def c10_batch():
 TABLES["prompt-floor"] = prompt_floor
 TABLES["c10"] = c10_batch
 
+
+def c20_batch():
+    """Ten sessions of twenty stock coding problems: passes, cost, and whether anything was executed."""
+    d = json.loads((DAY3 / "prompt-floor.json").read_text())["twenty_problem_batch"]
+    out = ["| Run | Problems | Wall | Input | Requests | Commands run |", "|---|---|---|---|---|---|"]
+    for r in d["runs"]:
+        out.append(f"| {r['id']} | {r['passed']}/{20} | {r['wall']} | {r['input']:,} | {r['requests']} | {r['commands']} |")
+    return "\n".join(out)
+
+
+TABLES["c20"] = c20_batch
+
 if __name__ == "__main__":
     for name in sys.argv[1:] or TABLES:
         print(f"<!-- table:{name} -->\n{TABLES[name]()}\n<!-- /table:{name} -->\n")

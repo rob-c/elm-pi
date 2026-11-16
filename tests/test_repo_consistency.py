@@ -213,7 +213,7 @@ def _package(self, name):
     self.assertRegex(VERSIONS["packages"].get(name, ""), r"^\d+\.\d+\.\d+$", "no exact tested version")
     if name in REMOTE_ONLY:
         self.assertNotIn(f"npm:{name}", SETTINGS_SOURCES, "would load in every session")
-        self.assertIn(f"/node_modules/{name}/", (ROOT / "pi").read_text(), "the launcher no longer loads it")
+        self.assertIn(f"/node_modules/{name}/", (ROOT / "pi.bash").read_text(), "the launcher no longer loads it")
     else:
         self.assertEqual(1, SETTINGS_SOURCES.count(f"npm:{name}"), "installed but pi never loads it")
 
@@ -262,7 +262,7 @@ generate(WorkflowMiddlewareTests, [(f"middleware_{slug(e)}", e) for e in MIDDLEW
 
 # --- templates/tools.sha256 against what bootstrap.sh downloads ------------------
 
-BOOTSTRAP = (ROOT / "bootstrap.sh").read_text()
+BOOTSTRAP = (ROOT / "bootstrap.bash").read_text()
 TOOLSET = re.search(r'TOOLSET="\$\{ELM_PI_TOOLS:-([^}]+)\}"', BOOTSTRAP).group(1).split(",")
 SHA_LINE = re.compile(r"^([0-9a-f]{64})  ([a-z-]+)/(\d+(?:\.\d+)+)/(\S+)$")
 SHA_LINES = [line for line in (TEMPLATES / "tools.sha256").read_text().splitlines()
@@ -410,7 +410,7 @@ class ReadmeLayoutTests(unittest.TestCase):
 
 # --- install scripts: the files and values they name ------------------------------
 
-INSTALL_SCRIPTS = ["bootstrap.sh", "install.sh", "configure.sh", "pi", "scripts/check.sh",
+INSTALL_SCRIPTS = ["bootstrap.sh", "bootstrap.bash", "install.sh", "configure.sh", "pi", "pi.bash", "scripts/check.sh",
                    ".github/workflows/ci.yml", "lib/sandbox.sh"]
 NAMED = re.compile(r"(?<![\w./$-])((?:scripts|lib|proxy|shim|templates)/[A-Za-z0-9_.-]*[A-Za-z0-9_](?:/[A-Za-z0-9_.-]*[A-Za-z0-9_])*)")
 

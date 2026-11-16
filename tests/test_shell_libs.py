@@ -29,7 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = json.loads((ROOT / "config/elm-pi.json").read_text())
 INSTALLER = (ROOT / "install.sh").read_text()
-BOOTSTRAP = (ROOT / "bootstrap.sh").read_text()
+BOOTSTRAP = (ROOT / "bootstrap.bash").read_text()
 SANDBOX_SRC = (ROOT / "lib/sandbox.sh").read_text()
 BASH = "/bin/bash" if Path("/bin/bash").exists() else shutil.which("bash")
 EXACT = "\n".join(CONFIG["untrustedFolders"]["exact"])

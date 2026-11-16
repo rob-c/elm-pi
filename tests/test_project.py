@@ -44,7 +44,7 @@ class ProjectConsistencyTests(unittest.TestCase):
         self.assertTrue(set(config["allowedProviders"]).isdisjoint(config["builtinProviders"]))
 
     def test_launcher_reloads_guard_when_extensions_are_disabled(self):
-        launcher = (ROOT / "pi").read_text()
+        launcher = (ROOT / "pi.bash").read_text()
         self.assertIn('elm_policy_extensions_disabled "$@"', launcher)
         self.assertIn('agent/extensions/elm-only.ts', launcher)
 
@@ -62,7 +62,7 @@ class ProjectConsistencyTests(unittest.TestCase):
     def test_system_prompt_addendum_is_rendered_by_bootstrap(self):
         self.assertTrue((ROOT / "templates/APPEND_SYSTEM.md").is_file())
         self.assertIn("render templates/APPEND_SYSTEM.md agent/APPEND_SYSTEM.md",
-                      (ROOT / "bootstrap.sh").read_text())
+                      (ROOT / "bootstrap.bash").read_text())
 
     def test_qwen_sampling_is_the_cards_non_thinking_profile(self):
         models = json.loads((ROOT / "templates/models.json").read_text())
@@ -79,7 +79,7 @@ class ProjectConsistencyTests(unittest.TestCase):
     def test_hashline_requires_paths_and_disables_copy_move(self):
         config = json.loads((ROOT / "templates/hashline/config.json").read_text())
         self.assertEqual({"requirePath": True, "copyMoveEnabled": False}, config)
-        self.assertIn('export PI_HASHLINE_DIR="$HERE/agent/hashline"', (ROOT / "pi").read_text())
+        self.assertIn('export PI_HASHLINE_DIR="$HERE/agent/hashline"', (ROOT / "pi.bash").read_text())
 
     def test_commercial_cli_agents_are_disabled_and_cannot_be_reenabled(self):
         subagents = json.loads((ROOT / "templates/settings.json").read_text())["subagents"]
@@ -95,7 +95,7 @@ class ProjectConsistencyTests(unittest.TestCase):
         self.assertTrue(settings["inheritMainModel"])
         self.assertFalse(settings["keywordTriggerEnabled"])
         self.assertIn("@gotgenes/pi-permission-system", settings["providerMiddlewareExtensions"])
-        self.assertIn("templates/workflows/settings.json", (ROOT / "bootstrap.sh").read_text())
+        self.assertIn("templates/workflows/settings.json", (ROOT / "bootstrap.bash").read_text())
 
     def test_workflow_agents_load_the_guards_that_work_in_one_session(self):
         """Workflow agents run in-process and load only what this list names (2026-11-13: each of
@@ -165,7 +165,7 @@ class ProjectConsistencyTests(unittest.TestCase):
         workflows = json.loads((ROOT / "templates/workflows/settings.json").read_text())
         self.assertIn("pinned-instructions", workflows["providerMiddlewareExtensions"])
         # --fast and --no-extensions both load POLICY_EXTENSIONS
-        self.assertIn('POLICY_EXTENSIONS="elm-only protected-paths trust-guard pinned-instructions command-guard"', (ROOT / "pi").read_text())
+        self.assertIn('POLICY_EXTENSIONS="elm-only protected-paths trust-guard pinned-instructions command-guard"', (ROOT / "pi.bash").read_text())
         source = (ROOT / "templates/extensions/pinned-instructions.ts").read_text()
         for needle in ('name: "pin_instruction"', 'name: "unpin_instruction"',
                        "systemPromptOptions.sections.pinned_instructions", "mode: 0o600"):
@@ -174,7 +174,7 @@ class ProjectConsistencyTests(unittest.TestCase):
     def test_compaction_threshold_is_installer_owned(self):
         config = json.loads((ROOT / "templates/config/pi-auto-compact/config.json").read_text())
         self.assertEqual(70, config["autoCompactThreshold"])
-        self.assertIn('"config/pi-auto-compact/config.json": (', (ROOT / "bootstrap.sh").read_text())
+        self.assertIn('"config/pi-auto-compact/config.json": (', (ROOT / "bootstrap.bash").read_text())
 
     def test_every_skill_has_valid_frontmatter_matching_its_directory(self):
         sys.path.insert(0, str(ROOT / "scripts"))
@@ -322,7 +322,7 @@ class PiReleaseTests(unittest.TestCase):
         settings = json.loads((ROOT / "templates/settings.json").read_text())
         self.assertIn("-builtin:mcp", settings["extensions"])
         self.assertIn("-builtin:llama.cpp", settings["extensions"])
-        self.assertIn('"extensions",', (ROOT / "bootstrap.sh").read_text())
+        self.assertIn('"extensions",', (ROOT / "bootstrap.bash").read_text())
 
     def test_skill_router_ignores_runs_without_a_user_prompt(self):
         source = (ROOT / "templates/extensions/skill-router.ts").read_text()
@@ -335,7 +335,7 @@ class PiReleaseTests(unittest.TestCase):
             self.assertNotIn('"~/.pi/workflows', text, name)
 
     def test_verification_requires_qwen_by_id_and_reads_pis_errors(self):
-        bootstrap = (ROOT / "bootstrap.sh").read_text()
+        bootstrap = (ROOT / "bootstrap.bash").read_text()
         self.assertNotIn("^elm(-shim)?", bootstrap)
         self.assertIn('$1 == "elm" && $2 == id', bootstrap)
         self.assertIn("errors loading models.json", bootstrap)
@@ -352,7 +352,7 @@ class PiReleaseTests(unittest.TestCase):
             (inside / "sub").mkdir(parents=True)
             outside = Path(directory) / "project"
             outside.mkdir()
-            launcher = (ROOT / "pi").read_text()
+            launcher = (ROOT / "pi.bash").read_text()
             start = launcher.index("# --- note a session started inside the install")
             block = launcher[start:launcher.index("# -----", start + 10)]
             script = f'HERE="{inside}"; NEEDS_ELM_KEY="$1"; unset PI_FORCE PI_ELM_CHILD\n{block}'
@@ -363,7 +363,7 @@ class PiReleaseTests(unittest.TestCase):
             self.assertEqual("", run(inside, needs="0"))  # update, --version, --list-models
 
     def test_launcher_copies_through_the_terminal_unless_told_not_to(self):
-        line = next(line for line in (ROOT / "pi").read_text().splitlines()
+        line = next(line for line in (ROOT / "pi.bash").read_text().splitlines()
                     if line.startswith("export PI_CLIPBOARD_OSC52="))
         probe = lambda env: subprocess.run(["bash", "-c", f'{line}; printf %s "$PI_CLIPBOARD_OSC52"'],
                                            env=env, capture_output=True, text=True).stdout
@@ -375,13 +375,25 @@ class PiReleaseTests(unittest.TestCase):
         # problems) left a solutions/__pycache__ in each project folder: the
         # session ran python on the files it had written. score.py already sets
         # this for its own imports, for the same reason.
-        line = next(line for line in (ROOT / "pi").read_text().splitlines()
-                    if line.startswith("export PYTHONDONTWRITEBYTECODE="))
-        probe = lambda env: subprocess.run(
-            ["bash", "-c", f'{line}; "{sys.executable}" -c "import sys; print(sys.dont_write_bytecode)"'],
-            env=env, capture_output=True, text=True).stdout.strip()
-        self.assertEqual("True", probe({"PATH": "/usr/bin:/bin"}))
-        self.assertEqual("False", probe({"PATH": "/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "0"}))
+        lines = (ROOT / "pi.bash").read_text().splitlines()
+        at = next(i for i, line in enumerate(lines) if line.startswith("export PYTHONDONTWRITEBYTECODE="))
+        line = "; ".join(lines[at:at + 2])      # and the line that passes 0 on as unset, for Python before 3.11
+        self.assertIn("unset PYTHONDONTWRITEBYTECODE", line)
+        # Apple's Python 3.9 disables bytecode even without this variable when
+        # HOME is absent. Give the probe a private home, as a real session has.
+        with tempfile.TemporaryDirectory() as home:
+            def probe(env):
+                result = subprocess.run(
+                    ["bash", "-c", f'{line}; "$1" -c "$2"', "probe", sys.executable,
+                     'import json, os, sys; print(json.dumps([sys.dont_write_bytecode, '
+                     'os.environ.get("PYTHONDONTWRITEBYTECODE")]))'],
+                    env={"PATH": "/usr/bin:/bin", "HOME": home, **env},
+                    capture_output=True, text=True)
+                self.assertEqual(0, result.returncode, result.stderr)
+                return json.loads(result.stdout)
+
+            self.assertEqual([True, "1"], probe({}))
+            self.assertEqual([False, None], probe({"PYTHONDONTWRITEBYTECODE": "0"}))
 
 if __name__ == "__main__":
     unittest.main()

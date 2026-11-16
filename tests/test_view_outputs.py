@@ -509,6 +509,12 @@ class ViewOutputsTests(unittest.TestCase):
         (self.cwd / "site").mkdir()
         self.page("index.html", "", "<footer><p>&copy; 2026 Deer</p></footer>")
         self.page("species.html", "", "<footer><p>&copy; 2024 Deer heritage</p></footer>")
+        # The pages are from before this session, and say so: written a few milliseconds before node
+        # starts, they are otherwise inside the allowance for a coarse clock (CLOCK_SLACK_MS) on a
+        # fast machine, and the last run below found them as its own (AlmaLinux 10, 2026-11-16).
+        for name in ("index.html", "species.html"):
+            before = (self.cwd / "site" / name).stat().st_mtime - 60
+            os.utime(self.cwd / "site" / name, (before, before))
         steps = [{"kind": "start"}, {"kind": "view", "params": {"path": "site/index.html"}},
                  {"kind": "settle", "reply": "Perfect! All pages are rendering with complete visual consistency."},
                  {"kind": "settle", "reply": "Perfect! All pages are consistent."},                     # once per run
@@ -541,6 +547,28 @@ class ViewOutputsTests(unittest.TestCase):
         self.assertIn("- footer: 2 versions", claimed["text"])
         quiet = self.run_steps(steps[:3] + [{"kind": "settle", "reply": "Both pages are written."}])[-1]
         self.assertFalse(quiet["modified"])
+
+    def test_a_page_stamped_a_tick_before_the_run_began_is_still_this_runs(self):
+        """Linux stamps files from a coarse clock, up to a tick behind the one Date.now() reads:
+        on three Linux VMs (2026-11-16) the test below found no pages at all."""
+        since = 1_800_000_000.0
+        for name, behind in (("tick.html", 0.018), ("exact.html", 0.0), ("after.html", -5.0),
+                             ("just-before.html", 0.050), ("earlier.html", 1.0), ("yesterday.html", 86400.0)):
+            page = self.cwd / name
+            page.write_text("<html></html>")
+            os.utime(page, (since - behind, since - behind))
+        script = ("const mod = await import(process.argv[1]);"
+                  "console.log(JSON.stringify([mod.CLOCK_SLACK_MS, mod.recentPages(process.argv[2], Number(process.argv[3]))]));")
+        run = subprocess.run([self.binary, "--no-warnings", "--input-type=module", "-e", script,
+                              str(self.source), str(self.cwd), str(since * 1000)],
+                             capture_output=True, text=True, timeout=120)
+        if run.returncode != 0 and "ERR_UNKNOWN_FILE_EXTENSION" in run.stderr:
+            self.skipTest("this node cannot load TypeScript")
+        self.assertEqual(0, run.returncode, run.stderr[-2000:])
+        slack, pages = json.loads(run.stdout)
+        self.assertEqual(["after.html", "exact.html", "tick.html"], [Path(p).name for p in pages])
+        # the 18 ms measured on AlmaLinux 9 and little more: 50 ms before is a page from before the run
+        self.assertTrue(18 < slack < 50, slack)
 
     def test_pages_a_workflow_made_are_checked_before_verified_is_believed(self):
         """auto08b: workflow agents wrote the pages, nobody viewed them, fourteen pictures were missing,

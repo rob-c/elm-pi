@@ -37,16 +37,31 @@ exit "${RECORDER_EXIT:-0}"
 """
 
 
+# The launcher an install runs: the hand-over to python/pi, which is the
+# implementation LauncherTests and DeletedFolderTests exercise. The bash
+# implementation it replaced is kept beside it as the reference, and
+# tests/test_python_launcher.py runs the same cases against that one too.
+LAUNCHER = ROOT / "pi"
+REFERENCE = ROOT / "pi.bash"
+
+
 class Fixture:
     """A minimal install: the real launcher and lib/, everything else stubbed."""
 
-    def __init__(self, base: Path, key: bool = True):
+    def __init__(self, base: Path, key: bool = True, launcher: Path = LAUNCHER):
         self.root = base / "install"
         self.project = base / "project"
         self.home = base / "home"
         for d in (self.root, self.project, self.home):
             d.mkdir(parents=True)
-        shutil.copy2(ROOT / "pi", self.root / "pi")
+        # A real install holds both: the root `pi` with lib/, and python/ with
+        # the Python launcher's package. A Fixture is a complete install either
+        # way, so a case can run against either launcher.
+        shutil.copytree(ROOT / "python", self.root / "python",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copy2(LAUNCHER, self.root / "pi")
+        shutil.copy2(REFERENCE, self.root / "pi.bash")
+        self.launcher = self.root / launcher.relative_to(ROOT)
         shutil.copytree(ROOT / "lib", self.root / "lib")
         shutil.copytree(ROOT / "config", self.root / "config")
         shutil.copytree(ROOT / "scripts", self.root / "scripts")
@@ -68,7 +83,7 @@ class Fixture:
                    "TMPDIR": tempfile.gettempdir(), "PI_FORCE": "1", "ELM_PI_NO_PROXY": "1",
                    "ELM_PI_ALLOW_EXTERNAL_MODULES": "1", "RECORD_ENV": " ".join(record)}
         environ.update(env or {})
-        result = subprocess.run([str(self.root / "pi"), *args], cwd=self.project, env=environ,
+        result = subprocess.run([str(self.launcher), *args], cwd=self.project, env=environ,
                                 capture_output=True, text=True)
         result.args_seen = [l[4:] for l in result.stdout.splitlines() if l.startswith("ARG:")]
         result.env_seen = dict(l[4:].split("=", 1) for l in result.stdout.splitlines() if l.startswith("ENV:"))
@@ -76,9 +91,11 @@ class Fixture:
 
 
 class LauncherTests(unittest.TestCase):
+    LAUNCHER_UNDER_TEST = LAUNCHER
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.fx = Fixture(Path(self.tmp.name))
+        self.fx = Fixture(Path(self.tmp.name), launcher=self.LAUNCHER_UNDER_TEST)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -150,7 +167,9 @@ class LauncherTests(unittest.TestCase):
         web = ",".join(config["webTools"])
         always = ",".join(config["excludedTools"]["always"])
         workflows = ",".join(config["excludedTools"]["workflows"])
-        default = f"{always},{web}"     # the workflow tools are offered by default (2026-11-13)
+        # trusted-remote is the default, so the web tools are offered and only
+        # the always-excluded notebook tools are named; --offline takes them back.
+        default = always
         excluded = lambda r: r.args_seen[r.args_seen.index("--exclude-tools") + 1]
         r = self.fx.run("-xt", "bash", "--exclude-tools", "edit", "-p", "x")
         args = r.args_seen
@@ -164,14 +183,14 @@ class LauncherTests(unittest.TestCase):
         # an explicit allowlist is left exactly as given
         r = self.fx.run("--tools", "read", "-p", "x")
         self.assertNotIn("--exclude-tools", r.args_seen)
-        # PI_ELM_WEB=1 brings back the web tools only; --no-workflows leaves the workflow tools out
-        r = self.fx.run("-xt", "bash", "-p", "x", env={"PI_ELM_WEB": "1"})
-        self.assertEqual(f"{always},bash", excluded(r))
+        # --offline leaves the web tools out; --no-workflows leaves the workflow tools out
+        r = self.fx.run("--offline", "-xt", "bash", "-p", "x")
+        self.assertEqual(f"{always},{web},bash", excluded(r))
         r = self.fx.run("--no-workflows", "-p", "x")
-        self.assertEqual(f"{always},{web},{workflows}", excluded(r))
+        self.assertEqual(f"{always},{workflows}", excluded(r))
         self.assertNotIn("--no-workflows", r.args_seen)     # the launcher's flag, not pi's
         r = self.fx.run("--workflows", "-p", "x", env={"PI_ELM_WORKFLOWS": "0"})
-        self.assertEqual(f"{always},{web}", excluded(r))
+        self.assertEqual(always, excluded(r))
         self.assertNotIn("--workflows", r.args_seen)
 
     # --- --with-all: every optional extra, without --remote ----------------------------
@@ -189,8 +208,9 @@ class LauncherTests(unittest.TestCase):
         r = self.fx.run("--with-all", "-p", "x")
         self.assertEqual(0, r.returncode, r.stderr)
         self.assertEqual(["--non-interactive --with-all"], calls.read_text().splitlines())
-        excluded = r.args_seen[r.args_seen.index("--exclude-tools") + 1]
-        self.assertEqual(",".join(config["webTools"]), excluded)      # not --remote: the web tools stay out
+        # Every tool is offered: with trusted-remote the web tools are in, and
+        # --with-all leaves out nothing for size - so no exclusion is passed.
+        self.assertNotIn("--exclude-tools", r.args_seen)
         self.assertNotIn("--with-all", r.args_seen)
         r = self.fx.run("--with-all", "-p", "x")                       # already set up: straight in
         self.assertEqual(1, len(calls.read_text().splitlines()))
@@ -237,7 +257,7 @@ class LauncherTests(unittest.TestCase):
         self.assertIn("ELM_API_KEY is not set", r.stderr)
 
     def test_runner_count_is_portable(self):
-        launcher = (ROOT / "pi").read_text()
+        launcher = REFERENCE.read_text()
         self.assertNotIn("pgrep -fc", launcher)
         line = next(l for l in launcher.splitlines() if l.strip().startswith("RUNNERS=\"$("))
         out = subprocess.run(["bash", "-c", f"set -euo pipefail; {line.strip()}; printf %s \"$RUNNERS\""],
@@ -260,9 +280,11 @@ class LauncherTests(unittest.TestCase):
 class DeletedFolderTests(unittest.TestCase):
     """A shell sitting in a deleted folder must not start pi there."""
 
+    LAUNCHER_UNDER_TEST = LAUNCHER
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.fx = Fixture(Path(self.tmp.name))
+        self.fx = Fixture(Path(self.tmp.name), launcher=self.LAUNCHER_UNDER_TEST)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -274,7 +296,7 @@ class DeletedFolderTests(unittest.TestCase):
                    "TMPDIR": tempfile.gettempdir(), "PI_FORCE": "1", "ELM_PI_NO_PROXY": "1"}
         # The launcher runs under the same bash, not whichever `env bash` finds.
         script = f'cd "$1" && {steps} && exec "$0" "$2" -p hi'
-        return subprocess.run([shell, "-c", script, shell, str(gone), str(self.fx.root / "pi")],
+        return subprocess.run([shell, "-c", script, shell, str(gone), str(self.fx.launcher)],
                               env=environ, capture_output=True, text=True)
 
     def shells(self):
@@ -371,7 +393,7 @@ class InstallOptionsTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        text = (ROOT / "bootstrap.sh").read_text()
+        text = (ROOT / "bootstrap.bash").read_text()
         apply_flag = re.search(r"^apply_flag\(\) \{.*?^\}\n", text, re.S | re.M).group(0)
         block = text[text.index("# --- the options this install was made with"):
                      text.index("# Not NODE_VERSION:")]
@@ -492,7 +514,7 @@ class PinTests(unittest.TestCase):
         self.assertEqual("latest", data["devDependencies"]["typescript"])
 
     def test_bootstrap_stamps_with_the_digest_and_extensions_mean_the_tested_set(self):
-        text = (ROOT / "bootstrap.sh").read_text()
+        text = (ROOT / "bootstrap.bash").read_text()
         self.assertIn('CORE_MANIFEST_DIGEST="$(manifest_digest package.json core)"', text)
         self.assertEqual(2, text.count('PACKAGE_MANIFEST_DIGEST="$(manifest_digest templates/packages.json packages)"'))
         self.assertNotIn("sha256_of package.json", text)

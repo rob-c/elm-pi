@@ -252,7 +252,7 @@ console.log(JSON.stringify({ afterWork, notes, max: mod.MAX_NOTES }));
 
     def test_the_guard_is_loaded_everywhere_mistral_can_run(self):
         self.assertIn("claim-guard.ts", CONFIG["requiredExtensions"])
-        self.assertIn("permission-mode claim-guard repeat-guard server-reaper report-guard date-note; do", (ROOT / "pi").read_text())
+        self.assertIn("permission-mode claim-guard repeat-guard server-reaper report-guard date-note; do", (ROOT / "pi.bash").read_text())
 
 
 for _id, (_model, _calls, _text, _want, *_child) in DECISIONS.items():

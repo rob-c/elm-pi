@@ -40,7 +40,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BOOTSTRAP = (ROOT / "bootstrap.sh").read_text()
+BOOTSTRAP = (ROOT / "bootstrap.bash").read_text()
 BASH = "/bin/bash" if Path("/bin/bash").exists() else shutil.which("bash")
 PY = sys.executable
 CONFIG = json.loads((ROOT / "config/elm-pi.json").read_text())
@@ -1389,7 +1389,7 @@ class WebToolCheckTests(PyBatch):
 # bash: the agent/ refresh (section 3)
 # =====================================================================================
 
-AGENT_BLOCK = block(BOOTSTRAP, "chmod +x pi pi.orig configure.sh 2>/dev/null || true", "# --- 3b. command-line tools")
+AGENT_BLOCK = block(BOOTSTRAP, "chmod +x pi python/pi pi.orig configure.sh 2>/dev/null || true", "# --- 3b. command-line tools")
 SANDBOX = ROOT / "lib/sandbox.sh"
 REQUIRED = CONFIG["requiredExtensions"]
 SKILLS = sorted(p.parent.name for p in (ROOT / "templates/skills").glob("*/SKILL.md"))

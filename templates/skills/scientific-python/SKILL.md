@@ -18,6 +18,11 @@ into it, and if a package is missing say so - `pi setup --python` adds the
 environment. Check before writing code:
 `python3 -c "import sys, numpy, scipy; print(sys.executable, numpy.__version__, scipy.__version__)"`.
 
+Use the test framework the project already chose. In particular, when a saved
+test imports `unittest`, run `python3 -m unittest` first; do not probe for
+pytest merely because the full elm-pi analysis environment includes it. A
+`--no-python` install deliberately may not have pytest.
+
 A package that is missing can be installed into an environment that is not the
 system's: the egress proxy lets PyPI through. Into this install's environment: `pip install <package>` (or the
 faster `uv pip install --python "$ELM_PI_AGENT_PYTHON" <package>`); into a

@@ -26,7 +26,7 @@ REAPER = ROOT / "templates/extensions/server-reaper.ts"
 REPORT = ROOT / "templates/extensions/report-guard.ts"
 DATE = ROOT / "templates/extensions/date-note.ts"
 CONFIG = json.loads((ROOT / "config/elm-pi.json").read_text())
-LAUNCHER = (ROOT / "pi").read_text()
+LAUNCHER = (ROOT / "pi.bash").read_text()
 
 
 def node():
@@ -95,12 +95,24 @@ class ServerReaperTests(unittest.TestCase):
     def test_a_server_started_in_the_background_stops_when_the_session_ends(self):
         port = free_port()
         self.leave_nothing(port)
-        out, stderr = run_node(self, REAPER_DRIVER, REAPER, self.serve(port), "quit")
+        out, stderr = run_node(
+            self, REAPER_DRIVER, REAPER, self.serve(port), "quit",
+            env={"ELM_PI_PREVIEW_PORT": str(port), "ELM_PI_PREVIEW_BRIDGED": "1"})
         self.assertIn(f"127.0.0.1:{port}", out["note"])
         self.assertIn("elm-pi stops this server", out["note"])
-        self.assertIn("`view` its .html file - no server is needed", out["note"])
+        self.assertIn(f"Open http://127.0.0.1:{port}/", out["note"])
+        self.assertIn("can still `view` an .html file without a server", out["note"])
         self.assertIn("elm-pi: stopped the server this session started", stderr)
         self.assertFalse(listening(port))
+
+    def test_linux_bridge_explains_when_the_server_chose_an_unexposed_port(self):
+        port = free_port()
+        preview = free_port()
+        self.leave_nothing(port)
+        out, _ = run_node(
+            self, REAPER_DRIVER, REAPER, self.serve(port), "quit",
+            env={"ELM_PI_PREVIEW_PORT": str(preview), "ELM_PI_PREVIEW_BRIDGED": "1"})
+        self.assertIn(f"Restart the server on 127.0.0.1:{preview}", out["note"])
 
     def test_a_reload_keeps_the_server(self):
         port = free_port()

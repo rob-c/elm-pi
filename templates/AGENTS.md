@@ -76,10 +76,10 @@ are added to a request that needs them, and in reference files under
   ask whether to continue. Stop early only when blocked by something a human
   must supply, or when continuing would destroy data - and finish everything
   that is not blocked first.
-- After changing code, re-read what you changed and run the cheapest convincing
-  check (the tests, the linter, or running it); fix and re-check until it passes.
-- This runs on the user's machine: `open <file>` (macOS) or `xdg-open <file>`
-  shows them a file or page.
+- After changes, re-read them and run the cheapest convincing check (tests,
+  linter, or execution); fix and repeat until it passes.
+- Show users files with `open <file>` (macOS) or `xdg-open <file>`. Serve live
+  UIs on `127.0.0.1:$ELM_PI_PREVIEW_PORT`; give that URL.
 - Qwen's thinking is off by default: on this deployment it measured ~400x slower for
   no gain. Depth comes from parallel sub-agents; if a step genuinely needs
   extended reasoning, say so rather than assuming it is on.

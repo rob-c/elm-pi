@@ -418,10 +418,75 @@ shell computes (`$x host`) is not known before it runs. `git push` asks, with gl
 options too (`git -C dir push`): over HTTPS the proxy refuses it anyway, and
 over SSH it is your call each time. Like everything here, these are command
 names, not enforcement: a copied or renamed binary gets past them, and so do
-`!` commands you type yourself, which the gate does not judge. On Linux a network namespace with no other route out
-(`unshare -rn`, `bwrap`, `slirp4netns`) turns this into real enforcement;
-macOS has no equivalent without root or a Network Extension, so on a managed
-Mac the answer remains `pf` and an administrator.
+`!` commands you type yourself, which the gate does not judge. The Python
+launcher also applies an OS network fence in offline and trusted-remote modes:
+macOS `sandbox-exec` restricts outbound connections to this machine's own
+loopback - the proxy, the Llama shim and the servers the session starts - and
+to Unix sockets in the session's temporary and project folders; Linux uses a
+user/network namespace with only loopback and a Unix socket relay to the
+host-side proxy. This is a network restriction, not a filesystem or general
+IPC sandbox. Yolo/remote mode omits this fence.
+
+The two differ in one way that matters. A Linux namespace has a loopback of its
+own, so nothing else on the machine is in reach. macOS has one loopback for the
+whole machine, and a session needs it for its own work - a Jupyter kernel, a
+test against a server it started, `multiprocessing.Manager` - so on macOS
+another program listening on `127.0.0.1` (a database, a local SOCKS proxy) can
+be reached from a session. Nothing off the machine can, and no Unix socket
+outside those two folders: ssh-agent's and Docker's stay closed.
+
+**A machine that cannot make the fence.** Ubuntu 23.10 and later keep user
+namespaces from unprivileged programs, and WSL 1 has none. There a session
+starts without the fence and says so first, under `pi: ⚠  WARNING - this session
+is NOT fenced by the OS`, with the reason and what would fix it; the proxy still
+filters what well-behaved programs reach, and a program that ignores proxy
+settings is not stopped. `pi --offline` is the exception: it promises that
+nothing but the gateway is reachable, so without the fence it is refused. Nobody
+who chose to run unfenced is warned: `--remote`, `--yolo` and `ELM_PI_NO_JAIL=1`
+start as they always did. (`ELM_PI_UNFENCED=fallback` is the launcher's marker
+for such a session, read by the `/network` extension; not a setting.)
+
+**`/network`** shows the mode a session is in and changes it, in a menu like
+`/mode`'s. A session can be made tighter while it runs - trusted-remote to
+offline, or out of yolo - because the proxy takes a shorter list from anyone:
+it then refuses the rest, the web tools are switched off for offline, and
+sub-agents started afterwards get the same. It cannot be made looser while it
+runs: the fence cannot be taken off a process already inside it, and nothing
+the session holds can widen the proxy's list, since anything it held its own
+agent could read. A looser mode is therefore only ever saved as the default
+for new sessions - `agent/network-mode`, which the agent's tools are denied in
+every mode, as they are `agent/permission-mode` - and the menu gives the
+command that starts again in it. The order a launch reads: its own flag,
+`PI_ELM_NETWORK`, that saved default (`PI_ELM_NETWORK_DEFAULT` tells a session
+what it is), then trusted-remote. Unlike a permission mode, yolo can be saved;
+computer use still comes only with a run that asks for the network itself.
+
+The fence has one deliberately inbound-only exception for work the user needs
+to inspect. A server bound inside the session to
+`127.0.0.1:$ELM_PI_PREVIEW_PORT` is reachable on the same host-loopback URL.
+macOS already shares loopback with the user. On Linux a reverse pair of the
+same byte relays carries host TCP through a mode-600 Unix socket to that jailed
+loopback port. The host listener binds only `127.0.0.1`; the bridge adds no
+interface, DNS or outbound route to the namespace, and all relay processes
+follow pi. An unset port is chosen free per Linux session; an explicitly
+occupied port refuses the launch with how to choose another.
+
+The egress proxy starts outside the fence and uses the host's system resolver
+for allowed destinations. Site/VPN DNS and local host mappings therefore work
+without permitting DNS packets from the isolated session. There are no
+hard-coded public resolvers and no public-DNS fallback on lookup failure.
+With an upstream corporate proxy, the host resolves the proxy's name and
+forwards the destination hostname for that proxy to resolve.
+
+Sub-agents normally inherit and reuse the same loopback proxy. Reuse requires
+an exact match of the reported allowlist and upstream state. A run started
+inside a fenced session keeps that session's network mode and hosts: asked for
+another (`pi --offline` from the session's shell), it is refused with that
+sentence, because a proxy started inside the fence would have no route out.
+From an unfenced session (`--remote`) a child choosing a tighter mode gets a
+separately scoped proxy. Linux also completes a
+health request through both namespace relays before it execs pi, and the relay
+processes follow the session rather than surviving it.
 
 ## Permission modes
 

@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# The Python launcher's only shell, and deliberately the only one: find this
+# install, find an interpreter, and hand the whole launch to python/elmpi.
+# Nothing here decides anything about the session - the policy, the environment
+# and pi's arguments are Python - so every line below is either path
+# resolution or an isolation flag, and the file can be checked by eye.
+#
+#   python/pi [pi's arguments...]        the launcher itself
+#   pi                                    what an install runs: resolves the
+#                                         install, then execs this file
+#
+# The previous implementation is pi.bash in the folder above;
+# tests/test_python_launcher.py runs the functional cases against both and
+# compares what they decide.
+set -eu
+unset CDPATH
+
+# Resolve through symlinks, as the installer links ~/.local/bin/pi to a path
+# that may itself be a link: target/.. is not the install unless both are real.
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  LINK_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+  SELF="$(readlink "$SELF")"
+  case "$SELF" in /*) ;; *) SELF="$LINK_DIR/$SELF" ;; esac
+done
+PACKAGE_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+ROOT="$(cd "$PACKAGE_DIR/.." && pwd)"
+
+# One interpreter, and this install's: named explicitly, else the one
+# bootstrap.sh recorded (agent/python-path), else the first that starts from
+# the system's own folders, this install's standalone build, then PATH.
+#
+# Always an absolute path to a file. `[ -x ]` alone is true of a folder
+# (ELM_PI_PYTHON=/usr/bin was "exec: cannot execute"), and `command -v python3`
+# follows PATH wherever it leads: with "." or an empty entry on PATH and the
+# record gone, a project's own ./python3 was run in place of this whole
+# launcher - before one line of the policy. And the first python3 on PATH is
+# often not one that runs (a pyenv shim outside its folder exits 127), which
+# ended the launch with that program's message and nothing of ours.
+runnable() {
+  case "$1" in /*) ;; *) return 1 ;; esac
+  [ -f "$1" ] && [ -x "$1" ]
+}
+# Asked only of a candidate nobody named: does it start, and is it 3.8 or newer?
+# Never a version manager's shim (which Python it runs depends on the folder),
+# and never macOS's /usr/bin stub, which opens an install dialog when run.
+starts() {
+  case "$1" in */.pyenv/*|*/.asdf/*|*/shims/*) return 1 ;; esac
+  case "$1" in
+    /usr/bin/*) [ "$(uname -s)" != "Darwin" ] || xcode-select -p >/dev/null 2>&1 || return 1 ;;
+  esac
+  "$1" -E -s -S -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 8) else 1)' \
+    </dev/null >/dev/null 2>&1
+}
+
+PYTHON=""
+if [ -n "${ELM_PI_PYTHON:-}" ]; then
+  # Named and wrong is an error, not a cue to pick another: the caller would
+  # be told nothing and run on an interpreter they did not choose.
+  if ! runnable "$ELM_PI_PYTHON"; then
+    echo "pi: ELM_PI_PYTHON=$ELM_PI_PYTHON is not a runnable Python (it must be an absolute path)" >&2
+    exit 1
+  fi
+  PYTHON="$ELM_PI_PYTHON"
+elif [ -r "$ROOT/agent/python-path" ]; then
+  IFS= read -r PYTHON < "$ROOT/agent/python-path" || true
+  runnable "$PYTHON" || PYTHON=""
+fi
+if [ -z "$PYTHON" ]; then
+  for CANDIDATE in /usr/bin/python3 /usr/local/bin/python3 /opt/homebrew/bin/python3 \
+                   /Library/Frameworks/Python.framework/Versions/Current/bin/python3 \
+                   "$ROOT/.python/bin/python3"; do
+    if runnable "$CANDIDATE" && starts "$CANDIDATE"; then PYTHON="$CANDIDATE"; break; fi
+  done
+fi
+if [ -z "$PYTHON" ]; then
+  OLD_IFS="$IFS"; IFS=:
+  set -f
+  for DIR in ${PATH:-}; do
+    case "$DIR" in /*) ;; *) continue ;; esac   # "", "." or relative: whatever folder this is
+    if runnable "$DIR/python3" && starts "$DIR/python3"; then PYTHON="$DIR/python3"; break; fi
+  done
+  set +f
+  IFS="$OLD_IFS"
+fi
+if [ -z "$PYTHON" ]; then
+  echo "pi: no Python 3 found. Install one (macOS: xcode-select --install), or name it:" >&2
+  echo "    ELM_PI_PYTHON=/absolute/path/to/python3 $PACKAGE_DIR/pi ..." >&2
+  exit 1
+fi
+
+# A clean room for the launcher itself:
+#   -E  no PYTHON* variable is read, so PYTHONPATH and PYTHONHOME cannot
+#       reach it
+#   -s  no user site directory
+#   -S  no site-packages and no .pth file, so nothing installed anywhere - in
+#       the system, in conda, in a virtualenv - can be imported
+#   -B  no __pycache__ written inside the install
+#   -X utf8  the same decoding whatever the account's locale is
+# The variables themselves are left alone: they are the researcher's, and the
+# agent's shell needs the PYTHONPATH their project is run with - which the
+# reference launcher passed on, and an `unset` here once silently did not.
+# Everything this launcher starts in Python (the proxy, the relay, the
+# interpreter probes) is started with -E as well.
+exec "$PYTHON" -E -s -S -B -X utf8 "$PACKAGE_DIR/elmpi/__main__.py" "$@"

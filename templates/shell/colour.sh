@@ -70,7 +70,27 @@ _pi_flag() {
 	_pi_has "$1" || return 0
 	eval "$1() { if _pi_here; then command $1 $2 \"\$@\"; else command $1 \"\$@\"; fi; }"
 }
-_pi_flag grep --color=always
+# grep, but not when it only lists files (-l, -L): there is no match to show,
+# and GNU grep colours the names themselves - on Ubuntu 24.04 (2026-11-16) a
+# plain list of files reached the panel as colour codes, where macOS's grep
+# prints it plain. Any short-option cluster holding l or L counts; a wrong
+# guess (-ehello) costs that one command its colour.
+_pi_has grep && grep() {
+	if _pi_here; then
+		local arg
+		for arg in "$@"; do
+			case "$arg" in
+				--) break ;;
+				--files-with-matches | --files-without-match) command grep "$@"; return ;;
+				--*) ;;
+				-*[lL]*) command grep "$@"; return ;;
+			esac
+		done
+		command grep --color=always "$@"
+	else
+		command grep "$@"
+	fi
+}
 _pi_flag rg --color=always
 _pi_flag fd --color=always
 _pi_flag jq -C
@@ -105,7 +125,10 @@ _pi_has diff && diff() {
 			command diff --color=always "$@"
 			return
 		elif _pi_has sed; then
-			command diff --color=always "$@" | LC_ALL=C command sed -E $'s/^((\e\\[[0-9;]*m)*)diff --color=always /\\1diff /'
+			# GNU diffutils 3.10 and later quote an argument that holds "=", so the line
+			# is `diff '--color=always' -ruN a/x b/x` there (Ubuntu 24.04 and 26.04,
+			# 2026-11-16): unquoted alone, the flag stayed in what the model read.
+			command diff --color=always "$@" | LC_ALL=C command sed -E $'s/^((\e\\[[0-9;]*m)*)diff \'?--color=always\'? /\\1diff /'
 			return "${PIPESTATUS[0]}"
 		fi
 	fi

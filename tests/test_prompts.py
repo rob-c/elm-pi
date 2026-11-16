@@ -71,6 +71,27 @@ class ChildContextTests(unittest.TestCase):
         self.assertIn("Write only the files your task names.", qwen)
         self.assertIn("never a file you only saw in the", qwen)
 
+    def test_parallel_children_keep_scratch_and_cleanup_private(self):
+        # python-before/parallel.1 (2026-11-15): both children used .pi/tmp/venv;
+        # task-2 removed it after passing, then task-1 could not source activate.
+        for name in ("agents/qwen.md", "agents/llama.md", "skills/elm-delegation/SKILL.md"):
+            source = " ".join(text(name).split())
+            self.assertIn("mkdir -p .pi/tmp", source, name)
+            self.assertIn("mktemp -d .pi/tmp/child.XXXXXX", source, name)
+            self.assertIn("Clean up only your own directory", source, name)
+            self.assertIn("never create or remove a shared `.pi/tmp/venv`", source, name)
+
+    def test_code_verification_runs_saved_tests_after_repairing_runner_setup(self):
+        # python-after/parallel.1 (2026-11-15): delivered tests failed during import;
+        # passing inline assertions were reported instead of repairing and running those files.
+        for name in ("agents/qwen.md", "agents/llama.md", "skills/changing-code/SKILL.md"):
+            source = " ".join(text(name).split())
+            for rule in ("Run the saved tests", "project's test framework", "standard-library `unittest`",
+                         "runner/import setup", "rerun the saved test files", "Keep requested output names",
+                         "do not substitute inline assertions", "Do not weaken"):
+                self.assertIn(rule, source, (name, rule))
+        self.assertNotIn("a throwaway script or `python3 -c` is enough", text("skills/changing-code/SKILL.md"))
+
     def test_children_carry_the_essential_rules(self):
         for name in ("agents/qwen.md", "agents/llama.md"):
             source = text(name)
@@ -122,7 +143,7 @@ class RoutingTests(unittest.TestCase):
         limit = json.loads(text("extensions/subagent/config.json"))["globalConcurrencyLimit"]
         self.assertIn(f"at most {limit} of a", text("skills/elm-delegation/SKILL.md"))
         self.assertIn(f"{limit} concurrent, 64 per run", (ROOT / "INSTALL.md").read_text())
-        owned = (ROOT / "bootstrap.sh").read_text().split("OWNED = {")[1].split("\n}\n")[0]
+        owned = (ROOT / "bootstrap.bash").read_text().split("OWNED = {")[1].split("\n}\n")[0]
         self.assertIn('"globalConcurrencyLimit"', owned)
 
     def test_speed_measurements_have_one_home(self):
@@ -176,6 +197,57 @@ class ProtectedPathsTests(unittest.TestCase):
         if run.returncode != 0:
             self.skipTest(f"node cannot load TypeScript here: {run.stderr.strip()[:200]}")
         self.assertEqual(self.CASES, json.loads(run.stdout))
+
+
+class PromptTemplateTests(unittest.TestCase):
+    """templates/prompts/*.md: the /commands a session can type. Each costs nothing until typed,
+    because pi expands the file into the request rather than sending it with every one - which is
+    why these are templates and not lines in AGENTS.md, whose size is capped."""
+
+    # Named in INSTALL.md, so a reader learns they exist; the docs-match test holds the reverse.
+    SHIPPED = ("explain", "fix", "review", "init", "plot")
+
+    def templates(self):
+        return {p.stem: p for p in sorted((TEMPLATES / "prompts").glob("*.md"))}
+
+    def test_the_five_that_ship_are_here_and_nothing_else_is(self):
+        self.assertEqual(sorted(self.SHIPPED), sorted(self.templates()))
+
+    def test_each_has_a_description_and_a_body_short_enough_to_read(self):
+        for name, path in self.templates().items():
+            with self.subTest(template=name):
+                head = frontmatter(path.read_text())
+                description = head.get("description", "")
+                self.assertTrue(description, f"{name} has no description: pi shows it in completion")
+                self.assertLessEqual(len(description), 90, f"{name}'s description is a menu line")
+                body = re.sub(r"^---\n.*?\n---\n", "", path.read_text(), flags=re.S).strip()
+                self.assertGreater(len(body), 200, f"{name} says too little to be worth a command")
+                self.assertLessEqual(len(body), 1500, f"{name} is a prompt, not a chapter")
+
+    def test_every_substitution_is_one_pi_documents(self):
+        # `${@:+...}` looked handy and is not in pi's list; a wrong form reaches the model literally.
+        allowed = re.compile(r"\$\{(?:[1-9]|@(?::[0-9]+(?::[0-9]+)?)?)(?::-?[^}]*)?\}")
+        for name, path in self.templates().items():
+            for found in re.findall(r"\$\{[^}]*\}", path.read_text()):
+                with self.subTest(template=name, found=found):
+                    self.assertRegex(found, allowed)
+
+    def test_the_defaults_make_a_bare_command_useful(self):
+        # Typing /plot with nothing after it must still be a request, or the command is a trap.
+        for name, path in self.templates().items():
+            with self.subTest(template=name):
+                self.assertIn("${1:-", path.read_text(), f"{name} has no default for its argument")
+
+    def test_bootstrap_renders_them_into_the_agents_prompt_directory(self):
+        script = (ROOT / "bootstrap.bash").read_text()
+        self.assertIn("templates/prompts/*.md", script)
+        self.assertIn('render "$prompt" "agent/prompts/${prompt##*/}"', script)
+        self.assertIn("agent/prompts/.elm-pi-managed", script)   # a dropped template leaves, a user's stays
+
+    def test_install_names_every_one(self):
+        install = (ROOT / "INSTALL.md").read_text()
+        for name in self.SHIPPED:
+            self.assertIn(f"`/{name}`", install, f"INSTALL.md does not name /{name}")
 
 
 if __name__ == "__main__":

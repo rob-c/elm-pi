@@ -350,8 +350,11 @@ class FetchTarballTests(Batch):
 
 VALIDATE = block(INSTALLER, "validate_source() { # $1 = candidate source tree", '\nOLD_HEAD=""')
 PY_FILES = ("patch-pi.py", "proxy/egress.py", "shim/shim.py", "scripts/elm_config.py",
-            "scripts/verify_install.py", "scripts/pin_versions.py")
-SH_FILES = ("install.sh", "bootstrap.sh", "configure.sh", "pi", "pi.orig")
+            "scripts/verify_install.py", "scripts/pin_versions.py",
+            "python/elmpi/__main__.py", "python/elmpi/cli.py",
+            "python/elmboot/__main__.py", "python/elmboot/cli.py")
+SH_FILES = ("install.sh", "bootstrap.sh", "bootstrap.bash", "configure.sh", "pi", "pi.bash", "pi.orig",
+            "python/pi")
 # The candidate's own lib/sandbox.sh chooses the Python: here, this one.
 FAKE_SANDBOX = f'''elm_check_loader() {{ [ -z "${{NO_LOADER:-}}" ] || {{ ELM_LOADER_ERROR="no glibc loader"; return 1; }}; }}
 elm_ensure_python() {{ [ -z "${{NO_PYTHON:-}}" ] || {{ ELM_PY_ERROR="no usable python"; return 1; }}; ELM_PI_PYTHON={q(PY)}; }}
@@ -449,7 +452,7 @@ class ValidateSourceTests(Batch):
 # which kind of install this is, and how it is brought up to date
 # =====================================================================================
 
-DETECT = block(INSTALLER, 'OLD_HEAD=""\nif [ -e "$PREFIX/.git" ]', 'chmod +x "$PREFIX/pi" "$PREFIX/pi.orig"')
+DETECT = block(INSTALLER, 'OLD_HEAD=""\nif [ -e "$PREFIX/.git" ]', 'chmod +x "$PREFIX/pi"')
 
 # git, stubbed: logs each call, answers from FAKE_* variables.
 GIT_STUB = r'''

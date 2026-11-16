@@ -113,11 +113,14 @@ for current, fallback, typed in itertools.product(MODES, DEFAULTS, ("", "auto", 
     CASES.append({"name": f"unpatched_{current}_now_{fallback}_default_typed_{TYPED[typed]}",
                   "current": current, "def": fallback, "typed": typed, "answers": [1, 1],
                   "patched": False, "writable": True})
-for current, wanted in (("manual", "auto"), ("auto", "manual"), ("yolo", "auto"), ("yolo", "manual"),
-                        ("manual", "read-only-auto"), ("read-only-auto", "manual")):
-    CASES.append({"name": f"unwritable_{current}_now_making_{wanted}_the_default",
-                  "current": current, "def": "manual" if wanted == "auto" else "auto", "typed": wanted,
-                  "answers": [1], "patched": True, "writable": False})
+# Root ignores the mode bits, so "unwritable" cannot be built in a container
+# running as root; the case is about what /mode does when the write fails.
+if os.geteuid() != 0:
+    for current, wanted in (("manual", "auto"), ("auto", "manual"), ("yolo", "auto"), ("yolo", "manual"),
+                            ("manual", "read-only-auto"), ("read-only-auto", "manual")):
+        CASES.append({"name": f"unwritable_{current}_now_making_{wanted}_the_default",
+                      "current": current, "def": "manual" if wanted == "auto" else "auto", "typed": wanted,
+                      "answers": [1], "patched": True, "writable": False})
 
 
 RUNNER = r"""

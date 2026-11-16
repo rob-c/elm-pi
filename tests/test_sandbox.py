@@ -252,13 +252,13 @@ class RuntimeTests(unittest.TestCase):
         # A node_modules above the install (a stray `npm install` in a home
         # folder) is the guard's to keep out of pi, not a reason to refuse to
         # install or start: nothing looks for one any more.
-        for rel in ("pi", "bootstrap.sh", "install.sh", "lib/sandbox.sh"):
+        for rel in ("pi", "pi.bash", "bootstrap.sh", "install.sh", "lib/sandbox.sh"):
             text = (ROOT / rel).read_text()
             self.assertNotIn("elm_external_module_dirs", text, rel)
             self.assertNotRegex(text, r"(?<![A-Z_])EXTERNAL_MODULES\b", rel)   # the old check's variable
 
     def test_the_extension_load_check_runs_under_the_guard(self):
-        warm = (ROOT / "bootstrap.sh").read_text()
+        warm = (ROOT / "bootstrap.bash").read_text()
         self.assertIn('"$HERE/.node/bin/node" --import "$HERE/lib/node-guard.mjs" "$HERE/scripts/check-extensions.mjs"', warm)
 
     def test_pi_orig_starts_node_clean_with_the_guard(self):
@@ -270,7 +270,7 @@ class RuntimeTests(unittest.TestCase):
     def test_projects_are_untrusted_by_default_and_the_installer_enforces_it(self):
         import json
         self.assertEqual("never", json.loads((ROOT / "templates/settings.json").read_text())["defaultProjectTrust"])
-        self.assertIn('"defaultProjectTrust",', (ROOT / "bootstrap.sh").read_text())
+        self.assertIn('"defaultProjectTrust",', (ROOT / "bootstrap.bash").read_text())
 
 
 def guard_capable_node():
@@ -411,7 +411,8 @@ class NoBareInterpreterTests(unittest.TestCase):
     # Every Python, node and npm run by install-time code and the launcher goes
     # through lib/sandbox.sh or the bundled Node by path. A bare `python3` is
     # whatever PATH says, which on a conda account is conda's.
-    FILES = ("bootstrap.sh", "configure.sh", "pi", "pi.orig", "install.sh", "scripts/check.sh")
+    FILES = ("bootstrap.sh", "configure.sh", "pi", "pi.bash", "pi.orig", "install.sh",
+             "scripts/check.sh")
     # In command position only: start of line, after $( | ; & ( exec then do,
     # optionally behind VAR=value assignments. Prose in messages is not code.
     COMMAND = re.compile(

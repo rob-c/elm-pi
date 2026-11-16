@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""What a session cost and how it ended, from the session files pi writes.
+
+    session-stats [DIR ...]        each DIR is a project folder holding .pi/sessions,
+                                   or a .pi/sessions folder itself; default: this folder
+                                   and its subfolders one level down
+
+One row per session: model requests, input and output tokens, the largest request,
+the share of input that came from the prefix cache, compactions, tool errors, and how
+the last turn ended. `last turn: aborted` is a session that did not finish, which a
+159-line extension bug once went a day unnoticed for.
+
+Why it exists: the numbers in docs/tuning/README.md were pulled by throwaway scripts
+three times in one day (deepseek_suggestions.md, item 45a). Reads only; nothing here
+touches a session, and nothing is uploaded.
+"""
+import json
+import sys
+from pathlib import Path
+
+
+def session_files(roots):
+    out = []
+    for root in roots:
+        root = Path(root).expanduser()
+        if root.name == "sessions":
+            out.extend(sorted(root.glob("*.jsonl")))
+        elif root.is_dir():
+            # The project itself, and the projects one level down: a folder of
+            # projects with no session of its own found nothing at all.
+            out.extend(sorted(root.glob(".pi/sessions/*.jsonl")))
+            out.extend(sorted(root.glob("*/.pi/sessions/*.jsonl")))
+    return out
+
+
+def session_id(path):
+    """The session's own id, not its date: pi names a file <time>_<uuid>.jsonl,
+    and the first eight characters of that gave every session of a month one name."""
+    stem = path.stem
+    return (stem.rsplit("_", 1)[-1] if "_" in stem else stem)[:8]
+
+
+def number(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+
+def record(value):
+    return value if isinstance(value, dict) else {}
+
+
+def scan(path):
+    """One session file's totals. Absent fields count as zero, never as a guess."""
+    row = {"session": session_id(path), "requests": 0, "input": 0, "output": 0, "largest": 0, "cached": 0,
+           "compactions": 0, "tool_errors": 0, "last": "?"}
+    # A session file is whatever a killed process left: a torn last line, a
+    # byte that is not UTF-8, a line that is JSON and not an object. Each is
+    # skipped or counted as zero; none may end the report for the other sessions.
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            entry = record(json.loads(line))
+        except ValueError:
+            continue
+        kind = entry.get("type")
+        if kind == "compaction":
+            row["compactions"] += 1
+        message = record(entry.get("message"))
+        usage = record(message.get("usage"))
+        if usage:
+            row["requests"] += 1
+            size = number(usage.get("input"))
+            row["input"] += size
+            row["output"] += number(usage.get("output"))
+            row["cached"] += number(usage.get("cacheRead"))
+            row["largest"] = max(row["largest"], size)
+        if message.get("role") == "toolResult" and message.get("isError"):
+            row["tool_errors"] += 1
+        if isinstance(message.get("stopReason"), str) and message["stopReason"]:
+            row["last"] = message["stopReason"]
+    return row
+
+
+def table(rows):
+    head = ("| session | requests | input | largest | cached | output | compactions | tool errors | last turn |",
+            "|---|---|---|---|---|---|---|---|---|")
+    body = [f"| {r['session']} | {r['requests']} | {r['input']:,} | {r['largest']:,} | "
+            f"{(100 * r['cached'] // r['input']) if r['input'] else 0}% | {r['output']:,} | {r['compactions']} | "
+            f"{r['tool_errors']} | {r['last']} |" for r in rows]
+    return "\n".join([*head, *body])
+
+
+def main(argv):
+    roots = argv[1:] or ["."]
+    files = session_files(roots)
+    if not files:
+        print("session-stats: no .pi/sessions/*.jsonl under " + ", ".join(roots), file=sys.stderr)
+        return 1
+    rows = [scan(f) for f in files]
+    print(table(rows))
+    totals = sum(r["input"] for r in rows)
+    dead = [r["session"] for r in rows if r["last"] != "stop"]
+    print(f"\n{len(rows)} session(s), {totals:,} input tokens"
+          + (f"; did not end on stop: {', '.join(dead)}" if dead else "; every session ended stop"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

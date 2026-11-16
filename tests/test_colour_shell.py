@@ -22,6 +22,8 @@ ESC = "\x1b["
 class ColourShellTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not shutil.which("git"):     # AlmaLinux and Ubuntu as installed have none
+            raise unittest.SkipTest("needs git: the cases colour git's own output")
         cls.dir = Path(tempfile.mkdtemp())
         cls.agent = cls.dir / "agent"
         (cls.agent / "shell").mkdir(parents=True)
@@ -58,6 +60,54 @@ class ColourShellTests(unittest.TestCase):
                         "diff --color=always /dev/null /dev/null", shell=True, capture_output=True).returncode:
                     self.skipTest("this diff has no --color")
                 self.assertIn(ESC, self.run_bash(command).stdout)
+
+    def test_the_added_flag_is_taken_out_of_a_recursive_diffs_headers_quoted_or_not(self):
+        """GNU diffutils 3.10 and later quote an argument holding "=": the header is
+        `diff '--color=always' -ruN a/x b/x` on Ubuntu 24.04 and 26.04 (2026-11-16), and the flag
+        stayed in what the model read. A stand-in diff prints each spelling, whatever this
+        machine's own does."""
+        tools = self.dir / "fake-diff"
+        tools.mkdir(exist_ok=True)
+        for folder in ("a", "b"):
+            (self.repo / folder).mkdir(exist_ok=True)
+        self.addCleanup(shutil.rmtree, self.repo / "a", True)
+        self.addCleanup(shutil.rmtree, self.repo / "b", True)
+        for flag in ("'--color=always'", "--color=always"):
+            with self.subTest(flag=flag):
+                fake = tools / "diff"
+                fake.write_text("#!/bin/sh\n"
+                                "[ \"$2\" = /dev/null ] && exit 0\n"            # the wrapper's probe
+                                "printf '%s\\n' \"diff " + flag + " -ruN a/one.txt b/one.txt\"\n"
+                                "printf '\\033[1m--- a/one.txt\\033[0m\\n'\n"
+                                "printf '%s\\n' \"+keep " + flag + " in a changed line\"\n"
+                                "exit 1\n")
+                fake.chmod(0o755)
+                run = self.run_bash("diff -ruN a b; echo \"status $?\"",
+                                    PATH=f"{tools}{os.pathsep}{os.environ['PATH']}")
+                lines = run.stdout.splitlines()
+                self.assertEqual("diff -ruN a/one.txt b/one.txt", lines[0], run.stderr)
+                self.assertIn(ESC, lines[1])                                     # still coloured
+                self.assertEqual(f"+keep {flag} in a changed line", lines[2])    # only diff's own line
+                self.assertEqual("status 1", lines[3])                           # and diff's own status
+
+    def test_a_list_of_files_from_grep_is_never_coloured(self):
+        """GNU grep colours the names `grep -l` prints; macOS's does not. A stand-in grep that
+        colours whenever it is asked to shows what the wrapper asked for."""
+        tools = self.dir / "fake-grep"
+        tools.mkdir(exist_ok=True)
+        fake = tools / "grep"
+        fake.write_text("#!/bin/sh\ncase \"$1\" in --color=always) printf '\\033[35mASKED\\033[m\\n' ;; "
+                        "*) echo plain ;; esac\n")
+        fake.chmod(0o755)
+        path = f"{tools}{os.pathsep}{os.environ['PATH']}"
+        for command in ("grep -rl slope .", "grep -l slope fit.py", "grep -L slope fit.py", "grep -rIl slope .",
+                        "grep --files-with-matches slope fit.py", "grep --files-without-match slope fit.py"):
+            with self.subTest(command=command):
+                self.assertEqual("plain\n", self.run_bash(command, PATH=path).stdout)
+        for command in ("grep -n slope fit.py", "grep -rn slope .", "grep --line-number slope fit.py",
+                        "grep slope -- -l", "grep -n -- -l fit.py"):
+            with self.subTest(command=command):
+                self.assertIn("ASKED", self.run_bash(command, PATH=path).stdout)
 
     def test_pipes_files_and_substitutions_stay_plain(self):
         run = self.run_bash("git diff > patch; cat patch; git diff | cat; x=$(git diff); echo \"$x\"; "
@@ -105,7 +155,7 @@ class ColourShellTests(unittest.TestCase):
         self.assertNotIn(ESC, run.stdout)
 
     def test_bootstrap_installs_it_and_owns_the_setting(self):
-        bootstrap = (ROOT / "bootstrap.sh").read_text()
+        bootstrap = (ROOT / "bootstrap.bash").read_text()
         self.assertIn("cp templates/shell/colour.sh agent/shell/colour.sh", bootstrap)
         self.assertIn('"shellCommandPrefix",', bootstrap)
         self.assertIn("$PI_CODING_AGENT_DIR/shell/colour.sh", SETTINGS["shellCommandPrefix"])

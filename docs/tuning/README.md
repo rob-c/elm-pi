@@ -535,3 +535,75 @@ implemented what it was told - not that it found the edge cases itself. The
 floor probe is one prompt per flag in one project folder; the four rows add up
 to a little more than the whole (tool definitions overlap in the prompt's own
 text), so read them as the size of each group, not as an exact decomposition.
+
+## 2026-11-14, evening: ten sessions of twenty problems, and the one defect that passed
+
+Ten sessions, twenty stock coding problems each - the ten above plus
+`count_distinct_characters`, `count_vowels`, `remove_vowels`, `longest_word`,
+`sum_positive`, `is_sorted`, `rotate_left`, `unique_in_order`, `count_words`,
+`median` - with the prompts rotated by two in each session, so every problem
+sits in every position once across the ten. One file per problem; the check
+imports all twenty and was proved on the seed (0/20) and on a reference
+solution (20/20) before any session ran. Driven at `jobs 3`.
+
+<!-- table:c20 -->
+| Run | Problems | Wall | Input | Requests | Commands run |
+|---|---|---|---|---|---|
+| c20.1 | 20/20 | 10 min 21 s | 1,513,324 | 62 | 21 |
+| c20.2 | 20/20 | 10 min 56 s | 1,586,851 | 62 | 21 |
+| c20.3 | 20/20 | 11 min 44 s | 1,627,892 | 62 | 21 |
+| c20.4 | 20/20 | 12 min 12 s | 1,664,079 | 62 | 21 |
+| c20.5 | 20/20 | 9 min 59 s | 1,430,669 | 60 | 20 |
+| c20.6 | 20/20 | 10 min 6 s | 957,850 | 41 | 0 |
+| c20.7 | 20/20 | 9 min 24 s | 925,462 | 40 | 0 |
+| c20.8 | 20/20 | 11 min 50 s | 1,429,514 | 60 | 20 |
+| c20.9 | 20/20 | 15 min 41 s | 1,778,439 | 63 | 22 |
+| c20.10 | 20/20 | 10 min 48 s | 1,529,170 | 62 | 21 |
+<!-- /table:c20 -->
+
+200 of 200 solved, 14,443,050 input tokens, ten sessions that all ended `stop`,
+no dialogs, no children, 751k-1.78M a session on a 19,084-token floor. The
+**Commands run** column is the only one that separates them: **c20.6 and c20.7
+wrote twenty files and executed nothing.** Forty and forty-one requests where
+the other eight needed 60-63, and 0.93M and 0.96M tokens against 1.43M-1.78M.
+Both replied "Done." twenty times, both passed the check, and no guard fired -
+`claim-guard` fires on a run with no tool call, and these runs wrote files.
+
+That is the defect worth fixing, because a result cannot show it: the code was
+right. On a task the model is less sure of, the same habit is work reported and
+never run. So `templates/extensions/verify-guard.ts` now sends a turn back once
+when it wrote a code file (by extension) and ran nothing in that turn - `bash`,
+a python tool, a notebook run or a sub-agent launch all count, failed or not,
+because a command that failed is a run that tried. Twice per session at most.
+`tests/test_ext_verify_guard.py` holds the six cases and the cap.
+
+Two smaller things the same ten sessions show, neither fixed:
+
+- **eight of ten** spent one request and one visible tool error on a `read` of
+  the file they were about to create (`[E_NOT_FOUND]`), then never did it again
+  - 19k tokens each. A prompt line would fix it and `AGENTS.md` has no room;
+  the failed call is the cheaper teacher.
+- **three sessions** prefixed every command with `cd /Users/...` (20-22 times a
+  session) although the bash tool already runs in the project: ~60 characters a
+  call, and a sign the model was not sure where it was.
+
+**The set is at its ceiling.** 200/200 here and 40/40 on the ten-problem
+version: it can no longer show a difference of one or two problems, so the next
+measurement needs harder tasks, not more sessions.
+
+`2026-11-14/prompt-floor.json` holds both batches, every per-session figure and
+these findings.
+
+## 2026-11-15: Python launcher and session stability
+
+Five isolated local installs and seventeen real Qwen sessions exercised the
+Python port, the Bash reference, parallel children, Unicode text and tools.
+The [file-by-file report](2026-11-15/python-port.md) records the fixes, validation
+and remaining model failures; the [results](2026-11-15/python-port.json),
+[source patch](2026-11-15/python-port.patch) and
+[independent scorer](2026-11-15/python_port_score.py) preserve the evidence.
+
+Validation used a frozen source snapshot, separately from concurrent network
+and jail changes. The results distinguish working artifacts from a successful
+whole session, retain the clock-jump timeout and the failed parser repeat, and
+do not claim a general accuracy or speed gain over the Bash baseline.

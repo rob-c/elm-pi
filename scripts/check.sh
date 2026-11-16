@@ -34,15 +34,15 @@ done
 
 # bash -n checks only its first file, so give it one at a time.
 # shellcheck disable=SC2086 # the lists split on spaces; no script name has one
-for f in install.sh bootstrap.sh configure.sh pi pi.orig shim/run.sh lib/*.sh $SHELL_SCRIPTS; do bash -n "$f"; done
+for f in install.sh bootstrap.sh bootstrap.bash configure.sh pi pi.bash pi.orig python/pi shim/run.sh lib/*.sh $SHELL_SCRIPTS; do bash -n "$f"; done
 # shellcheck disable=SC2086
 elm_py -c 'import ast, pathlib, sys; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in sys.argv[1:]]' \
-  patch-pi.py proxy/egress.py shim/shim.py $PYTHON_SCRIPTS
+  patch-pi.py proxy/egress.py shim/shim.py python/elmpi/*.py python/elmboot/*.py $PYTHON_SCRIPTS
 [ "$SOURCE_ONLY" = "1" ] || elm_py -m unittest discover -s tests -v
 
 if [ "$SOURCE_ONLY" = "0" ] && command -v shellcheck >/dev/null 2>&1; then
   # shellcheck disable=SC2086
-  shellcheck -x install.sh bootstrap.sh configure.sh pi pi.orig shim/run.sh lib/*.sh $SHELL_SCRIPTS
+  shellcheck -x install.sh bootstrap.sh bootstrap.bash configure.sh pi pi.bash pi.orig python/pi shim/run.sh lib/*.sh $SHELL_SCRIPTS
 fi
 
 # The type check needs a node and typescript and nothing else, so it does not

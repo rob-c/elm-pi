@@ -115,7 +115,7 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(policy("-e")[0])
 
     def test_launcher_checks_the_callers_arguments_not_its_own(self):
-        launcher = (ROOT / "pi").read_text()
+        launcher = (ROOT / "pi.bash").read_text()
         # Its own -e arguments (--fast, -ne) go into PRE, which the guard never sees.
         self.assertIn('elm_policy_check_args "$@"', launcher)
         self.assertNotIn('elm_policy_check_args "${PRE', launcher)

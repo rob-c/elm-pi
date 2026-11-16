@@ -121,15 +121,21 @@ def summarise(rows, label):
 
 
 lines = [f"# Report: {proj.replace(home, '~')}", ""]
+rpc = os.path.join(RUN_OUT, "rpc.jsonl")
+rpc_rows = read(rpc) if os.path.exists(rpc) else []
+driver_errors = [f"{r.get('t', '')} DRIVER ERROR: {short(r['error'], 500)}" for r in rpc_rows if "error" in r]
+driver_stderr = [short(r["stderr"], 400) for r in rpc_rows if "stderr" in r]
 steps = os.path.join(RUN_OUT, "steps.txt")
 if os.path.exists(steps):
     lines += ["## Steps", "```", open(steps).read().strip(), "```", ""]
 
 main = session_file(proj)
 if not main:
-    lines.append("NO SESSION FILE")
+    # Startup refusals have no transcript: the RPC stderr is the only account of what failed.
+    lines += ["NO SESSION FILE", "", "## Driver errors", *(driver_errors or ["(none)"]), "",
+              "## stderr", *(driver_stderr or ["(none)"]), ""]
     print("\n".join(lines))
-    sys.exit(0)
+    sys.exit(1)
 rows = read(main)
 summary, error_lines, custom, users, final, tin, tout = summarise(rows, "Parent session")
 lines += ["## Cost and shape"] + summary
@@ -214,10 +220,10 @@ lines += ["## User prompts"] + [f"- {u}" for u in users] + [""]
 lines += ["## Errors and refusals (parent)"] + (error_lines or ["(none)"]) + [""]
 lines += ["## Extension messages"] + [f"- {c}" for c in custom if "skill-routing" not in c] + [""]
 
-rpc = os.path.join(RUN_OUT, "rpc.jsonl")
+lines += ["## Driver errors", *(driver_errors or ["(none)"]), ""]
 if os.path.exists(rpc):
     dialogs, retries, stderr = [], [], []
-    for r in read(rpc):
+    for r in rpc_rows:
         if "dialog" in r:
             dialogs.append(f"{r['t']} {r['dialog']}: {short(r.get('title'), 200)} -> {r.get('answered', '')}")
         if "retry" in r:

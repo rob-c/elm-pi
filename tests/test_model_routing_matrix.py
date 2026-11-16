@@ -300,11 +300,11 @@ OTHERS = (
     ("remote", "--remote", True, {"REMOTE": "1", "PI_ELM_WEB": "1"}, lambda shim: launcher.cu,
      xt(ALWAYS), ["--model", "elm/q"]),
     ("workflows", "--workflows", True, {"WORKFLOWS": "1"}, lambda shim: nothing,
-     xt(ALWAYS, WEB), ["--model=elm/q"]),
+     xt(ALWAYS), ["--model=elm/q"]),
     ("no_workflows", "--no-workflows", True, {"WORKFLOWS": "0"}, lambda shim: nothing,
-     xt(ALWAYS, WEB, WF), ["--model=elm/q"]),
+     xt(ALWAYS, WF), ["--model=elm/q"]),
     ("with_all", "--with-all", True, {"WITH_ALL": "1", "WORKFLOWS": "1"}, lambda shim: nothing,
-     xt(WEB), ["--provider", "elm"]),
+     [], ["--provider", "elm"]),
     ("mode", None, True, {}, lambda shim: nothing, xt(DEFAULT_XT), ["--model", "elm-shim/q"]),
     ("ne", "-ne", False, {"FAST": "0"}, lambda shim: lambda h: ext(h, *launcher.POLICY) + launcher.gate(h),
      xt(DEFAULT_XT), ["--model=elm/q"]),
@@ -332,7 +332,11 @@ for flag in ("--llama", "--mistral"):
                 FLAG_CASES.append(C(
                     f"routing_{flag[2:]}_{'before' if flag_first else 'after'}_{other}"
                     f"_{'with_' + re.sub(r'[^a-z]+', '_', ' '.join(chosen)).strip('_') if chosen else 'no_model'}",
-                    args, vars={**picks(flag), **sets}, pre=pre(first(shim), model, xt_args), rest=rest))
+                    args, vars={**picks(flag), **sets},
+                    # --yolo is the network yolo too, so computer use loads exactly
+                    # as it does with --remote (the mode is one decision).
+                    pre=(lambda h, f=pre(first(shim), model, xt_args): launcher.cu(h) + f(h))
+                    if "--yolo" in args else pre(first(shim), model, xt_args), rest=rest))
 
 # Text, not the launcher's flag: after --, or as the value of an option pi
 # reads whatever follows. -p and --name -- do not make it text: pi's -p never

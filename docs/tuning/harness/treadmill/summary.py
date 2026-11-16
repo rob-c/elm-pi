@@ -13,12 +13,13 @@ for report in sorted(out.glob("*/report.md")):
     total = (re.search(r"Total tokens[^:]*: ([\d,]+)", text) or [None, "?"])[1]
     children = len(re.findall(r"^- \w+ [0-9a-f]{8} exit=", text, re.M))
     errors = sec("Errors and refusals (parent)", "Extension messages")
+    errors += sec("Driver errors", "stderr" if "NO SESSION FILE" in text else "Dialogs answered")
     for line in re.findall(r"^\d\d:\d\d:\d\d (\w+) ERROR: (.*)$", errors, re.M):
         tool, msg = line
         msg = re.sub(r"~?/[\w./@-]+", "<path>", msg); msg = re.sub(r"\d+", "N", msg)
         key = f"{tool}: {msg[:70]}"
         kinds[key] += 1; examples.setdefault(key, name)
-    nerr = len(re.findall(r" ERROR: ", errors))
+    nerr = len(re.findall(r" ERROR: | ASSISTANT (?:error|aborted): ", errors))
     audit = sec("Site audit (view's own checks, run on what was left)", "\x00")
     # "DIFF" only when a repeated part really has several versions. The comparison's other remarks - a
     # picture nothing uses, a page nothing links to - and its closing "unless a difference is meant" used

@@ -19,7 +19,7 @@ tried.
 3. **Fix it where it lives.** Not in the test, not in the caller that happened
    to show it, not by catching the error.
 4. **Then try to break your fix.** Write three or four cases the report did not
-   give and run them - a throwaway script or `python3 -c` is enough:
+   give, keep them in the saved tests, and run them:
    - the neighbour of the example: a second key, group, file or caller;
    - the edges: empty, one item, zero, the largest sensible value, the value
      just outside what is allowed;
@@ -35,6 +35,12 @@ tried.
 6. **Keep what was not asked about as it was**: public names, return shapes,
    the tests, the order of results. If a faster or cleaner version returns
    something different on any input, it is a different function.
+7. **Run the saved tests.** Use the project's test framework; for a new Python
+   project without one, prefer standard-library `unittest` when suitable. If
+   collection or imports fail, fix the runner/import setup and rerun the saved
+   test files. Keep requested output names; do not substitute inline assertions
+   for saved tests. Do not weaken assertions to make them pass. Inline probes
+   can diagnose a failure; they do not repair a suite that cannot run.
 
 Report: the cause, the change (file and function), the command that failed
 before and passes now, and the extra cases you ran with their results. A case

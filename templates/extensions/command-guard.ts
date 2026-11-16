@@ -902,7 +902,8 @@ export function remoteEngineInEnvironment(command: string, env: NodeJS.ProcessEn
  */
 export const OPEN_SERVER =
 	"`http.server` listens on every network interface unless it is bound, so anyone on the network could read this " +
-	"folder. Bind it to this machine: `python3 -m http.server --bind 127.0.0.1 8000 & echo $!`, and stop it by that " +
+	"folder. Bind it to elm-pi's user-visible loopback preview: `python3 -m http.server --bind 127.0.0.1 " +
+	"\"$ELM_PI_PREVIEW_PORT\" & echo $!`, then open `http://127.0.0.1:$ELM_PI_PREVIEW_PORT/`; stop it by that " +
 	"PID (`kill <PID>`) when you are done - `pkill -f \"python3 -m http.server\"` misses macOS's Python, which runs as " +
 	"`Python`.";
 
@@ -998,6 +999,75 @@ export function installWrite(command: string, cwd: string, install: string | und
 		}
 		const hit = named.find(inside);
 		if (hit) return deny(run.join(" "));
+	}
+	return undefined;
+}
+
+/**
+ * python-before and python-after parallel.1 (2026-11-15): both children chose .pi/tmp/venv,
+ * and one deleted it while the other still used it. The second run ignored the unique-scratch
+ * prompt too. Refuse this shared path for creation/cleanup, while allowing existing-env use.
+ */
+export function sharedScratchVenv(command: string, cwd: string, env: NodeJS.ProcessEnv = process.env): Denial | undefined {
+	if (env.PI_SUBAGENT_CHILD !== "1") return undefined;
+	const canonical = (path: string): string => {
+		let probe = path;
+		while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe);
+		try {
+			return resolve(realpathSync(probe), relative(probe, path));
+		} catch {
+			return path;
+		}
+	};
+	let dir = canonical(resolve(cwd));
+	const scratch = canonical(join(dir, ".pi/tmp"));
+	const shared = canonical(join(scratch, "venv"));
+	const pathOf = (word: string): string => canonical(resolve(dir, word.replace(/\$\{PWD\}|\$PWD\b/g, dir)));
+	const runs: string[][] = [];
+	for (const words of commandsOf(command)) collectRuns(words, runs, 0);
+	for (const run of runs) {
+		const name = basename(run[0]);
+		const args = run.slice(1);
+		if (name === "cd") {
+			const target = args.find((arg) => !arg.startsWith("-"));
+			if (target) dir = pathOf(target);
+			continue;
+		}
+		let creation: string[] | undefined;
+		if (/^(?:python[\d.]*|py)$/.test(name)) {
+			for (let i = 0; i < args.length; i++) {
+				const arg = args[i];
+				if (arg === "--" || arg === "-" || arg.startsWith("-c") || !arg.startsWith("-")) break;
+				if (["-W", "-X", "--check-hash-based-pycs"].includes(arg)) { i++; continue; }
+				if (arg.startsWith("-m")) {
+					const module = arg === "-m" ? args[i + 1] : arg.slice(2);
+					if (/^(?:venv|virtualenv)$/.test(module ?? "")) creation = args.slice(i + (arg === "-m" ? 2 : 1));
+					break;
+				}
+			}
+		} else if (name === "virtualenv") creation = args;
+		else if (name === "uv") {
+			const subcommand = args.findIndex((arg) => !arg.startsWith("-"));
+			if (args[subcommand] === "venv") creation = args.slice(subcommand + 1);
+		}
+		const cleanup = ["rm", "rmdir", "unlink", "mv"].includes(name);
+		if (!creation && !cleanup) continue;
+		if (creation?.some((arg) => arg === "--help" || arg === "-h")) continue;
+		const candidates: string[] = [];
+		const operands = creation ?? args;
+		for (let i = 0; i < operands.length; i++) {
+			const arg = operands[i];
+			if (creation && ["--prompt", "--python", "-p", "--creator", "--seeder"].includes(arg)) { i++; continue; }
+			if (!arg.startsWith("-")) candidates.push(pathOf(arg));
+		}
+		if (!candidates.some((path) => path === shared || (cleanup && (path === scratch || path.startsWith(`${shared}/`))))) continue;
+		return {
+			pattern: "shared subagent scratch environment",
+			spelling: run.join(" "),
+			reason: "Other children may be using .pi/tmp/venv. Do not create, replace or remove that shared environment, or remove .pi/tmp itself. " +
+				"Run `mkdir -p .pi/tmp`, then `mktemp -d .pi/tmp/child.XXXXXX` once; retain the returned path, create your virtualenv inside it, " +
+				"and clean up only that private directory. Using an existing shared environment to run tests is allowed.",
+		};
 	}
 	return undefined;
 }
@@ -1162,6 +1232,7 @@ export default function (pi: ExtensionAPI) {
 				deniedSpelling(input.command, bashRules()) ??
 				remoteEngineInEnvironment(input.command) ??
 				openServer(input.command) ??
+				sharedScratchVenv(input.command, ctx.cwd) ??
 				installWrite(input.command, ctx.cwd, install);
 		} catch {
 			// A command that breaks the guard's reading is one it cannot vouch for.

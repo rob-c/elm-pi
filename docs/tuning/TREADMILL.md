@@ -125,7 +125,7 @@ means:
   from the session file, and the session is not called done while one is
   unreported. The next prompt goes out when the turn has ended, nothing is
   outstanding and 20 s have passed; a run is done when the last turn ends and
-  nothing has happened for 90 s; with background runs outstanding it waits, and
+  nothing has happened for 30 s; with background runs outstanding it waits, and
   gives up after 30 minutes of no activity. `max` stops it regardless, and the
   log then says `"finish":"time limit"` - a session cut off, not one that ended.
 - **It logs the retries.** `auto_retry_start` and `auto_retry_end` go into
@@ -144,6 +144,29 @@ python3 docs/tuning/harness/treadmill/score.py fit1 /path/to/dir-with-checks
 `batch.sh` refuses to reuse an install name. A batch of eight website sessions
 takes 30 to 60 minutes and 20 to 50 million ELM tokens; eight short analysis
 tasks take about 15 minutes and 1 to 3 million.
+
+`TREADMILL_SETTLE_SECONDS` changes the final 30-second quiet period. It accepts
+a non-negative number and is mainly useful for local harness tests; normal runs
+should keep enough time for delayed RPC and background-completion notices.
+
+For repeated local installs without downloading dependencies again, set
+`TREADMILL_FROM=/path/to/a/working/install`. The batch copies the working tree
+as usual, then runs that copy's `scripts/dev-setup.sh --from` against the given
+install. The Python launcher and rendered extensions still come from the
+working tree. This omits the optional analysis Python environment; stdlib
+checks use the interpreter recorded in `agent/python-path`.
+
+A failed bootstrap stops the batch before any sessions start. A missing or
+prematurely exiting launcher and a time limit make the driver fail, and a
+failed driver or analyzer makes the batch exit nonzero after saving the
+remaining reports and summary. RPC extension errors are recorded in the log;
+a startup failure without a session file retains its stderr in the report.
+The driver's pipes decode UTF-8 across chunks, so split characters survive
+in the recorded text. On macOS and Linux each driven launcher has its own
+process group, which the driver stops on completion, timeout or interruption;
+this also closes pipes left open by tools after a launcher crashes.
+Deadlines and elapsed seconds use a monotonic clock, so a wall-clock adjustment
+cannot expire a healthy run; the log's readable timestamps still use wall time.
 
 ### What the reports record
 
@@ -174,7 +197,8 @@ finding.
 of the check's stderr when it failed - prints the table, ends with
 `N/M passed, X tokens`, and saves `scores.json` beside the reports. It runs each
 `checks/<task>.py` in the run's project folder with the *batch's own* install
-Python (`agent/python/env/bin/python`), `PYTHONPATH=.:src`, a 300 s timeout, and
+Python (`agent/python/env/bin/python`, or its recorded interpreter when the
+optional environment was not installed), `PYTHONPATH=.:src`, a 300 s timeout, and
 exit 0 meaning pass.
 
 What was not recorded when this file was first written, and is now (in

@@ -7,6 +7,17 @@ S = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).resolve().parent;
 WORK = Path(os.environ.get("TREADMILL_WORK") or Path.home() / "sandbox")
 inst = WORK / f"elm-pi-b{name}"; out = Path(os.environ.get("TREADMILL_OUT") or WORK / "treadmill-out") / f"b{name}"
 py = inst / "agent/python/env/bin/python"
+# Offline dev-setup installs deliberately omit the analysis environment; use the same
+# recorded interpreter as their launcher for stdlib checks, rather than fail before scoring.
+if not (py.is_file() and os.access(py, os.X_OK)):
+    record = inst / "agent/python-path"
+    try:
+        recorded = record.read_text().splitlines()[0].strip()
+    except (OSError, IndexError):
+        recorded = ""
+    py = Path(recorded)
+    if not (py.is_absolute() and py.is_file() and os.access(py, os.X_OK)):
+        sys.exit(f"score: no runnable Python in {inst}; bootstrap it or restore agent/python-path")
 rows = []
 for run in sorted(p.name for p in out.iterdir() if (p / "rpc.jsonl").exists()):
     task = re.sub(r"\.\d+$", "", run); proj = WORK / f"b{name}-{run}"

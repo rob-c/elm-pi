@@ -53,7 +53,7 @@ class FolderListTests(unittest.TestCase):
                 self.assertFalse(self.untrusted(folder))
 
     def test_launcher_refuses_sessions_only(self):
-        launcher = (ROOT / "pi").read_text()
+        launcher = (ROOT / "pi.bash").read_text()
         block = launcher[launcher.index("# --- not in home"):launcher.index("# --- --remote")]
         self.assertIn('[ "$NEEDS_ELM_KEY" = "1" ]', block)
         self.assertIn('[ "${PI_FORCE:-0}" != "1" ]', block)
@@ -115,7 +115,7 @@ class TrustGuardTests(unittest.TestCase):
         self.assertEqual("undecided", result[str(home / "src/group/repo")])
 
     def test_it_loads_whenever_policy_extensions_do(self):
-        launcher = (ROOT / "pi").read_text()
+        launcher = (ROOT / "pi.bash").read_text()
         self.assertIn("trust-guard", next(l for l in launcher.splitlines() if l.startswith("POLICY_EXTENSIONS=")))
         self.assertIn("trust-guard.ts", CONFIG["requiredExtensions"])
 

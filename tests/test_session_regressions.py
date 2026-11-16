@@ -54,6 +54,25 @@ to read it; nothing can enforce it), the sentence is pinned instead.
     2026-11-14: about one ask in five in a manual session is for reading through bash (38 of 172 dialogs);
             the owner asked for a "read-only auto" mode - tests/test_read_only_auto.py, and the mode's place
             in the launcher and the /mode menu in tests/test_permission_mode_spec.py and test_mode_command_spec.py
+    2026-11-15 UI replay during the Python-port treadmill: five plan entries rendered as 111 rows
+            in a narrow terminal; /help advertised inactive web tools and could not find bash; a CLI
+            resume showed the new-session greeting; model selection left a stale footer. Reproduced
+            with the installed TUI and extension events in tests/test_ext_todo_widget.py,
+            tests/test_ext_help.py, tests/test_ext_empty_state.py and tests/test_ext_status_line.py.
+    python-before parallel.1 (2026-11-15): invalid status calls left the wait guard unarmed, then
+            sleep/list polling continued while children wrote (tests/test_run_guards.py). Both
+            children used .pi/tmp/venv; the first deleted it before its sibling finished using it.
+    python-after parallel.1 (2026-11-15): both children again created .pi/tmp/venv despite private-
+            scratch guidance. tests/test_child_scratch.py replays those commands through the
+            command guard: this shared-environment creation and cleanup are refused with private-path guidance.
+            Saved tests could not import the delivered modules; passing inline assertions replaced
+            repairing and running those tests. tests/test_prompts.py pins the saved-test requirement
+            in the changing-code skill and both child definitions, without naming benchmark files.
+    2026-11-15 Python-port replay: a watchdog retained captured output after exit; an interpreter
+            probe exiting 127 raised KeyError; empty exclusions misplaced update/session arguments.
+            tests/test_python_launcher.py compares the real Bash reference and covers these cases.
+            The treadmill hid startup failures and split UTF-8 characters at pipe boundaries;
+            tests/test_treadmill.py holds failure reporting, cleanup and decoding to real processes.
 """
 
 import base64
@@ -71,7 +90,7 @@ ROOT = Path(__file__).resolve().parents[1]
 EXT = ROOT / "templates/extensions"
 CONFIG = json.loads((ROOT / "config/elm-pi.json").read_text())
 QWEN = CONFIG["models"]["qwen"]
-LAUNCHER = (ROOT / "pi").read_text()
+LAUNCHER = (ROOT / "pi.bash").read_text()
 RUN = "be162096-3f6e-4000-9cd0-ae4ffd3f4050"
 FORK = ("You are a delegated subagent running from a fork of the parent session. Treat the inherited conversation "
         "as reference-only context.\n\nTask:\n")
@@ -606,7 +625,7 @@ class Auto01(unittest.TestCase):
 
     def test_an_interactive_session_is_not_offered_bg_wait(self):
         """bg_wait was refused, then called three more times and followed by a status check, in one turn."""
-        launcher = (ROOT / "pi").read_text()
+        launcher = (ROOT / "pi.bash").read_text()
         self.assertIn('[ "$BG_WAIT_USED" = "1" ] || [ "$WITH_ALL" = "1" ] || [ -n "${PI_SUBAGENT_CHILD:-}" ] || '
                       'XT_LIST="${XT_LIST:+$XT_LIST,}bg_wait"', launcher)
         # the rest is in tests/test_launcher_cases.py and tests/test_run_guards.py (WaitGuardTests)
@@ -883,7 +902,7 @@ class Auto22(unittest.TestCase):
     worked around its absence), the notebook ran with `jupyter nbconvert` at the first try."""
 
     def test_the_agents_python_is_built_by_default_and_dev_setup_stays_offline(self):
-        bootstrap = (ROOT / "bootstrap.sh").read_text()
+        bootstrap = (ROOT / "bootstrap.bash").read_text()
         self.assertIn("WITH_PYTHON=1;", bootstrap)
         self.assertIn("--no-python) WITH_PYTHON=0; WITH_PYPI_INDEX=0 ;;", bootstrap)
         self.assertIn("./bootstrap.sh --no-python < /dev/null", (ROOT / "scripts/dev-setup.sh").read_text())
@@ -954,7 +973,7 @@ class Batch1(unittest.TestCase):
         self.assertTrue(with_skill[0][1])                                      # said alongside a routed skill, too
         self.assertIn("`pi --fast`", note)
         self.assertIn("say in your first line", note)
-        fast_list = (ROOT / "pi").read_text().split("# Conveniences on top of the policy")[1].split("done")[0]
+        fast_list = (ROOT / "pi.bash").read_text().split("# Conveniences on top of the policy")[1].split("done")[0]
         self.assertIn("skill-router", fast_list)                               # what --fast loads: the note must live there
 
     def test_a_sub_agent_keeps_it(self):

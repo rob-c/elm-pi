@@ -139,6 +139,8 @@ if os.path.isfile(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(s
 }
 
 elm_python_reason() {
+  # Runtime failures such as exit 127 are not probe statuses; keep the fallback
+  # usable (the Python port originally failed while looking up their reason).
   case "$1" in
     10) echo "older than $ELM_PY_MIN_MAJOR.$ELM_PY_MIN_MINOR" ;;
     11) echo "conda" ;;
@@ -507,7 +509,7 @@ elm_tighten_install_perms() {   # $1 = install dir
   [ "${ELM_PI_SHARED_STATE:-0}" = "1" ] && mask="o-w"
   chmod "$mask" "$root" 2>/dev/null || true
   for path in .node .python node_modules agent/npm agent/bin agent/extensions agent/agents \
-              lib config templates proxy shim scripts patch-pi.py pi pi.orig \
+              lib config templates proxy shim scripts python patch-pi.py pi pi.orig \
               bootstrap.sh install.sh configure.sh; do
     if [ -e "$root/$path" ]; then chmod -R "$mask" "$root/$path" 2>/dev/null || true; fi
   done

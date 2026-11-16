@@ -133,9 +133,19 @@ export default function (pi: ExtensionAPI) {
 		if (added.length === 0) return undefined;
 		servers.push(...added);
 		const which = added.map((s) => `PID ${s.pid} on ${s.addrs.join(", ")}`).join("; ");
+		const preview = Number(process.env.ELM_PI_PREVIEW_PORT ?? 0);
+		const bridged = process.env.ELM_PI_PREVIEW_BRIDGED === "1";
+		const ports = added.flatMap((s) => s.addrs.map((addr) => Number(/:(\d+)$/.exec(addr)?.[1] ?? 0)));
+		const previewIsServed = preview > 0 && ports.includes(preview);
+		const access = previewIsServed
+			? `Open http://127.0.0.1:${preview}/ in your browser while this session is running.`
+			: bridged
+				? `This Linux session exposes only its preview port to the host. Restart the server on ` +
+					`127.0.0.1:${preview} (\`$ELM_PI_PREVIEW_PORT\`) for the user to open it.`
+				: `Open its loopback port in your browser while this session is running.`;
 		const note =
-			`elm-pi stops this server (${which}) when the session ends. To look at a page yourself, \`view\` its ` +
-			".html file - no server is needed. Stop it sooner with `kill <PID>` once nobody needs it.";
+			`elm-pi stops this server (${which}) when the session ends. ${access} The model can still \`view\` ` +
+			"an .html file without a server. Stop it sooner with `kill <PID>` once nobody needs it.";
 		return { content: [...event.content, { type: "text", text: note }] };
 	});
 

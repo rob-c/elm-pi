@@ -6,35 +6,81 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 
 const [pi, cwd, logPath, flagsJson, promptsJson, maxSecsArg] = process.argv.slice(2);
 const flags = JSON.parse(flagsJson);
 const prompts = JSON.parse(promptsJson);
 const maxMs = Number(maxSecsArg || 3600) * 1000;
+const settleSeconds = Number(process.env.TREADMILL_SETTLE_SECONDS ?? 30);
+if (!Number.isFinite(settleSeconds) || settleSeconds < 0) {
+	throw new Error("TREADMILL_SETTLE_SECONDS must be a non-negative number");
+}
+const settleMs = settleSeconds * 1000;
+const tickMs = Math.min(5000, Math.max(1, settleMs));
 const log = (o) => appendFileSync(logPath, JSON.stringify({ t: new Date().toISOString().slice(11, 19), ...o }) + "\n");
 writeFileSync(logPath, "");
 
-const child = spawn(pi, [...flags, "--mode", "rpc"], { cwd, stdio: ["pipe", "pipe", "pipe"], env: process.env });
+const child = spawn(pi, [...flags, "--mode", "rpc"], {
+	cwd, stdio: ["pipe", "pipe", "pipe"], env: process.env, detached: process.platform !== "win32",
+});
+// A UTF-8 character can span pipe chunks; Buffer.toString() per chunk corrupts the transcript.
+child.stdout.setEncoding("utf8");
+child.stderr.setEncoding("utf8");
 child.stderr.on("data", (d) => log({ stderr: String(d).slice(0, 400) }));
-child.on("exit", (code, signal) => { log({ exit: code, signal }); process.exit(0); });
-const send = (o) => child.stdin.write(JSON.stringify(o) + "\n");
+const send = (o) => { if (!finished) child.stdin.write(JSON.stringify(o) + "\n"); };
 
-const started = Date.now();
+// A wall-clock jump during the Python-port batch timed out a completed parser.
+// Deadlines measure elapsed time; only the human-readable log timestamp uses the wall clock.
+const started = performance.now();
 let buf = "";
 let running = false;
-let lastActivity = Date.now();
+let lastActivity = performance.now();
 let next = 0;
 let dialogs = 0;
 let lastPrompt = "";
 let finished = false;
+let finishStatus = 0;
+const signalChildren = (signal) => {
+	if (!child.pid) return;
+	try {
+		if (process.platform !== "win32") process.kill(-child.pid, signal);
+		else child.kill(signal);
+	} catch (error) { if (error.code !== "ESRCH") throw error; }
+};
+const stopChildren = () => {
+	signalChildren("SIGTERM");
+	setTimeout(() => { signalChildren("SIGKILL"); process.exit(finishStatus); }, 8000);
+};
 
-const finish = (why) => {
+const recordFinish = (why, status) => {
 	if (finished) return;
 	finished = true;
-	log({ finish: why, secs: Math.round((Date.now() - started) / 1000), dialogs });
-	child.kill("SIGTERM");
-	setTimeout(() => { child.kill("SIGKILL"); process.exit(0); }, 8000);
+	finishStatus = status;
+	log({ finish: why, secs: Math.round((performance.now() - started) / 1000), dialogs });
 };
+const finish = (why, status = why === "done" ? 0 : 1) => {
+	if (finished) return;
+	recordFinish(why, status);
+	stopChildren();
+};
+// An absent launcher, a refusal or a crash used to look like a successful driver (exit 0).
+child.on("error", (error) => { log({ error: error.message }); recordFinish("launcher error", 1); });
+child.on("exit", (code, signal) => {
+	log({ exit: code, signal });
+	// A crashed launcher can leave a tool holding stdout open: close alone never detects that exit.
+	if (!finished) { recordFinish("launcher exited before completion", code || 1); stopChildren(); }
+});
+child.on("close", () => {
+	signalChildren("SIGKILL");
+	process.exit(finishStatus);
+});
+for (const [signal, status] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+	process.on(signal, () => finish(`driver interrupted (${signal})`, status));
+}
+child.stdin.on("error", (error) => {
+	if (!finished) { log({ error: error.message }); finish("launcher input error"); }
+});
 
 /** Background runs launched and not yet reported, from the session file. */
 function pending() {
@@ -72,7 +118,7 @@ child.stdout.on("data", (d) => {
 		const line = buf.slice(0, i);
 		buf = buf.slice(i + 1);
 		let ev; try { ev = JSON.parse(line); } catch { continue; }
-		lastActivity = Date.now();
+		lastActivity = performance.now();
 		if (ev.type === "extension_ui_request") {
 			if (ev.method === "select") {
 				dialogs++;
@@ -106,6 +152,7 @@ child.stdout.on("data", (d) => {
 		else if (ev.type === "agent_end") { running = false; log({ agent_end: true }); }
 		else if (ev.type === "tool_execution_start") log({ tool: ev.toolName, args: JSON.stringify(ev.args ?? {}).slice(0, 240) });
 		else if (ev.type === "tool_execution_end") log({ toolEnd: ev.toolName, isError: ev.isError, result: JSON.stringify(ev.result?.content ?? ev.result ?? {}).slice(0, 300) });
+		else if (ev.type === "extension_error") log({ error: `extension ${ev.extensionPath} (${ev.event}): ${ev.error}` });
 		else if (ev.type === "response" && ev.success === false) {
 			log({ error: JSON.stringify(ev).slice(0, 400) });
 			// pi is mid-run (a rate-limit retry counts): the terminal UI would queue what was typed, so queue it.
@@ -125,23 +172,27 @@ const sendNext = () => {
 	lastPrompt = message;
 	log({ prompt: message.slice(0, 300) });
 	send({ id: `p${next}`, type: "prompt", message });
-	lastActivity = Date.now();
+	lastActivity = performance.now();
 	return true;
 };
 
-setTimeout(() => sendNext(), 5000);
+setTimeout(() => sendNext(), tickMs);
 setInterval(() => {
-	const now = Date.now();
+	const now = performance.now();
 	if (now - started > maxMs) return finish("time limit");
 	if (running) return;
 	const quiet = now - lastActivity;
-	if (quiet < 20000) return;
 	const waiting = pending();
 	// A slash command answers without an agent turn: move on once it has gone quiet.
-	if (next < prompts.length && waiting === 0) { sendNext(); return; }
+	if (next < prompts.length) {
+		if (quiet < 20000) return;
+		if (waiting === 0) { sendNext(); return; }
+	}
 	if (waiting > 0) {
 		if (quiet > 30 * 60000) finish(`no activity for 30 minutes with ${waiting} background run(s) unreported`);
 		return;
 	}
-	if (quiet > 90000) finish("done");
-}, 5000);
+	// A short repair in the 2026-11-15 hardening run spent longer waiting here than
+	// doing the work. Thirty seconds still spans six polls and delayed RPC notices.
+	if (quiet > settleMs) finish("done");
+}, tickMs);

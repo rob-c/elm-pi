@@ -162,7 +162,7 @@ class ReadOnlyAutoTests(unittest.TestCase):
         self.assertIn("**read-only-auto** is manual with one thing let through.", lockdown)
         for word in ("`find -exec`", "`sort -o`", "`rg --pre`", "`tail -f`", "`PI_ELM_READ_AUTO=1`", "`authorizerChain`"):
             self.assertIn(word, lockdown)
-        self.assertIn("--read-only-auto", (ROOT / "pi").read_text())
+        self.assertIn("--read-only-auto", (ROOT / "pi.bash").read_text())
 
 
 if __name__ == "__main__":

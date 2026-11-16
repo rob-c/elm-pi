@@ -324,6 +324,16 @@ const PLACEHOLDER_HOSTS =
 	/(^|\.)(picsum\.photos|placehold\.co|placeholder\.com|placekitten\.com|loremflickr\.com|source\.unsplash\.com|dummyimage\.com|fakeimg\.pl|lorempixel\.com|placeimg\.com)$/i;
 const URL_IN_CSS = /url\(\s*["']?([^"')]+?)["']?\s*\)/gi;
 const REMOTE = /^(https?:)?\/\//i;
+/**
+ * How far a file's timestamp may be behind the clock that `since` was read from. Linux stamps files from
+ * a coarse clock that runs behind Date.now(): on AlmaLinux 9 (xfs, HZ=100, 2026-11-16) a file just
+ * written was stamped 11 ms earlier on average and 18 ms at most over 2000 writes, so pages written a
+ * millisecond after a run began had an mtime before it, were not found, and "100% Self-Consistency
+ * Verified" went unanswered - on AlmaLinux 10 and Ubuntu 26.04 too. macOS's stamps are exact, which is
+ * why it never showed there. No wider than that needs: at 50 ms, pages written just before a session
+ * started were taken for its first run's.
+ */
+export const CLOCK_SLACK_MS = 25;
 /** HTML pages under `root` (four folders down at most, no hidden ones) changed since `since`, newest first. */
 export function recentPages(root: string, since: number, limit = 40): string[] {
 	const found: { path: string; mtime: number }[] = [];
@@ -343,7 +353,7 @@ export function recentPages(root: string, since: number, limit = 40): string[] {
 			} else if (/\.html?$/i.test(e.name)) {
 				try {
 					const mtime = statSync(path).mtimeMs;
-					if (mtime >= since) found.push({ path, mtime });
+					if (mtime >= since - CLOCK_SLACK_MS) found.push({ path, mtime });
 				} catch {
 					// gone
 				}

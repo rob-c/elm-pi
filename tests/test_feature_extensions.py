@@ -1572,15 +1572,15 @@ class RemoteResearchTests(unittest.TestCase):
 class RemoteResearchWiringTests(unittest.TestCase):
     """The launcher turns it on for --remote only, and every mode that loads extensions loads it."""
 
-    launcher = (ROOT / "pi").read_text()
+    launcher = (ROOT / "pi.bash").read_text()
 
     def test_remote_exports_the_flag(self):
-        block = self.launcher.split('if [ "$REMOTE" = "1" ]; then', 1)[1].split("\nfi\n", 1)[0]
+        block = self.launcher.split("# --- network mode: what this run may reach", 1)[1].split("\n\n", 1)[0]
         self.assertIn("export PI_ELM_REMOTE=1", block)
         self.assertEqual(1, self.launcher.count("PI_ELM_REMOTE=1"))
 
     def test_computer_use_is_flagged_for_the_top_level_session_only(self):
-        block = self.launcher.split('if [ "$REMOTE" = "1" ] && [ "$COMPUTER_USE" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] && [ -f "$CU_EXT" ]; then', 1)[1]
+        block = self.launcher.split('[ "$NETWORK_MODE" = "yolo" ] && [ "$COMPUTER_USE" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] && [ -f "$CU_EXT" ]; then', 1)[1]
         on, off = block.split("\nelse\n", 1)
         self.assertIn("export PI_ELM_COMPUTER_USE=1", on)
         self.assertIn("unset PI_ELM_COMPUTER_USE", off.split("\nfi\n", 1)[0])
@@ -1807,7 +1807,7 @@ class ApprovedAgentsTests(unittest.TestCase):
         self.assertEqual("auto", config["permissionModes"]["approvedAgents"])
         self.assertIn('"ELM_APPROVED_AGENTS": config["permissionModes"].get("approvedAgents", "manual")',
                       (ROOT / "scripts/elm_config.py").read_text())
-        launcher = (ROOT / "pi").read_text()
+        launcher = (ROOT / "pi.bash").read_text()
         self.assertIn('case "${ELM_APPROVED_AGENTS:-manual}" in auto) PI_ELM_APPROVED_AGENTS=auto ;; *) PI_ELM_APPROVED_AGENTS=manual ;; esac',
                       launcher)
         self.assertIn("export PI_ELM_APPROVED_AGENTS", launcher)

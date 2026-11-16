@@ -1,0 +1,1802 @@
+--- a/python/elmpi/proxy.py
++++ b/python/elmpi/proxy.py
+@@ -221,6 +221,17 @@
+     if child:
+         return
+     try:
++        # Captured Python launches hung after pi exited: this fork kept their
++        # output pipes open while its parent waited for EOF before reaping pi.
++        # Match the bash watchdog's redirected streams, including stdin so a
++        # background heartbeat cannot retain a caller's input pipe or terminal.
++        null = os.open(os.devnull, os.O_RDWR)
++        try:
++            for descriptor in (0, 1, 2):
++                os.dup2(null, descriptor)
++        finally:
++            if null > 2:
++                os.close(null)
+         _heartbeat(parent, port, spawn)
+     finally:
+         os._exit(0)
+--- a/python/elmpi/interpreter.py
++++ b/python/elmpi/interpreter.py
+@@ -142,7 +142,10 @@
+             env.set("ELM_PI_PYTHON", path)
+             return path
+         if result != MISSING:
+-            rejected.append("\n      %s (%s)" % (path, REASONS[result]))
++            # A missing shared library or a wrapper can exit 127 (or any
++            # status outside our probe's). The port used to raise KeyError
++            # here instead of trying the next interpreter, unlike bash.
++            rejected.append("\n      %s (%s)" % (path, REASONS.get(result, "does not run")))
+ 
+     lines = [
+         "pi: no usable Python %d.%d+ found. elm-pi does not use conda, virtualenv"
+--- a/python/elmpi/tools.py
++++ b/python/elmpi/tools.py
+@@ -117,5 +117,8 @@
+         excluded = _add(excluded, BG_WAIT)
+     excluded = _drop_comma(excluded)
+     if not excluded:
+-        return [], list(argv)
++        # --with-all --remote leaves no exclusions. Keep the arguments in the
++        # same slot as merge(): swapping them bypassed update/setup dispatch
++        # and hid --session-dir from transcript permission handling.
++        return list(argv), []
+     return merge(argv, excluded)
+--- a/pi.bash
++++ b/pi.bash
+@@ -818,6 +818,8 @@
+ done
+ [ "$BG_WAIT_USED" = "1" ] || [ "$WITH_ALL" = "1" ] || [ -n "${PI_SUBAGENT_CHILD:-}" ] || XT_LIST="${XT_LIST:+$XT_LIST,}bg_wait"
+ XT_LIST="${XT_LIST%,}"
++# An empty list leaves "$@" intact for update/setup and session-dir handling;
++# swapping the result slots in the Python port bypassed those later steps.
+ if [ -n "$XT_LIST" ]; then
+   XT_ARGS=(); XT_USER=""; XT_TOOLS=0; xt_prev=""
+   for a in "$@"; do
+@@ -1307,6 +1309,8 @@
+   #
+   # It follows $$, the same pid the proxy's own watchdog follows, so it goes when
+   # the session goes and never outlives it.
++  # Keep its output detached: the Python-port regression held captured runs
++  # open after pi exited when the heartbeat inherited their stdout/stderr.
+   (
+     fails=0
+     while kill -0 "$$" 2>/dev/null; do
+--- a/lib/sandbox.sh
++++ b/lib/sandbox.sh
+@@ -139,6 +139,8 @@
+ }
+ 
+ elm_python_reason() {
++  # Runtime failures such as exit 127 are not probe statuses; keep the fallback
++  # usable (the Python port originally failed while looking up their reason).
+   case "$1" in
+     10) echo "older than $ELM_PY_MIN_MAJOR.$ELM_PY_MIN_MINOR" ;;
+     11) echo "conda" ;;
+--- a/bootstrap.sh
++++ b/bootstrap.sh
+@@ -1587,8 +1587,14 @@
+ say "verifying the ELM-only policy"
+ VERIFY_ERR="$(mktemp "$HERE/.elm-pi-verify.XXXXXX")"
+ # In auto mode whatever .env asks for: this probes the ELM policy, not the modes.
++VERIFY_STATUS=0
+ LIST="$(PI_FORCE=1 PI_OFFLINE=1 ELM_PI_NO_PROXY=1 ANTHROPIC_API_KEY=probe-should-be-ignored \
+-        OPENAI_API_KEY=probe-should-be-ignored PI_ELM_PERMISSION_MODE='' ./pi --auto --list-models </dev/null 2>"$VERIFY_ERR" || true)"
++        OPENAI_API_KEY=probe-should-be-ignored PI_ELM_PERMISSION_MODE='' ./pi --auto --list-models </dev/null 2>"$VERIFY_ERR")" || VERIFY_STATUS=$?
++if [ "$VERIFY_STATUS" -ne 0 ]; then
++  sed 's/^/    /' "$VERIFY_ERR" >&2
++  printf '%s\n' "$LIST" | sed 's/^/    /' >&2
++  die "pi --list-models failed (exit $VERIFY_STATUS); the ELM-only policy could not be verified (pi's messages above)"
++fi
+ if printf '%s' "$LIST" | grep -qE '^(anthropic|openai|google) '; then
+   die "commercial providers are still visible - the credential scrub in ./pi is not working"
+ fi
+@@ -1599,7 +1605,9 @@
+ QWEN_ID="$(elm_py "$CONFIG_TOOL" --root "$HERE" value qwen)"
+ if ! printf '%s\n' "$LIST" | awk -v id="$QWEN_ID" '$1 == "elm" && $2 == id { found = 1 } END { exit !found }'; then
+   sed 's/^/    /' "$VERIFY_ERR" >&2
+-  die "pi did not load elm/$QWEN_ID (pi's own messages above) - check agent/models.json, runtime.env and elm-only.ts"
++  # With an empty .env, pi explains "No models available" on stdout, not stderr (Python-port treadmill).
++  printf '%s\n' "$LIST" | sed 's/^/    /' >&2
++  die "pi did not list elm/$QWEN_ID (pi's own messages above) - check that .env supplies ELM_API_KEY, then agent/models.json, runtime.env and elm-only.ts"
+ fi
+ if grep -q 'errors loading models.json' "$VERIFY_ERR"; then
+   sed 's/^/    /' "$VERIFY_ERR" >&2
+--- a/templates/extensions/help.ts
++++ b/templates/extensions/help.ts
+@@ -6,8 +6,8 @@
+  *
+  * How: pi.getCommands() gives every slash command the session really has (extension commands, prompt
+  * templates and `skill:` commands), with each one's own description, so the list cannot drift from
+- * what is installed. The tools come from pi.getAllTools(), which is the set actually offered, not a
+- * copy of it. Nothing here is a static list of features: a template removed from agent/prompts
++ * what is installed. The tools come from pi.getActiveTools(), with descriptions from getAllTools().
++ * Nothing here is a static list of features: a template removed from agent/prompts
+  * disappears from /help on the next session, and a tool an extension stops registering disappears too.
+  *
+  * Long by nature, so it is grouped and capped: commands with their one-line descriptions, the skill
+@@ -27,12 +27,13 @@
+ /** How many lines a command list may take before the rest are counted instead of named. */
+ const MAX_LINES = 24;
+ 
+-export function render(commands: Command[], tools: string[], filter = ""): string {
++export function render(commands: Command[], tools: Command[], filter = ""): string {
+ 	const needle = filter.trim().toLowerCase();
+ 	const matches = (c: Command) =>
+ 		needle === "" || c.name.toLowerCase().includes(needle) || (c.description ?? "").toLowerCase().includes(needle);
+ 	const named = commands.filter(matches);
+-	if (needle !== "" && named.length === 0) return `Nothing here matches "${filter.trim()}".`;
++	const offered = tools.filter(matches);
++	if (needle !== "" && named.length === 0 && offered.length === 0) return `Nothing here matches "${filter.trim()}".`;
+ 	const group = (source: string) => named.filter((c) => c.source === source);
+ 	const out: string[] = [];
+ 
+@@ -57,7 +58,7 @@
+ 		for (const command of known.slice(0, MAX_LINES)) out.push(`  /${command.name}`);
+ 	}
+ 
+-	if (tools.length) out.push("", `Tools offered now: ${tools.join(", ")}`);
++	if (offered.length) out.push("", `Tools offered now: ${offered.map((tool) => tool.name).join(", ")}`);
+ 	if (needle === "") {
+ 		const install = process.env.PI_CODING_AGENT_DIR ? dirname(process.env.PI_CODING_AGENT_DIR) : homedir();
+ 		out.push("", `Read more: ${join(install, "INSTALL.md")} (every part and setting), ${join(install, "README.md")}`);
+@@ -70,7 +71,9 @@
+ 		description: "list this session's commands, skills and tools",
+ 		handler: async (args, ctx) => {
+ 			const commands = (pi.getCommands?.() ?? []) as Command[];
+-			const tools = (pi.getAllTools?.() ?? []).map((tool: { name: string }) => tool.name ?? String(tool));
++			// The 2026-11-15 UI replay advertised disabled web tools and could not find bash by name.
++			const known = new Map((pi.getAllTools?.() ?? []).map((tool) => [tool.name, tool]));
++			const tools = (pi.getActiveTools?.() ?? []).map((name) => known.get(name) ?? { name });
+ 			ctx.ui.notify(render(commands, tools, args ?? ""), "info");
+ 		},
+ 	});
+--- a/templates/extensions/empty-state.ts
++++ b/templates/extensions/empty-state.ts
+@@ -50,6 +50,8 @@
+ 	pi.on("session_start", async (event, ctx) => {
+ 		if (!ctx.hasUI) return;
+ 		if (!isNew((event as { reason?: string }).reason)) return;
++		// CLI --continue/--resume emit "startup" too (2026-11-15 UI replay); their branch is not empty.
++		if (ctx.sessionManager.getBranch().some((entry) => entry.type === "message")) return;
+ 		ctx.ui.notify(firstSession(), "info");
+ 	});
+ }
+--- a/templates/extensions/status-line.ts
++++ b/templates/extensions/status-line.ts
+@@ -50,4 +50,6 @@
+ 	};
+ 	pi.on("session_start", async (_event, ctx) => paint(ctx));
+ 	pi.on("agent_start", async (_event, ctx) => paint(ctx));
++	// A /model selection changes the session before its next turn (2026-11-15 UI replay).
++	pi.on("model_select", async (_event, ctx) => paint(ctx));
+ }
+--- a/templates/extensions/todo.ts
++++ b/templates/extensions/todo.ts
+@@ -14,6 +14,7 @@
+ import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+ import { matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
+ import { Type } from "typebox";
++import { stripVTControlCharacters } from "node:util";
+ 
+ interface Todo {
+ 	id: number;
+@@ -38,6 +39,10 @@
+ /** How many lines the live plan may take. The widget sits above the editor, so it is in the way
+  * unless it is short: five items is what fits in a terminal next to the composer. */
+ export const MAX_WIDGET_LINES = 5;
++
++// The 2026-11-15 TUI replay turned five plan entries into 111 terminal rows. Keep display text on
++// one row; the original text remains in tool results and session history.
++const displayText = (text: string): string => stripVTControlCharacters(text).replace(/[\r\n\t\v\f\u0085\u2028\u2029]+/g, " ");
+ 
+ /**
+  * The live plan, drawn above the editor: what is left, what is done, and how many of each.
+@@ -55,7 +60,7 @@
+ 	const truncated = todos.length > room;
+ 	const shown = truncated ? todos.slice(0, room - 1) : todos;   // and the "… more" line one more
+ 	const lines = [`plan ${done}/${todos.length}`];
+-	for (const todo of shown) lines.push(`${todo.done ? "☑" : "☐"} ${todo.text}`);
++	for (const todo of shown) lines.push(`${todo.done ? "☑" : "☐"} ${displayText(todo.text)}`);
+ 	if (truncated) lines.push(`… and ${todos.length - shown.length} more`);
+ 	return lines;
+ }
+@@ -114,7 +119,7 @@
+ 			for (const todo of this.todos) {
+ 				const check = todo.done ? th.fg("success", "✓") : th.fg("dim", "○");
+ 				const id = th.fg("accent", `#${todo.id}`);
+-				const text = todo.done ? th.fg("dim", todo.text) : th.fg("text", todo.text);
++				const text = th.fg(todo.done ? "dim" : "text", displayText(todo.text));
+ 				lines.push(truncateToWidth(`  ${check} ${id} ${text}`, width));
+ 			}
+ 		}
+@@ -168,9 +173,19 @@
+ 	// the reconstructed list rather than empty.
+ 	// A stand-in context - a test's, or any caller without a screen - has no ui; a widget is not
+ 	// worth an exception in the middle of a session, so paint only where it can.
+-	const paint = (ctx: { ui?: { setWidget?: (key: string, lines: string[]) => void } }) => {
++	const paint = (ctx: Pick<ExtensionContext, "ui">) => {
+ 		if (typeof ctx.ui?.setWidget !== "function") return;
+-		ctx.ui.setWidget("todos", planLines(todos));
++		const lines = planLines(todos);
++		if (lines.length === 0) {
++			ctx.ui.setWidget("todos", []);
++			return;
++		}
++		// String-array widgets word-wrap each entry. Render at the terminal's width so five rows
++		// really mean five rows, including after a resize or with wide characters in a task.
++		ctx.ui.setWidget("todos", () => ({
++			render: (width: number) => lines.map((line) => truncateToWidth(line, Math.max(0, width))),
++			invalidate() {},
++		}));
+ 	};
+ 	pi.on("tool_result", async (event, ctx) => {
+ 		if ((event as { toolName?: string }).toolName === "todo") paint(ctx);
+@@ -264,7 +279,7 @@
+ 		},
+ 
+ 		renderCall(args, theme, _context) {
+-			let text = theme.fg("toolTitle", theme.bold("todo ")) + theme.fg("muted", args.action);
++			let text = theme.fg("toolTitle", theme.bold("todo ")) + theme.fg("muted", typeof args.action === "string" ? args.action : "");
+ 			if (args.text) text += ` ${theme.fg("dim", `"${args.text}"`)}`;
+ 			if (args.id !== undefined) text += ` ${theme.fg("accent", `#${args.id}`)}`;
+ 			return new Text(text, 0, 0);
+--- a/templates/extensions/command-output.ts
++++ b/templates/extensions/command-output.ts
+@@ -398,7 +398,8 @@
+ 		const structured = event.structuredContent as { output?: unknown } | undefined;
+ 		const structuredContent =
+ 			structured && typeof structured.output === "string" ? { ...structured, output: separate(structured.output).plain } : event.structuredContent;
+-		return { content, structuredContent, details: colour ? { ...details, colour } : details };
++		const metadata = details !== null && typeof details === "object" ? details : {};
++		return { content, structuredContent, details: colour ? { ...metadata, colour } : details };
+ 	});
+ 
+ 	pi.registerToolRenderer((toolName, next) => {
+--- a/templates/extensions/command-guard.ts
++++ b/templates/extensions/command-guard.ts
+@@ -1003,6 +1003,75 @@
+ }
+ 
+ /**
++ * python-before and python-after parallel.1 (2026-11-15): both children chose .pi/tmp/venv,
++ * and one deleted it while the other still used it. The second run ignored the unique-scratch
++ * prompt too. Refuse this shared path for creation/cleanup, while allowing existing-env use.
++ */
++export function sharedScratchVenv(command: string, cwd: string, env: NodeJS.ProcessEnv = process.env): Denial | undefined {
++	if (env.PI_SUBAGENT_CHILD !== "1") return undefined;
++	const canonical = (path: string): string => {
++		let probe = path;
++		while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe);
++		try {
++			return resolve(realpathSync(probe), relative(probe, path));
++		} catch {
++			return path;
++		}
++	};
++	let dir = canonical(resolve(cwd));
++	const scratch = canonical(join(dir, ".pi/tmp"));
++	const shared = canonical(join(scratch, "venv"));
++	const pathOf = (word: string): string => canonical(resolve(dir, word.replace(/\$\{PWD\}|\$PWD\b/g, dir)));
++	const runs: string[][] = [];
++	for (const words of commandsOf(command)) collectRuns(words, runs, 0);
++	for (const run of runs) {
++		const name = basename(run[0]);
++		const args = run.slice(1);
++		if (name === "cd") {
++			const target = args.find((arg) => !arg.startsWith("-"));
++			if (target) dir = pathOf(target);
++			continue;
++		}
++		let creation: string[] | undefined;
++		if (/^(?:python[\d.]*|py)$/.test(name)) {
++			for (let i = 0; i < args.length; i++) {
++				const arg = args[i];
++				if (arg === "--" || arg === "-" || arg.startsWith("-c") || !arg.startsWith("-")) break;
++				if (["-W", "-X", "--check-hash-based-pycs"].includes(arg)) { i++; continue; }
++				if (arg.startsWith("-m")) {
++					const module = arg === "-m" ? args[i + 1] : arg.slice(2);
++					if (/^(?:venv|virtualenv)$/.test(module ?? "")) creation = args.slice(i + (arg === "-m" ? 2 : 1));
++					break;
++				}
++			}
++		} else if (name === "virtualenv") creation = args;
++		else if (name === "uv") {
++			const subcommand = args.findIndex((arg) => !arg.startsWith("-"));
++			if (args[subcommand] === "venv") creation = args.slice(subcommand + 1);
++		}
++		const cleanup = ["rm", "rmdir", "unlink", "mv"].includes(name);
++		if (!creation && !cleanup) continue;
++		if (creation?.some((arg) => arg === "--help" || arg === "-h")) continue;
++		const candidates: string[] = [];
++		const operands = creation ?? args;
++		for (let i = 0; i < operands.length; i++) {
++			const arg = operands[i];
++			if (creation && ["--prompt", "--python", "-p", "--creator", "--seeder"].includes(arg)) { i++; continue; }
++			if (!arg.startsWith("-")) candidates.push(pathOf(arg));
++		}
++		if (!candidates.some((path) => path === shared || (cleanup && (path === scratch || path.startsWith(`${shared}/`))))) continue;
++		return {
++			pattern: "shared subagent scratch environment",
++			spelling: run.join(" "),
++			reason: "Other children may be using .pi/tmp/venv. Do not create, replace or remove that shared environment, or remove .pi/tmp itself. " +
++				"Run `mkdir -p .pi/tmp`, then `mktemp -d .pi/tmp/child.XXXXXX` once; retain the returned path, create your virtualenv inside it, " +
++				"and clean up only that private directory. Using an existing shared environment to run tests is allowed.",
++		};
++	}
++	return undefined;
++}
++
++/**
+  * Read-only auto: the mode between manual and auto (asked for on 2026-11-14). The gate runs manual's
+  * floor - every call asks - and this reviews each ask before it reaches the user: a shell command that
+  * can only read, and only inside the project, is allowed; everything else is the user's, as in manual.
+@@ -1162,6 +1231,7 @@
+ 				deniedSpelling(input.command, bashRules()) ??
+ 				remoteEngineInEnvironment(input.command) ??
+ 				openServer(input.command) ??
++				sharedScratchVenv(input.command, ctx.cwd) ??
+ 				installWrite(input.command, ctx.cwd, install);
+ 		} catch {
+ 			// A command that breaks the guard's reading is one it cannot vouch for.
+--- a/templates/extensions/wait-guard.ts
++++ b/templates/extensions/wait-guard.ts
+@@ -30,7 +30,8 @@
+  * driven session (auto01, 2026-11-13). So the launcher no longer offers `bg_wait` to
+  * an interactive session at all, and this guard is what is left: the launch result's
+  * one status check is allowed, and after it a second check, a sleep or a read of the run's files
+- * in the same turn is the refused wait.
++ * in the same turn is the refused wait. A successful async launch arms sleep detection too:
++ * checking the wrong status tool must not be a way around the instruction to end the turn.
+  */
+ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+ 
+@@ -126,11 +127,19 @@
+ 	let same = 0; // how many times in a row it has been made
+ 	let told = false; // this turn, a wait has been refused once already
+ 	let checked = false; // this turn, the one status check has been made
++	let detached = false; // this turn, an async subagent launch succeeded
+ 	let refused = 0; // waits refused this turn
+ 	pi.on("agent_start", () => {
+ 		told = false;
+ 		checked = false;
++		detached = false;
+ 		refused = 0;
++	});
++	pi.on("tool_result", (event, ctx) => {
++		if (!ctx.hasUI || event.toolName !== "subagent" || event.isError) return;
++		// python-before parallel.1 (2026-11-15) used the wrong status tools, then polled and changed
++		// running children's files. A successful async launch itself is enough to make sleeping a wait.
++		if (event.content.some((part) => part.type === "text" && /^Async\b[^\n[]*\[[0-9a-f-]{36}\]/im.test(part.text))) detached = true;
+ 	});
+ 	pi.on("tool_call", async (event, ctx) => {
+ 		if (!ctx.hasUI) return undefined;
+@@ -165,7 +174,7 @@
+ 		// After the one check, any other wait is the refused one: auto02 (2026-11-13, manual) followed its
+ 		// status check with `sleep 10 && cat .../async-subagent-runs/<id>/output-0.log`, which the user was
+ 		// then asked to allow.
+-		if ((told || checked) && waiting(event.toolName, input)) return refuse();
++		if ((told || checked || detached) && waiting(event.toolName, input)) return refuse();
+ 		return undefined;
+ 	});
+ }
+--- a/templates/agents/qwen.md
++++ b/templates/agents/qwen.md
+@@ -85,8 +85,12 @@
+    `insert` take the file's `path` and those anchors. `grep` returns each hit as
+    `lineNumber:│ anchor│content`, editable without a `read`; `undo_last_change`
+    reverts your last edit on a file.
+-3. **Run the check.** The test, the build, the linter, or a command that proves it
+-   works. A change you have not executed is not finished.
++3. **Run the saved tests.** Use the project's test framework; for a new Python
++   project without one, prefer standard-library `unittest` when suitable. If
++   collection or imports fail, fix the runner/import setup and rerun the saved
++   test files. Keep requested output names; do not substitute inline assertions
++   for saved tests. Do not weaken assertions to make them pass. For other work,
++   run its build, linter or relevant check. Unexecuted work is not finished.
+ 4. **Read back every file you touched**, as the person receiving it would.
+ 5. **Report in the format below.**
+ 
+@@ -116,6 +120,12 @@
+   or committed with the project. A write outside
+   the launch directory needs the user's approval, which may never come; inside
+   it, none does unless the session is in manual or read-only-auto mode, where every write asks.
++- **Give your scratch its own directory.** Run `mkdir -p .pi/tmp`, then
++  `mktemp -d .pi/tmp/child.XXXXXX` once and keep the returned path for later calls.
++  Put any temporary virtualenv you need inside that directory and reuse it.
++  Clean up only your own directory; never create or remove a shared `.pi/tmp/venv`,
++  and never delete `.pi/tmp` itself. In the 2026-11-15 parallel.1 treadmill,
++  one child's cleanup deleted the virtualenv its sibling was still using.
+ 
+ # Rules from the main session
+ 
+--- a/templates/agents/llama.md
++++ b/templates/agents/llama.md
+@@ -37,7 +37,13 @@
+    `undo_last_change` reverts your last edit. Never reproduce file text
+    byte-for-byte — anchors exist so you do not have to.
+ 4. **Read the file back** and confirm the change is there.
+-5. **Report in the format below.**
++5. **Run the saved tests** for code changes. Use the project's test framework;
++   for a new Python project without one, prefer standard-library `unittest`
++   when suitable. If collection or imports fail, fix the runner/import setup
++   within your assigned files and rerun the saved test files; report any fix
++   outside your task to the parent. Keep requested output names; do not substitute
++   inline assertions for saved tests. Do not weaken assertions to make them pass.
++6. **Report in the format below.**
+ 
+ Measured here: "read each file and add docstrings" returned FINISHED having
+ changed nothing. The same work as numbered steps — read, replace, read, replace —
+@@ -56,6 +62,11 @@
+   anything from a `.env` into a file.
+ - **Keep scratch under `.pi/tmp/`** in the working directory. A write outside
+   the launch directory needs the user's approval, which may never come.
++- **Give your scratch its own directory.** Run `mkdir -p .pi/tmp`, then
++  `mktemp -d .pi/tmp/child.XXXXXX` once and keep the returned path for later calls.
++  Clean up only your own directory; never create or remove a shared `.pi/tmp/venv`,
++  and never delete `.pi/tmp` itself. In the 2026-11-15 parallel.1 treadmill,
++  one child's cleanup deleted the virtualenv its sibling was still using.
+ 
+ # Rules
+ 
+--- a/templates/skills/elm-delegation/SKILL.md
++++ b/templates/skills/elm-delegation/SKILL.md
+@@ -119,6 +119,15 @@
+ read-only - so say which it is, every time. Give write access only when the scope
+ is unambiguous and confined, and never let two sub-agents write to the same file
+ concurrently.
++
++Scratch is shared too. In the 2026-11-15 parallel.1 treadmill, two children
++created `.pi/tmp/venv`; one deleted it after testing while the other still
++needed it. Give each child this instruction: run `mkdir -p .pi/tmp`, then
++`mktemp -d .pi/tmp/child.XXXXXX` once, retain the returned path, and put any
++temporary virtualenv inside it. Clean up only your own directory; never create
++or remove a shared `.pi/tmp/venv`, and never delete `.pi/tmp` itself. A project
++environment prepared before launch can be shared for running tests; leave it
++in place for the other children and the parent's verification.
+ 
+ ### Llama needs explicit steps, not goals
+ 
+--- a/templates/skills/changing-code/SKILL.md
++++ b/templates/skills/changing-code/SKILL.md
+@@ -19,7 +19,7 @@
+ 3. **Fix it where it lives.** Not in the test, not in the caller that happened
+    to show it, not by catching the error.
+ 4. **Then try to break your fix.** Write three or four cases the report did not
+-   give and run them - a throwaway script or `python3 -c` is enough:
++   give, keep them in the saved tests, and run them:
+    - the neighbour of the example: a second key, group, file or caller;
+    - the edges: empty, one item, zero, the largest sensible value, the value
+      just outside what is allowed;
+@@ -35,6 +35,12 @@
+ 6. **Keep what was not asked about as it was**: public names, return shapes,
+    the tests, the order of results. If a faster or cleaner version returns
+    something different on any input, it is a different function.
++7. **Run the saved tests.** Use the project's test framework; for a new Python
++   project without one, prefer standard-library `unittest` when suitable. If
++   collection or imports fail, fix the runner/import setup and rerun the saved
++   test files. Keep requested output names; do not substitute inline assertions
++   for saved tests. Do not weaken assertions to make them pass. Inline probes
++   can diagnose a failure; they do not repair a suite that cannot run.
+ 
+ Report: the cause, the change (file and function), the command that failed
+ before and passes now, and the extra cases you ran with their results. A case
+--- a/docs/tuning/harness/treadmill/batch.sh
++++ b/docs/tuning/harness/treadmill/batch.sh
+@@ -8,10 +8,17 @@
+ #   TREADMILL_OUT    logs, reports and summaries (default $TREADMILL_WORK/treadmill-out)
+ #   ELM_PI_ENV_FILE  a .env holding ELM_API_KEY, copied (mode 600) into the test install and never printed.
+ #                    Required: every session here spends that key's ELM allocation.
++#   TREADMILL_FROM  optional: reuse an existing install's dependencies with dev-setup.sh; templates
++#                    and the Python launcher still come from this working tree, without downloads.
+ #   TREADMILL_EXTENSION  optional: a harness extension (../cache/cache_log.ts) copied into the test install's
+ #                    agent/extensions/ as zz-<name>, so it loads after the install's own. Never into a real install.
+-set -u
++set -euo pipefail
++if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
++  echo "usage: batch.sh <name> <runs.json> [jobs]" >&2; exit 2
++fi
+ NAME=$1; RUNS=$2; JOBS=${3:-3}
++case "$JOBS" in ''|*[!0-9]*|0) echo "jobs must be a positive integer" >&2; exit 2 ;; esac
++[ "$JOBS" -gt 0 ] || { echo "jobs must be a positive integer" >&2; exit 2; }
+ ITER="$(cd "$(dirname "$0")" && pwd)"
+ REPO="$(cd "$ITER/../../../.." && pwd)"
+ WORK="${TREADMILL_WORK:-$HOME/sandbox}"
+@@ -33,15 +40,24 @@
+     shutil.copy2(s, d)
+ ' "$REPO" "$INST"
+ cp "$ELM_PI_ENV_FILE" "$INST/.env"; chmod 600 "$INST/.env"
+-(cd "$INST" && ./bootstrap.sh < /dev/null) > "$OUT/bootstrap.txt" 2>&1
+-BOOT=$?
++BOOT=0
++if [ -n "${TREADMILL_FROM:-}" ]; then
++  (cd "$INST" && ./scripts/dev-setup.sh --from "$TREADMILL_FROM" < /dev/null) > "$OUT/bootstrap.txt" 2>&1 || BOOT=$?
++else
++  (cd "$INST" && ./bootstrap.sh < /dev/null) > "$OUT/bootstrap.txt" 2>&1 || BOOT=$?
++fi
++# The Python-port treadmill must distinguish an install that never started from a bad model run.
++step "bootstrap exit=$BOOT $(grep -o '[0-9]* extensions loaded, [0-9]* failed' "$OUT/bootstrap.txt" || true) commit=$(cd "$REPO" && git rev-parse --short HEAD)$(cd "$REPO" && git diff --quiet HEAD || echo +dirty)"
++if [ "$BOOT" -ne 0 ]; then
++  echo "bootstrap failed (exit $BOOT); see $OUT/bootstrap.txt" >&2
++  exit "$BOOT"
++fi
+ if [ -n "${TREADMILL_EXTENSION:-}" ]; then
+   cp "$TREADMILL_EXTENSION" "$INST/agent/extensions/zz-$(basename "$TREADMILL_EXTENSION" | tr _ -)"
+ fi
+-step "bootstrap exit=$BOOT $(grep -o '[0-9]* extensions loaded, [0-9]* failed' "$OUT/bootstrap.txt") commit=$(cd "$REPO" && git rev-parse --short HEAD)$(cd "$REPO" && git diff --quiet HEAD || echo +dirty)"
+ 
+ one() {   # $1 = index into runs.json
+-  local id flags prompts seed max proj out
++  local id flags prompts seed max proj out driven analyzed
+   id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[int(sys.argv[2])]["id"])' "$RUNS" "$1")
+   flags=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))[int(sys.argv[2])].get("flags",[])))' "$RUNS" "$1")
+   prompts=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))[int(sys.argv[2])]["prompts"]))' "$RUNS" "$1")
+@@ -51,20 +67,26 @@
+   mkdir -p "$proj" "$out"
+   if [ -n "$seed" ]; then
+     cp -R "$seed/." "$proj/"; find "$proj" -name __pycache__ -prune -exec rm -rf {} +
+-    (cd "$proj" && git init -q && git add -A && git -c user.name=user -c user.email=user@example.invalid commit -qm "the project as it was")
++    (cd "$proj" && git init -q && git add -A && git -c user.name=user -c user.email=user@example.invalid commit --allow-empty -qm "the project as it was")
+   fi
+-  "$INST/.node/bin/node" "$ITER/drive.mjs" "$INST/pi" "$proj" "$out/rpc.jsonl" "$flags" "$prompts" "$max"
+-  ELM_PI_REPO="$REPO" python3 "$ITER/analyze.py" "$proj" "$INST" "$out" > "$out/report.md" 2> "$out/analyze.err"
+-  step "$id done: $(grep -o '"finish":"[^"]*"' "$out/rpc.jsonl" | tail -1)"
++  driven=0; analyzed=0
++  "$INST/.node/bin/node" "$ITER/drive.mjs" "$INST/pi" "$proj" "$out/rpc.jsonl" "$flags" "$prompts" "$max" || driven=$?
++  ELM_PI_REPO="$REPO" python3 "$ITER/analyze.py" "$proj" "$INST" "$out" > "$out/report.md" 2> "$out/analyze.err" || analyzed=$?
++  step "$id driver=$driven analyzer=$analyzed: $(grep -o '"finish":"[^"]*"' "$out/rpc.jsonl" | tail -1 || true)"
++  [ "$driven" -eq 0 ] && [ "$analyzed" -eq 0 ]
+ }
+ COUNT=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$RUNS")
+ i=0
++pids=()
+ while [ "$i" -lt "$COUNT" ]; do
+   while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do sleep 5; done
+   one "$i" &
++  pids+=("$!")
+   sleep 3
+   i=$((i + 1))
+ done
+-wait
++failed=0
++for pid in ${pids[@]+"${pids[@]}"}; do wait "$pid" || failed=1; done
+ TREADMILL_WORK="$WORK" python3 "$ITER/summary.py" "$OUT" > "$OUT/summary.md" 2>&1
+-step "batch done"
++step "batch done exit=$failed"
++exit "$failed"
+--- a/docs/tuning/harness/treadmill/drive.mjs
++++ b/docs/tuning/harness/treadmill/drive.mjs
+@@ -6,6 +6,7 @@
+ import { spawn } from "node:child_process";
+ import { appendFileSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+ import { join } from "node:path";
++import { performance } from "node:perf_hooks";
+ 
+ const [pi, cwd, logPath, flagsJson, promptsJson, maxSecsArg] = process.argv.slice(2);
+ const flags = JSON.parse(flagsJson);
+@@ -14,27 +15,66 @@
+ const log = (o) => appendFileSync(logPath, JSON.stringify({ t: new Date().toISOString().slice(11, 19), ...o }) + "\n");
+ writeFileSync(logPath, "");
+ 
+-const child = spawn(pi, [...flags, "--mode", "rpc"], { cwd, stdio: ["pipe", "pipe", "pipe"], env: process.env });
++const child = spawn(pi, [...flags, "--mode", "rpc"], {
++	cwd, stdio: ["pipe", "pipe", "pipe"], env: process.env, detached: process.platform !== "win32",
++});
++// A UTF-8 character can span pipe chunks; Buffer.toString() per chunk corrupts the transcript.
++child.stdout.setEncoding("utf8");
++child.stderr.setEncoding("utf8");
+ child.stderr.on("data", (d) => log({ stderr: String(d).slice(0, 400) }));
+-child.on("exit", (code, signal) => { log({ exit: code, signal }); process.exit(0); });
+-const send = (o) => child.stdin.write(JSON.stringify(o) + "\n");
++const send = (o) => { if (!finished) child.stdin.write(JSON.stringify(o) + "\n"); };
+ 
+-const started = Date.now();
++// A wall-clock jump during the Python-port batch timed out a completed parser.
++// Deadlines measure elapsed time; only the human-readable log timestamp uses the wall clock.
++const started = performance.now();
+ let buf = "";
+ let running = false;
+-let lastActivity = Date.now();
++let lastActivity = performance.now();
+ let next = 0;
+ let dialogs = 0;
+ let lastPrompt = "";
+ let finished = false;
++let finishStatus = 0;
++const signalChildren = (signal) => {
++	if (!child.pid) return;
++	try {
++		if (process.platform !== "win32") process.kill(-child.pid, signal);
++		else child.kill(signal);
++	} catch (error) { if (error.code !== "ESRCH") throw error; }
++};
++const stopChildren = () => {
++	signalChildren("SIGTERM");
++	setTimeout(() => { signalChildren("SIGKILL"); process.exit(finishStatus); }, 8000);
++};
+ 
+-const finish = (why) => {
++const recordFinish = (why, status) => {
+ 	if (finished) return;
+ 	finished = true;
+-	log({ finish: why, secs: Math.round((Date.now() - started) / 1000), dialogs });
+-	child.kill("SIGTERM");
+-	setTimeout(() => { child.kill("SIGKILL"); process.exit(0); }, 8000);
++	finishStatus = status;
++	log({ finish: why, secs: Math.round((performance.now() - started) / 1000), dialogs });
+ };
++const finish = (why, status = why === "done" ? 0 : 1) => {
++	if (finished) return;
++	recordFinish(why, status);
++	stopChildren();
++};
++// An absent launcher, a refusal or a crash used to look like a successful driver (exit 0).
++child.on("error", (error) => { log({ error: error.message }); recordFinish("launcher error", 1); });
++child.on("exit", (code, signal) => {
++	log({ exit: code, signal });
++	// A crashed launcher can leave a tool holding stdout open: close alone never detects that exit.
++	if (!finished) { recordFinish("launcher exited before completion", code || 1); stopChildren(); }
++});
++child.on("close", () => {
++	signalChildren("SIGKILL");
++	process.exit(finishStatus);
++});
++for (const [signal, status] of [["SIGINT", 130], ["SIGTERM", 143]]) {
++	process.on(signal, () => finish(`driver interrupted (${signal})`, status));
++}
++child.stdin.on("error", (error) => {
++	if (!finished) { log({ error: error.message }); finish("launcher input error"); }
++});
+ 
+ /** Background runs launched and not yet reported, from the session file. */
+ function pending() {
+@@ -72,7 +112,7 @@
+ 		const line = buf.slice(0, i);
+ 		buf = buf.slice(i + 1);
+ 		let ev; try { ev = JSON.parse(line); } catch { continue; }
+-		lastActivity = Date.now();
++		lastActivity = performance.now();
+ 		if (ev.type === "extension_ui_request") {
+ 			if (ev.method === "select") {
+ 				dialogs++;
+@@ -106,6 +146,7 @@
+ 		else if (ev.type === "agent_end") { running = false; log({ agent_end: true }); }
+ 		else if (ev.type === "tool_execution_start") log({ tool: ev.toolName, args: JSON.stringify(ev.args ?? {}).slice(0, 240) });
+ 		else if (ev.type === "tool_execution_end") log({ toolEnd: ev.toolName, isError: ev.isError, result: JSON.stringify(ev.result?.content ?? ev.result ?? {}).slice(0, 300) });
++		else if (ev.type === "extension_error") log({ error: `extension ${ev.extensionPath} (${ev.event}): ${ev.error}` });
+ 		else if (ev.type === "response" && ev.success === false) {
+ 			log({ error: JSON.stringify(ev).slice(0, 400) });
+ 			// pi is mid-run (a rate-limit retry counts): the terminal UI would queue what was typed, so queue it.
+@@ -125,13 +166,13 @@
+ 	lastPrompt = message;
+ 	log({ prompt: message.slice(0, 300) });
+ 	send({ id: `p${next}`, type: "prompt", message });
+-	lastActivity = Date.now();
++	lastActivity = performance.now();
+ 	return true;
+ };
+ 
+ setTimeout(() => sendNext(), 5000);
+ setInterval(() => {
+-	const now = Date.now();
++	const now = performance.now();
+ 	if (now - started > maxMs) return finish("time limit");
+ 	if (running) return;
+ 	const quiet = now - lastActivity;
+--- a/docs/tuning/harness/treadmill/analyze.py
++++ b/docs/tuning/harness/treadmill/analyze.py
+@@ -121,15 +121,21 @@
+ 
+ 
+ lines = [f"# Report: {proj.replace(home, '~')}", ""]
++rpc = os.path.join(RUN_OUT, "rpc.jsonl")
++rpc_rows = read(rpc) if os.path.exists(rpc) else []
++driver_errors = [f"{r.get('t', '')} DRIVER ERROR: {short(r['error'], 500)}" for r in rpc_rows if "error" in r]
++driver_stderr = [short(r["stderr"], 400) for r in rpc_rows if "stderr" in r]
+ steps = os.path.join(RUN_OUT, "steps.txt")
+ if os.path.exists(steps):
+     lines += ["## Steps", "```", open(steps).read().strip(), "```", ""]
+ 
+ main = session_file(proj)
+ if not main:
+-    lines.append("NO SESSION FILE")
++    # Startup refusals have no transcript: the RPC stderr is the only account of what failed.
++    lines += ["NO SESSION FILE", "", "## Driver errors", *(driver_errors or ["(none)"]), "",
++              "## stderr", *(driver_stderr or ["(none)"]), ""]
+     print("\n".join(lines))
+-    sys.exit(0)
++    sys.exit(1)
+ rows = read(main)
+ summary, error_lines, custom, users, final, tin, tout = summarise(rows, "Parent session")
+ lines += ["## Cost and shape"] + summary
+@@ -214,10 +220,10 @@
+ lines += ["## Errors and refusals (parent)"] + (error_lines or ["(none)"]) + [""]
+ lines += ["## Extension messages"] + [f"- {c}" for c in custom if "skill-routing" not in c] + [""]
+ 
+-rpc = os.path.join(RUN_OUT, "rpc.jsonl")
++lines += ["## Driver errors", *(driver_errors or ["(none)"]), ""]
+ if os.path.exists(rpc):
+     dialogs, retries, stderr = [], [], []
+-    for r in read(rpc):
++    for r in rpc_rows:
+         if "dialog" in r:
+             dialogs.append(f"{r['t']} {r['dialog']}: {short(r.get('title'), 200)} -> {r.get('answered', '')}")
+         if "retry" in r:
+--- a/docs/tuning/harness/treadmill/summary.py
++++ b/docs/tuning/harness/treadmill/summary.py
+@@ -13,12 +13,13 @@
+     total = (re.search(r"Total tokens[^:]*: ([\d,]+)", text) or [None, "?"])[1]
+     children = len(re.findall(r"^- \w+ [0-9a-f]{8} exit=", text, re.M))
+     errors = sec("Errors and refusals (parent)", "Extension messages")
++    errors += sec("Driver errors", "stderr" if "NO SESSION FILE" in text else "Dialogs answered")
+     for line in re.findall(r"^\d\d:\d\d:\d\d (\w+) ERROR: (.*)$", errors, re.M):
+         tool, msg = line
+         msg = re.sub(r"~?/[\w./@-]+", "<path>", msg); msg = re.sub(r"\d+", "N", msg)
+         key = f"{tool}: {msg[:70]}"
+         kinds[key] += 1; examples.setdefault(key, name)
+-    nerr = len(re.findall(r" ERROR: ", errors))
++    nerr = len(re.findall(r" ERROR: | ASSISTANT (?:error|aborted): ", errors))
+     audit = sec("Site audit (view's own checks, run on what was left)", "\x00")
+     # "DIFF" only when a repeated part really has several versions. The comparison's other remarks - a
+     # picture nothing uses, a page nothing links to - and its closing "unless a difference is meant" used
+--- a/docs/tuning/harness/treadmill/score.py
++++ b/docs/tuning/harness/treadmill/score.py
+@@ -7,6 +7,17 @@
+ WORK = Path(os.environ.get("TREADMILL_WORK") or Path.home() / "sandbox")
+ inst = WORK / f"elm-pi-b{name}"; out = Path(os.environ.get("TREADMILL_OUT") or WORK / "treadmill-out") / f"b{name}"
+ py = inst / "agent/python/env/bin/python"
++# Offline dev-setup installs deliberately omit the analysis environment; use the same
++# recorded interpreter as their launcher for stdlib checks, rather than fail before scoring.
++if not (py.is_file() and os.access(py, os.X_OK)):
++    record = inst / "agent/python-path"
++    try:
++        recorded = record.read_text().splitlines()[0].strip()
++    except (OSError, IndexError):
++        recorded = ""
++    py = Path(recorded)
++    if not (py.is_absolute() and py.is_file() and os.access(py, os.X_OK)):
++        sys.exit(f"score: no runnable Python in {inst}; bootstrap it or restore agent/python-path")
+ rows = []
+ for run in sorted(p.name for p in out.iterdir() if (p / "rpc.jsonl").exists()):
+     task = re.sub(r"\.\d+$", "", run); proj = WORK / f"b{name}-{run}"
+--- a/tests/test_python_launcher.py
++++ b/tests/test_python_launcher.py
+@@ -24,6 +24,8 @@
+ 
+ import os
+ import re
++import signal
++import shutil
+ import socket
+ import subprocess
+ import sys
+@@ -31,6 +33,7 @@
+ import threading
+ import unittest
+ from pathlib import Path
++from unittest.mock import patch
+ 
+ ROOT = Path(__file__).resolve().parents[1]
+ # The installed command, and the two files it is made of: `pi` finds the
+@@ -114,7 +117,7 @@
+         """Two fresh installs, one per launcher, in their own folders."""
+         self.serial = getattr(self, "serial", 0) + 1
+         base = self.base / str(self.serial)
+-        return (functional.Fixture(base / "bash"),
++        return (functional.Fixture(base / "bash", launcher=BASH_LAUNCHER),
+                 functional.Fixture(base / "python", launcher=PYTHON_LAUNCHER))
+ 
+     def verdict(self, fixture, args, env):
+@@ -162,6 +165,15 @@
+ 
+     # --- what a session is handed -------------------------------------------
+ 
++    def test_the_reference_still_runs_without_the_python_launcher_package(self):
++        # Fixture's default changed during the port and made both arms Python;
++        # removing the port from the reference arm proves it is independent.
++        bash, _ = self.pair()
++        shutil.rmtree(bash.root / "python")
++        result = self.verdict(bash, ["-p", "x"], {})
++        self.assertEqual(0, result["code"], result["stderr"])
++        self.assertIn("x", result["args"])
++
+     def test_a_plain_run(self):
+         self.check(["-p", "x"])
+ 
+@@ -209,6 +221,13 @@
+         self.check(["setup"])
+         self.check(["setup", "--bogus"])
+         self.check(["setup", "--all"])
++
++    def test_with_all_and_remote_keep_subcommands_available(self):
++        # With every tool enabled the exclusion list is empty; update/setup
++        # must still be intercepted instead of sent to the model as a prompt.
++        for command in (["update", "--extensions"], ["setup", "--no-python"]):
++            with self.subTest(command=command):
++                self.check(["--with-all", "--remote"] + command, {"PI_ELM_CHILD": "1"})
+ 
+     # --- this launcher's own flags ------------------------------------------
+ 
+@@ -494,6 +513,12 @@
+     def env(self, **overrides):
+         return environ.Environment(dict(self.ENV, **overrides))
+ 
++    def test_no_exclusions_preserves_the_arguments_for_later_launcher_steps(self):
++        switches = flags.Switches(with_all=True, rest=["--session-dir", "transcripts", "-p", "x"])
++        rest, flags_out = tools.plan(self.env(PI_ELM_WEB="1"), switches, switches.rest, False)
++        self.assertEqual(switches.rest, rest)
++        self.assertEqual([], flags_out)
++
+     def test_web_tools_go_out_unless_asked_for(self):
+         switches = flags.Switches(rest=["-p", "x"])
+         self.assertEqual(["notebook_move,web_search,fetch_content"],
+@@ -786,6 +811,32 @@
+                 proxy.ensure(tmp, environ.Environment({}))
+         self.assertEqual(1, caught.exception.code)
+         self.assertIn("refuses to run unproxied", "\n".join(caught.exception.lines))
++
++    def test_a_watchdog_does_not_hold_a_completed_sessions_output_open(self):
++        # A still-running heartbeat must not keep a runner waiting for EOF
++        # after its session has finished, even while a health check is stalled.
++        script = """import os, sys, time
++sys.path.insert(0, %r)
++from elmpi import proxy
++proxy._heartbeat = lambda *args: time.sleep(60)
++proxy._watchdog(os.getpid(), 9, lambda port: None)
++print('session finished', flush=True)
++print('session diagnostic', file=sys.stderr, flush=True)
++""" % str(PACKAGE)
++        process = subprocess.Popen([sys.executable, "-E", "-S", "-c", script],
++                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
++                                   text=True, start_new_session=True)
++        try:
++            stdout, stderr = process.communicate(timeout=5)
++            self.assertEqual(0, process.returncode)
++            self.assertEqual("session finished\n", stdout)
++            self.assertEqual("session diagnostic\n", stderr)
++        finally:
++            try:
++                os.killpg(process.pid, signal.SIGTERM)
++            except ProcessLookupError:
++                pass
++            process.communicate(timeout=5)
+ 
+ 
+ class _HealthServer:
+@@ -873,6 +924,23 @@
+ 
+ 
+ class InterpreterTests(unittest.TestCase):
++    def test_a_broken_candidate_does_not_prevent_fallback_or_a_useful_refusal(self):
++        from elmpi import interpreter
++        from elmpi.errors import Refusal
++        with tempfile.TemporaryDirectory() as tmp:
++            broken = Path(tmp) / "python3"
++            broken.write_text("#!/bin/sh\nexit 127\n")
++            broken.chmod(0o755)
++            with patch.object(interpreter, "candidates", return_value=[str(broken), sys.executable]):
++                env = environ.Environment({})
++                self.assertEqual(sys.executable, interpreter.select(tmp, env))
++                self.assertEqual(sys.executable, env.get("ELM_PI_PYTHON"))
++            with patch.object(interpreter, "candidates", return_value=[str(broken)]):
++                with self.assertRaises(Refusal) as caught:
++                    interpreter.select(tmp, environ.Environment({}))
++                self.assertEqual(1, caught.exception.code)
++                self.assertIn(str(broken) + " (does not run)", "\n".join(caught.exception.lines))
++
+     def test_a_recorded_interpreter_is_trusted_and_exported(self):
+         from elmpi import interpreter
+         with tempfile.TemporaryDirectory() as tmp:
+--- /dev/null
++++ b/tests/test_treadmill.py
+@@ -0,0 +1,271 @@
++"""The Python-port treadmill must report failed installs and dead sessions as failures.
++
++These run the actual driver and batch wrapper with small local stand-ins: no ELM
++requests, downloaded dependencies or credentials are needed.
++"""
++import json
++import os
++from pathlib import Path
++import shlex
++import signal
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++
++ROOT = Path(__file__).resolve().parents[1]
++HARNESS = ROOT / "docs/tuning/harness/treadmill"
++NODE = str(ROOT / ".node/bin/node") if (ROOT / ".node/bin/node").exists() else shutil.which("node")
++
++
++def executable(path, text):
++    path.parent.mkdir(parents=True, exist_ok=True)
++    path.write_text(text)
++    path.chmod(0o755)
++    return path
++
++
++@unittest.skipUnless(NODE, "needs Node for the real RPC driver")
++class DriverTests(unittest.TestCase):
++    def run_driver(self, script=None, max_seconds=20):
++        with tempfile.TemporaryDirectory() as tmp:
++            project = Path(tmp)
++            launcher = project / "pi"
++            if script is not None:
++                executable(launcher, "#!" + NODE + "\n" + script)
++            log = project / "rpc.jsonl"
++            run = subprocess.run([NODE, str(HARNESS / "drive.mjs"), str(launcher), tmp,
++                                  str(log), "[]", '["Say OK"]', str(max_seconds)],
++                                 capture_output=True, text=True, timeout=15)
++            rows = [json.loads(line) for line in log.read_text().splitlines()]
++        return run, rows
++
++    def test_missing_launcher_has_a_finish_and_nonzero_status(self):
++        run, rows = self.run_driver()
++        self.assertNotEqual(0, run.returncode)
++        self.assertEqual("launcher error", next(r["finish"] for r in rows if "finish" in r))
++        self.assertTrue(any("ENOENT" in r.get("error", "") for r in rows))
++
++    def test_clean_and_failed_premature_exits_are_never_success(self):
++        for status in (0, 7):
++            with self.subTest(status=status):
++                run, rows = self.run_driver(f'process.stderr.write("startup refused\\n"); process.exit({status});')
++                self.assertEqual(status or 1, run.returncode)
++                self.assertEqual("launcher exited before completion", next(r["finish"] for r in rows if "finish" in r))
++                self.assertTrue(any("startup refused" in r.get("stderr", "") for r in rows))
++
++    def test_timeout_is_a_failure(self):
++        run, rows = self.run_driver("setInterval(() => {}, 1000);", max_seconds=0.01)
++        self.assertNotEqual(0, run.returncode)
++        self.assertEqual("time limit", next(r["finish"] for r in rows if "finish" in r))
++
++    def test_wall_clock_jump_does_not_expire_a_monotonic_deadline(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            project = Path(tmp)
++            preload = project / "jump-clock.mjs"
++            preload.write_text('''
++const wallNow = Date.now;
++const interval = globalThis.setInterval;
++const timeout = globalThis.setTimeout;
++let jump = 0;
++Date.now = () => wallNow() + jump;
++globalThis.setInterval = (fn, ms, ...args) => interval(() => { jump += 3600000; fn(...args); }, 5);
++globalThis.setTimeout = (fn, ms, ...args) => timeout(fn, ms === 5000 ? 5 : ms, ...args);
++''')
++            launcher = executable(project / "pi", "#!" + NODE + '''
++const {writeFileSync} = require("node:fs");
++setTimeout(() => writeFileSync("still-running", "yes"), 100);
++setInterval(() => {}, 1000);
++''')
++            log = project / "rpc.jsonl"
++            run = subprocess.run([NODE, "--import", str(preload), str(HARNESS / "drive.mjs"),
++                                  str(launcher), tmp, str(log), "[]", '["Say OK"]', "1"],
++                                 capture_output=True, text=True, timeout=10)
++            rows = [json.loads(line) for line in log.read_text().splitlines()]
++            finished = next(r for r in rows if "finish" in r)
++            self.assertNotEqual(0, run.returncode)
++            self.assertEqual("time limit", finished["finish"])
++            self.assertEqual(1, finished["secs"])
++            self.assertEqual("yes", (project / "still-running").read_text())
++
++    def test_fragmented_unicode_and_extension_errors_survive_the_log(self):
++        script = r'''
++const text = JSON.stringify({type: "extension_ui_request", method: "notify", message: "Qwen: λ 中文 🐢"}) + "\n";
++const bytes = Buffer.from(text);
++const split = bytes.indexOf(Buffer.from("λ")) + 1;
++process.stdout.write(bytes.subarray(0, split));
++setTimeout(() => {
++  process.stdout.write(bytes.subarray(split));
++  process.stdout.write(JSON.stringify({type: "extension_error", extensionPath: "broken.ts", event: "agent_end", error: "render failed"}) + "\n");
++  setTimeout(() => process.exit(8), 20);
++}, 20);
++'''
++        run, rows = self.run_driver(script)
++        self.assertEqual(8, run.returncode)
++        self.assertEqual(["Qwen: λ 中文 🐢"], [r["notify"] for r in rows if "notify" in r])
++        self.assertEqual(["extension broken.ts (agent_end): render failed"], [r["error"] for r in rows if "error" in r])
++
++    @unittest.skipIf(os.name == "nt", "POSIX process groups")
++    def test_crashed_launcher_does_not_leave_a_tool_holding_its_pipes(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            project = Path(tmp)
++            launcher = executable(project / "pi", "#!" + NODE + r'''
++const {spawn} = require("node:child_process");
++const {writeFileSync} = require("node:fs");
++const script = "process.on('SIGTERM', () => { require('node:fs').writeFileSync('tool-stopped', 'yes'); process.exit(0); }); process.send('ready'); setInterval(() => {}, 1000);";
++const tool = spawn(process.execPath, ["-e", script], {stdio: ["ignore", "inherit", "inherit", "ipc"]});
++writeFileSync("tool.pid", String(tool.pid));
++tool.once("message", () => process.exit(7));
++''')
++            try:
++                run = subprocess.run([NODE, str(HARNESS / "drive.mjs"), str(launcher), tmp,
++                                      str(project / "rpc.jsonl"), "[]", '["Say OK"]', "20"],
++                                     capture_output=True, text=True, timeout=10)
++                self.assertEqual(7, run.returncode, run.stderr)
++                self.assertEqual("yes", (project / "tool-stopped").read_text())
++            finally:
++                if (project / "tool.pid").exists():
++                    try:
++                        os.kill(int((project / "tool.pid").read_text()), signal.SIGKILL)
++                    except ProcessLookupError:
++                        pass
++
++
++@unittest.skipUnless(NODE and shutil.which("git"), "needs Node and git")
++class BatchTests(unittest.TestCase):
++    def setUp(self):
++        self.tmp = tempfile.TemporaryDirectory()
++        self.addCleanup(self.tmp.cleanup)
++        self.base = Path(self.tmp.name)
++        self.repo = self.base / "repo"
++        self.harness = self.repo / "docs/tuning/harness/treadmill"
++        self.harness.mkdir(parents=True)
++        shutil.copy2(HARNESS / "batch.sh", self.harness / "batch.sh")
++        self.work = self.base / "work"
++        self.envfile = self.base / "empty.env"
++        self.envfile.write_text("")
++        self.runs = self.base / "runs.json"
++        self.runs.write_text('[{"id":"one", "prompts":["Say OK"]}]')
++        self.env = {**os.environ, "ELM_PI_ENV_FILE": str(self.envfile), "TREADMILL_WORK": str(self.work),
++                    "TREADMILL_OUT": str(self.base / "out")}
++        self.env.pop("TREADMILL_FROM", None)
++        self.env.pop("TREADMILL_EXTENSION", None)
++        self.env.pop("PI_CODING_AGENT_DIR", None)
++        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
++        subprocess.run(["git", "-c", "user.name=test", "-c", "user.email=test@example.invalid",
++                        "commit", "--allow-empty", "-qm", "fixture"], cwd=self.repo, check=True)
++
++    def run_batch(self):
++        return subprocess.run(["bash", str(self.harness / "batch.sh"), "trial", str(self.runs), "1"],
++                              cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=20)
++
++    def test_bootstrap_failure_stops_before_running_sessions(self):
++        executable(self.repo / "bootstrap.sh", "#!/bin/sh\necho fixture-bootstrap-failed\nexit 23\n")
++        run = self.run_batch()
++        self.assertEqual(23, run.returncode, run.stderr)
++        self.assertIn("bootstrap failed (exit 23)", run.stderr)
++        self.assertFalse((self.work / "btrial-one").exists())
++        self.assertIn("fixture-bootstrap-failed", (self.base / "out/btrial/bootstrap.txt").read_text())
++
++    def test_empty_batch_works_with_bash_3_nounset(self):
++        executable(self.repo / "bootstrap.sh", "#!/bin/sh\nexit 0\n")
++        (self.harness / "summary.py").write_text('print("EMPTY SUMMARY")\n')
++        self.runs.write_text("[]")
++        run = self.run_batch()
++        self.assertEqual(0, run.returncode, run.stderr)
++        self.assertIn("EMPTY SUMMARY", (self.base / "out/btrial/summary.md").read_text())
++
++    def test_offline_install_and_driver_failure_are_preserved(self):
++        executable(self.repo / "bootstrap.sh", "#!/bin/sh\nexit 99\n")
++        executable(self.repo / "scripts/dev-setup.sh", '#!/bin/sh\n[ "$1" = --from ] || exit 88\n'
++                   'printf "%s\\n" "$2" > copied-from\nmkdir -p .node/bin\n'
++                   + 'ln -s ' + shlex.quote(NODE) + ' .node/bin/node\n')
++        self.env["TREADMILL_FROM"] = str(self.base / "source install")
++        (self.harness / "drive.mjs").write_text(
++            'import {writeFileSync} from "node:fs";\n'
++            'writeFileSync(process.argv[4], JSON.stringify({finish:"launcher exited before completion"}) + "\\n");\n'
++            'process.exit(7);\n')
++        (self.harness / "analyze.py").write_text('print("ANALYZED FAILED SESSION")\n')
++        (self.harness / "summary.py").write_text('print("SUMMARY PRESERVED")\n')
++        run = self.run_batch()
++        self.assertEqual(1, run.returncode, run.stderr)
++        self.assertEqual(self.env["TREADMILL_FROM"], (self.work / "elm-pi-btrial/copied-from").read_text().strip())
++        out = self.base / "out/btrial"
++        self.assertIn("ANALYZED FAILED SESSION", (out / "one/report.md").read_text())
++        self.assertIn("SUMMARY PRESERVED", (out / "summary.md").read_text())
++        self.assertIn("one driver=7 analyzer=0", (out / "steps.txt").read_text())
++
++    def test_empty_and_already_committed_seeds_reach_the_driver(self):
++        executable(self.repo / "bootstrap.sh", '#!/bin/sh\nmkdir -p .node/bin\n'
++                   + 'ln -s ' + shlex.quote(NODE) + ' .node/bin/node\n')
++        (self.harness / "drive.mjs").write_text(
++            'import {writeFileSync} from "node:fs";\n'
++            'writeFileSync(process.argv[4], JSON.stringify({finish:"done"}) + "\\n");\n')
++        (self.harness / "analyze.py").write_text('print("SESSION ANALYZED")\n')
++        (self.harness / "summary.py").write_text('print("SUMMARY")\n')
++        for kind in ("empty", "committed"):
++            with self.subTest(seed=kind):
++                seed = self.base / (kind + "-seed")
++                seed.mkdir()
++                if kind == "committed":
++                    (seed / "seed.txt").write_text("already committed\n")
++                    subprocess.run(["git", "init", "-q"], cwd=seed, check=True)
++                    subprocess.run(["git", "add", "-A"], cwd=seed, check=True)
++                    subprocess.run(["git", "-c", "user.name=test", "-c", "user.email=test@example.invalid",
++                                    "commit", "-qm", "original seed"], cwd=seed, check=True)
++                self.work = self.base / (kind + "-work")
++                out = self.base / (kind + "-out")
++                self.env.update(TREADMILL_WORK=str(self.work), TREADMILL_OUT=str(out))
++                self.runs.write_text(json.dumps([{"id": "one", "prompts": ["Say OK"], "seed": str(seed)}]))
++                run = self.run_batch()
++                self.assertEqual(0, run.returncode, run.stdout + run.stderr)
++                self.assertIn('"finish":"done"', (out / "btrial/one/rpc.jsonl").read_text().replace(" ", ""))
++                self.assertIn("one driver=0 analyzer=0", (out / "btrial/steps.txt").read_text())
++
++
++class ReportTests(unittest.TestCase):
++    def test_missing_session_keeps_startup_errors_and_fails_analysis(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            base = Path(tmp)
++            out = base / "btrial/one"
++            out.mkdir(parents=True)
++            (out / "rpc.jsonl").write_text('\n'.join(json.dumps(r, separators=(",", ":")) for r in [
++                {"t": "01:02:03", "stderr": "pi: no usable Python"},
++                {"t": "01:02:03", "error": "launcher refused"},
++                {"t": "01:02:03", "finish": "launcher exited before completion", "dialogs": 0}]))
++            run = subprocess.run([sys.executable, str(HARNESS / "analyze.py"), tmp, tmp, str(out)],
++                                 capture_output=True, text=True)
++            self.assertNotEqual(0, run.returncode)
++            self.assertIn("NO SESSION FILE", run.stdout)
++            self.assertIn("pi: no usable Python", run.stdout)
++            self.assertIn("DRIVER ERROR: launcher refused", run.stdout)
++            (out / "report.md").write_text(run.stdout)
++            summary = subprocess.run([sys.executable, str(HARNESS / "summary.py"), str(out.parent)],
++                                     capture_output=True, text=True, env={**os.environ, "TREADMILL_WORK": tmp})
++            self.assertEqual(0, summary.returncode, summary.stderr)
++            self.assertIn("launcher exited before completion", summary.stdout)
++            self.assertIn("| 0 | 1 | 0 |", summary.stdout)
++
++    def test_score_uses_recorded_python_and_explains_when_none_exists(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            base = Path(tmp)
++            agent = base / "elm-pi-btrial/agent"
++            agent.mkdir(parents=True)
++            out = base / "treadmill-out/btrial/one.1"
++            out.mkdir(parents=True)
++            (out / "rpc.jsonl").write_text("")
++            (base / "btrial-one.1").mkdir()
++            checks = base / "checks"
++            checks.mkdir()
++            (checks / "one.py").write_text("assert 1 + 1 == 2\n")
++            env = {**os.environ, "TREADMILL_WORK": tmp, "TREADMILL_OUT": str(base / "treadmill-out")}
++            command = [sys.executable, str(HARNESS / "score.py"), "trial", tmp]
++            missing = subprocess.run(command, capture_output=True, text=True, env=env)
++            self.assertNotEqual(0, missing.returncode)
++            self.assertIn("score: no runnable Python", missing.stderr)
++            self.assertNotIn("Traceback", missing.stderr)
++            (agent / "python-path").write_text(sys.executable + "\n")
++            scored = subprocess.run(command, capture_output=True, text=True, env=env)
++            self.assertEqual(0, scored.returncode, scored.stderr)
++            self.assertIn("1/1 passed", scored.stdout)
+--- /dev/null
++++ b/tests/test_bootstrap_verification.py
+@@ -0,0 +1,56 @@
++"""The Python-port treadmill found a blank .env reported as a broken Qwen config.
++
++Run bootstrap's actual verification block with a local listing command, preserving
++the distinction between unavailable credentials, a refused launch and a bad model.
++"""
++from pathlib import Path
++import os
++import subprocess
++import tempfile
++import unittest
++
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++class VerificationDiagnosticsTests(unittest.TestCase):
++    def verify(self, listing, status=0, error=""):
++        source = (ROOT / "bootstrap.sh").read_text()
++        start = source.index('say "verifying the ELM-only policy"')
++        end = source.index("# The same files against the schemas", start)
++        with tempfile.TemporaryDirectory() as tmp:
++            path = Path(tmp)
++            launcher = path / "pi"
++            launcher.write_text('#!/bin/sh\nprintf "%s\\n" "$TEST_LISTING"\n'
++                                'printf "%s\\n" "$TEST_ERROR" >&2\nexit "$TEST_STATUS"\n')
++            launcher.chmod(0o755)
++            script = 'set -euo pipefail\nHERE="$PWD"\nCONFIG_TOOL=unused\n'
++            script += 'say() { :; }; die() { echo "ERROR: $*" >&2; exit 1; }; elm_py() { echo Qwen/Test; }\n'
++            script += source[start:end]
++            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "TEST_LISTING": listing,
++                   "TEST_STATUS": str(status), "TEST_ERROR": error}
++            return subprocess.run(["/bin/bash", "-c", script], cwd=tmp, env=env,
++                                  capture_output=True, text=True, timeout=10)
++
++    def test_no_available_models_keeps_stdout_and_names_the_missing_key_possibility(self):
++        run = self.verify("No models available. Configure authentication.")
++        self.assertEqual(1, run.returncode)
++        self.assertIn("No models available. Configure authentication.", run.stderr)
++        self.assertIn("check that .env supplies ELM_API_KEY", run.stderr)
++
++    def test_refused_launch_keeps_exit_status_and_error(self):
++        run = self.verify("", status=23, error="pi: no usable Python")
++        self.assertEqual(1, run.returncode)
++        self.assertIn("pi --list-models failed (exit 23)", run.stderr)
++        self.assertIn("pi: no usable Python", run.stderr)
++        self.assertNotIn("did not list elm", run.stderr)
++
++    def test_listing_and_policy_checks_still_run(self):
++        good = self.verify("provider model\nelm Qwen/Test 262K")
++        self.assertEqual(0, good.returncode, good.stderr)
++        commercial = self.verify("elm Qwen/Test 262K\nopenai forbidden 128K")
++        self.assertEqual(1, commercial.returncode)
++        self.assertIn("commercial providers are still visible", commercial.stderr)
++        bad_schema = self.verify("elm Qwen/Test 262K", error="errors loading models.json")
++        self.assertEqual(1, bad_schema.returncode)
++        self.assertIn("pi reported errors in agent/models.json", bad_schema.stderr)
+--- a/tests/test_ext_help.py
++++ b/tests/test_ext_help.py
+@@ -1,4 +1,4 @@
+-"""/help: the session's own commands, skills and tools, read from what pi reports - not a static list."""
++"""help.ts: the session's own commands, skills and tools, read from what pi reports."""
+ 
+ import sys
+ import unittest
+@@ -16,7 +16,11 @@
+   { name: "skill:data-fitting", source: "skill" },
+   { name: "skill:changing-code", source: "skill" },
+ ];
+-globalThis.__tools = [{ name: "bash" }, { name: "write" }, { name: "view" }];
++globalThis.__tools = [
++  { name: "bash", description: "Execute a shell command" },
++  { name: "write" }, { name: "view" }, { name: "web_search" }
++];
++globalThis.__active = ["bash", "write", "view"];
+ """
+ 
+ 
+@@ -43,6 +47,14 @@
+     def test_the_tools_offered_are_the_ones_pi_reports(self):
+         text = help_text(self)
+         self.assertIn("Tools offered now: bash, write, view", text)
++        self.assertNotIn("web_search", text)
++
++    def test_a_filter_matches_tool_names_and_descriptions(self):
++        self.assertEqual("Tools offered now: bash", help_text(self, "bash").strip())
++        self.assertEqual("Tools offered now: bash", help_text(self, "shell").strip())
++
++    def test_a_disabled_tool_is_not_a_match(self):
++        self.assertEqual('Nothing here matches "web_search".', help_text(self, "web_search"))
+ 
+     def test_it_says_where_to_read_more(self):
+         self.assertIn("INSTALL.md", help_text(self))
+--- a/tests/test_ext_empty_state.py
++++ b/tests/test_ext_empty_state.py
+@@ -1,4 +1,4 @@
+-"""empty-state: three lines on a first session, and nothing on a resumed one or without a screen."""
++"""empty-state.ts: three lines on a first session, nothing on a resumed one or without a screen."""
+ 
+ import json
+ import sys
+@@ -27,6 +27,7 @@
+         script = f"""
+             process.env.PI_CODING_AGENT_DIR = {json.dumps(str(agent))};
+             ctx.hasUI = {str(has_ui).lower()};
++            {extra}
+             await registered.handlers.session_start[0]({json.dumps({"reason": reason})}, ctx);
+             out(registered.notes);
+         """
+@@ -56,6 +57,18 @@
+         self.assertEqual([], self.lines(reason="resume"))
+         self.assertEqual([], self.lines(reason="fork"))
+ 
++    def test_a_session_resumed_from_the_cli_says_nothing(self):
++        # pi emits startup for --continue/--resume as well: the loaded branch is the distinction.
++        self.assertEqual([], self.lines(reason="startup", extra='''
++            ctx.sessionManager.getBranch = () => [{ type: "message",
++                message: { role: "user", content: "An earlier request" } }];
++        '''))
++
++    def test_startup_without_messages_still_shows_the_greeting(self):
++        self.assertEqual(1, len(self.lines(reason="startup", extra='''
++            ctx.sessionManager.getBranch = () => [{ type: "model_change", modelId: "qwen" }];
++        ''')))
++
+     def test_a_run_without_a_screen_says_nothing(self):
+         self.assertEqual([], self.lines(has_ui=False))
+ 
+--- a/tests/test_ext_status_line.py
++++ b/tests/test_ext_status_line.py
+@@ -1,4 +1,4 @@
+-"""status-line: --remote and a non-default model stay visible; the ordinary session shows nothing."""
++"""status-line.ts: --remote and a non-default model stay visible; ordinary sessions show nothing."""
+ 
+ import json
+ import sys
+@@ -65,6 +65,18 @@
+         """)
+         self.assertEqual("Second", out)
+ 
++    def test_a_model_selected_between_turns_is_visible_immediately(self):
++        out = run_extension(self, "status-line", '''
++            globalThis.__active = ["read"];
++            ctx.model = { id: "a", name: "First" };
++            await registered.handlers.session_start[0]({}, ctx);
++            ctx.model = { id: "b", name: "Second" };
++            for (const handler of registered.handlers.model_select ?? [])
++                await handler({ type: "model_select", model: ctx.model, source: "cycle" }, ctx);
++            out(registered.statuses["elm-pi"]);
++        ''')
++        self.assertEqual("Second", out)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+--- a/tests/test_ext_todo_widget.py
++++ b/tests/test_ext_todo_widget.py
+@@ -16,12 +16,14 @@
+ const toggle = async (id) => todo.execute("c", { action: "toggle", id }, undefined, undefined, ctx);
+ const clear = async () => todo.execute("c", { action: "clear" }, undefined, undefined, ctx);
+ const afterToolCall = async () => await registered.handlers.tool_result[0]({ toolName: "todo", isError: false }, ctx);
+-const lines = () => ctx.ui.__widgets["todos"] ?? null;
+ """
+ 
+ 
+ def widget(test, extra):
+-    return run_extension(test, "todo", HELPERS + extra + "\nout(registered.widgets);")
++    return run_extension(test, "todo", HELPERS + extra + '''
++        const value = registered.widgets.todos;
++        out({ todos: typeof value === "function" ? value({}, {}).render(1000) : value });
++    ''')
+ 
+ 
+ class TodoWidgetTests(unittest.TestCase):
+@@ -69,9 +71,57 @@
+         """)
+         self.assertEqual(["plan 0/1", "☐ survived"], got["todos"])
+ 
+-    def test_the_cap_is_five_and_is_exported_so_a_test_can_hold_it(self):
+-        out = run_extension(self, "todo", "out(4);")
+-        self.assertEqual(4, out)
++    def test_the_actual_terminal_widget_keeps_its_cap_after_wrapping(self):
++        got = run_extension(self, "todo", HELPERS + r'''
++            const { InteractiveMode } = await import("@earendil-works/pi-coding-agent");
++            const { visibleWidth } = await import("@earendil-works/pi-tui");
++            for (let i = 0; i < 7; i++) await add("Long task: " + "測定 🧪 ".repeat(30) + "\nnext line\nthird line");
++            await afterToolCall();
++            const mode = Object.create(InteractiveMode.prototype);
++            mode.extensionWidgetsAbove = new Map(); mode.extensionWidgetsBelow = new Map();
++            mode.ui = {}; mode.renderWidgets = () => {};
++            mode.setExtensionWidget("todos", registered.widgets.todos);
++            const panel = mode.extensionWidgetsAbove.get("todos");
++            out([10, 40, 80].map(width => {
++                const lines = panel.render(width);
++                return { width, lines: lines.length, widths: lines.map(visibleWidth), multiline: lines.some(l => l.includes("\n")) };
++            }));
++        ''')
++        for result in got:
++            self.assertEqual(5, result["lines"], result)
++            self.assertFalse(result["multiline"], result)
++            self.assertLessEqual(max(result["widths"]), result["width"], result)
++
++    def test_multiline_text_is_compact_on_screen_and_unchanged_in_the_list(self):
++        got = run_extension(self, "todo", HELPERS + r'''
++            await add("first\nsecond\tthird"); await afterToolCall();
++            const value = registered.widgets.todos;
++            const lines = typeof value === "function" ? value({}, {}).render(1000) : value;
++            const list = await todo.execute("c", { action: "list" }, undefined, undefined, ctx);
++            out({ lines, text: list.details.todos[0].text });
++        ''')
++        self.assertEqual(["plan 0/1", "☐ first second third"], got["lines"])
++        self.assertEqual("first\nsecond\tthird", got["text"])
++
++    def test_the_todos_dialog_keeps_multiline_items_on_one_terminal_row(self):
++        got = run_extension(self, "todo", HELPERS + r'''
++            await add("first\nsecond\tthird");
++            ctx.ui.custom = async factory => {
++                const theme = { fg: (_kind, text) => text };
++                const dialog = factory({}, theme, {}, () => {});
++                out(dialog.render(30));
++            };
++            await registered.commands.todos.handler("", ctx);
++        ''')
++        self.assertTrue(all("\n" not in row and "\t" not in row for row in got), got)
++        self.assertIn("  ○ #1 first second third", got)
++
++    def test_a_streaming_call_without_an_action_has_no_undefined_label(self):
++        got = run_extension(self, "todo", HELPERS + '''
++            const theme = { fg: (_kind, text) => String(text), bold: text => text };
++            out(todo.renderCall({}, theme, {}).render(30).map(line => line.trimEnd()));
++        ''')
++        self.assertEqual(["todo"], got)
+ 
+ 
+ if __name__ == "__main__":
+--- a/tests/test_run_guards.py
++++ b/tests/test_run_guards.py
+@@ -17,6 +17,8 @@
+ import tempfile
+ import unittest
+ from pathlib import Path
++
++from tests.extension_harness import run_extension
+ 
+ ROOT = Path(__file__).resolve().parents[1]
+ REPEAT = ROOT / "templates/extensions/repeat-guard.ts"
+@@ -484,6 +486,70 @@
+     def test_it_is_loaded(self):
+         self.assertIn("wait-guard.ts", CONFIG["requiredExtensions"])
+ 
++    def test_async_launch_arms_the_wait_guard_without_a_valid_status_check(self):
++        """python-before parallel.1: invalid alternate status calls, then sleep/list polls while children wrote."""
++        got = run_extension(self, "wait-guard", '''
++            const call = async (toolName, input) =>
++                (await registered.handlers.tool_call[0]({ toolName, input }, ctx)) ?? null;
++            const result = { toolName: "subagent", isError: false, content: [{ type: "text",
++                text: "Run fan-out: 0/64 used\\nAsync workflow [1ffbbbcd-29ec-4f7a-ab9e-826a67ff2231]\\nDetached. Return control now." }] };
++            await registered.handlers.agent_start[0]({}, ctx);
++            for (const handler of registered.handlers.tool_result ?? []) await handler(result, ctx);
++            await call("subagent_supervisor", { action: "status", id: "1ffbbbcd" });
++            await call("workflow_control", { action: "status", runId: "1ffbbbcd" });
++            const poll = await call("bash", { command: 'sleep 5 && ls -la *.py' });
++            const work = await call("bash", { command: 'python3 check_independent_file.py' });
++            const read = await call("read", { path: "README.md" });
++            await registered.handlers.agent_start[0]({}, ctx);
++            const nextTurn = await call("bash", { command: "sleep 5" });
++            out({ poll, work, read, nextTurn });
++        ''')
++        self.assertIsNotNone(got["poll"])
++        self.assertTrue(got["poll"]["block"])
++        self.assertIn("End your turn now", got["poll"]["reason"])
++        self.assertEqual([None, None, None], [got["work"], got["read"], got["nextTurn"]])
++
++    def test_async_launch_keeps_one_status_check_and_holds_without_aborting(self):
++        got = run_extension(self, "wait-guard", '''
++            let aborted = 0;
++            ctx.abort = () => { aborted++; };
++            ctx.hasPendingMessages = () => true;
++            const result = { toolName: "subagent", isError: false, content: [{ type: "text",
++                text: "Async workflow [1ffbbbcd-29ec-4f7a-ab9e-826a67ff2231]" }] };
++            for (const handler of registered.handlers.tool_result ?? []) await handler(result, ctx);
++            const call = async (toolName, input) =>
++                (await registered.handlers.tool_call[0]({ toolName, input }, ctx)) ?? null;
++            const status = await call("subagent", { action: "status", id: "1ffbbbcd" });
++            const waits = [];
++            for (const seconds of [5, 10, 15]) waits.push(await call("bash", { command: `sleep ${seconds} && ls *.py` }));
++            out({ status, waits, aborted, notice: ext.HELD_NOTICE });
++        ''')
++        self.assertIsNone(got["status"])
++        self.assertTrue(all(item["block"] for item in got["waits"]))
++        self.assertEqual(got["notice"], got["waits"][-1]["reason"])
++        self.assertEqual(0, got["aborted"])
++
++    def test_only_a_successful_async_launch_with_a_ui_arms_waiting(self):
++        got = run_extension(self, "wait-guard", '''
++            const cases = [
++                [true, true, "subagent", "Async workflow [1ffbbbcd-29ec-4f7a-ab9e-826a67ff2231]"],
++                [true, false, "subagent", "Validation succeeded"],
++                [true, false, "bash", "Async workflow [1ffbbbcd-29ec-4f7a-ab9e-826a67ff2231]"],
++                [false, false, "subagent", "Async workflow [1ffbbbcd-29ec-4f7a-ab9e-826a67ff2231]"],
++            ];
++            const results = [];
++            for (const [hasUI, isError, toolName, text] of cases) {
++                ctx.hasUI = hasUI;
++                await registered.handlers.agent_start[0]({}, ctx);
++                for (const handler of registered.handlers.tool_result ?? [])
++                    await handler({ toolName, isError, content: [{ type: "text", text }] }, ctx);
++                results.push((await registered.handlers.tool_call[0]({ toolName: "bash",
++                    input: { command: `sleep ${results.length + 5} && ls *.py` } }, ctx)) ?? null);
++            }
++            out(results);
++        ''')
++        self.assertEqual([None] * 4, got)
++
+ 
+ class OpenServerTests(unittest.TestCase):
+     """command-guard.ts: a python http.server not bound to this machine is refused, with how to bind and stop it."""
+--- /dev/null
++++ b/tests/test_child_scratch.py
+@@ -0,0 +1,89 @@
++"""command-guard.ts: parallel children must not create or remove a shared scratch virtualenv.
++
++In both python-before and python-after parallel.1 (2026-11-15), both Qwen children
++chose .pi/tmp/venv. One child's cleanup deleted the environment under its sibling.
++The second run reproduced the shared path despite the new unique-scratch prompt.
++"""
++
++import json
++import unittest
++
++from tests.extension_harness import run_extension
++
++
++def verdicts(test, commands, child=True, files=None):
++    return run_extension(test, "command-guard", """
++        const results = [];
++        for (const command of %s) {
++            const input = command.replaceAll("{cwd}", ctx.cwd);
++            const result = await registered.handlers.tool_call[0]({ toolName: "bash",
++                toolCallId: "scratch", input: { command: input } }, ctx);
++            results.push(result ?? null);
++        }
++        out(results);
++    """ % json.dumps(commands), files=files, env={"PI_SUBAGENT_CHILD": "1" if child else "0"})
++
++
++class ChildScratchTests(unittest.TestCase):
++    def test_observed_shared_venv_creation_and_cleanup_are_refused(self):
++        commands = [
++            "python3 -m venv .pi/tmp/venv && source .pi/tmp/venv/bin/activate && pip install pytest",
++            "mkdir -p .pi/tmp && python3 -m venv .pi/tmp/venv && source .pi/tmp/venv/bin/activate && pip install pytest -q",
++            "rm -rf .pi/tmp/venv",
++            "rm -rf .pi/tmp/venv .pytest_cache __pycache__",
++        ]
++        for command, got in zip(commands, verdicts(self, commands)):
++            with self.subTest(command=command):
++                self.assertIsNotNone(got)
++                self.assertTrue(got["block"])
++                self.assertIn("mktemp -d .pi/tmp/child.XXXXXX", got["reason"])
++
++    def test_quoting_wrappers_absolute_paths_and_cd_keep_the_same_boundary(self):
++        commands = [
++            '/usr/bin/python3 -m venv "{cwd}/.pi/tmp/venv"',
++            "env python3 -m venv './.pi/tmp/venv/'",
++            "cd .pi/tmp && python3 -m venv venv",
++            "bash -c 'python3 -m venv .pi/tmp/venv'",
++            "python3 -mvenv .pi/tmp/venv",
++            "python3 -m virtualenv .pi/tmp/venv",
++            "virtualenv --python python3 .pi/tmp/venv",
++            "uv venv --python python3 .pi/tmp/venv",
++            "uv -q venv .pi/tmp/venv",
++            "uv --no-managed-python venv .pi/tmp/venv",
++            'rm -rf "{cwd}/.pi/tmp/venv/lib"',
++            "mv .pi/tmp/venv .pi/tmp/old",
++            "rm -rf .pi/tmp",
++            "cd .pi && rm -rf tmp",
++        ]
++        for command, got in zip(commands, verdicts(self, commands)):
++            with self.subTest(command=command):
++                self.assertIsNotNone(got)
++                self.assertTrue(got["block"])
++
++    def test_private_envs_prepared_env_usage_and_unrelated_commands_remain_allowed(self):
++        commands = [
++            "mkdir -p .pi/tmp && mktemp -d .pi/tmp/child.XXXXXX",
++            "python3 -m venv .pi/tmp/child.ABC123/venv",
++            "rm -rf .pi/tmp/child.ABC123",
++            "python3 -m venv .venv",
++            "source .pi/tmp/venv/bin/activate && pytest test_words.py -v",
++            "cat .pi/tmp/venv/pyvenv.cfg",
++            "ls -la .pi/tmp/venv",
++            "python3 -m venv --help .pi/tmp/venv",
++            "python3 -m venv --prompt .pi/tmp/venv .pi/tmp/child.ABC123/env",
++            "echo python3 -m venv .pi/tmp/venv",
++            "echo rm -rf .pi/tmp/venv",
++            "python3 -c 'print(1)' -m venv .pi/tmp/venv",
++            "python3 runner.py -m venv .pi/tmp/venv",
++            "rm -rf other/.pi/tmp/venv",
++        ]
++        got = verdicts(self, commands, files={".pi/tmp/venv/pyvenv.cfg": "home = /usr/bin\n"})
++        self.assertEqual([None] * len(commands), got)
++
++    def test_the_parent_can_prepare_or_clean_a_shared_environment(self):
++        commands = ["python3 -m venv .pi/tmp/venv", "rm -rf .pi/tmp/venv", "rm -rf .pi/tmp"]
++        self.assertEqual([None] * len(commands), verdicts(self, commands, child=False))
++
++
++if __name__ == "__main__":
++    unittest.main()
+--- a/tests/test_prompts.py
++++ b/tests/test_prompts.py
+@@ -70,6 +70,27 @@
+         self.assertIn("never call, poll or wait on it", qwen)
+         self.assertIn("Write only the files your task names.", qwen)
+         self.assertIn("never a file you only saw in the", qwen)
++
++    def test_parallel_children_keep_scratch_and_cleanup_private(self):
++        # python-before/parallel.1 (2026-11-15): both children used .pi/tmp/venv;
++        # task-2 removed it after passing, then task-1 could not source activate.
++        for name in ("agents/qwen.md", "agents/llama.md", "skills/elm-delegation/SKILL.md"):
++            source = " ".join(text(name).split())
++            self.assertIn("mkdir -p .pi/tmp", source, name)
++            self.assertIn("mktemp -d .pi/tmp/child.XXXXXX", source, name)
++            self.assertIn("Clean up only your own directory", source, name)
++            self.assertIn("never create or remove a shared `.pi/tmp/venv`", source, name)
++
++    def test_code_verification_runs_saved_tests_after_repairing_runner_setup(self):
++        # python-after/parallel.1 (2026-11-15): delivered tests failed during import;
++        # passing inline assertions were reported instead of repairing and running those files.
++        for name in ("agents/qwen.md", "agents/llama.md", "skills/changing-code/SKILL.md"):
++            source = " ".join(text(name).split())
++            for rule in ("Run the saved tests", "project's test framework", "standard-library `unittest`",
++                         "runner/import setup", "rerun the saved test files", "Keep requested output names",
++                         "do not substitute inline assertions", "Do not weaken"):
++                self.assertIn(rule, source, (name, rule))
++        self.assertNotIn("a throwaway script or `python3 -c` is enough", text("skills/changing-code/SKILL.md"))
+ 
+     def test_children_carry_the_essential_rules(self):
+         for name in ("agents/qwen.md", "agents/llama.md"):
+@@ -230,4 +251,4 @@
+ 
+ 
+ if __name__ == "__main__":
+-    unittest.main()
+\ No newline at end of file
++    unittest.main()
+--- a/tests/test_session_regressions.py
++++ b/tests/test_session_regressions.py
+@@ -54,6 +54,25 @@
+     2026-11-14: about one ask in five in a manual session is for reading through bash (38 of 172 dialogs);
+             the owner asked for a "read-only auto" mode - tests/test_read_only_auto.py, and the mode's place
+             in the launcher and the /mode menu in tests/test_permission_mode_spec.py and test_mode_command_spec.py
++    2026-11-15 UI replay during the Python-port treadmill: five plan entries rendered as 111 rows
++            in a narrow terminal; /help advertised inactive web tools and could not find bash; a CLI
++            resume showed the new-session greeting; model selection left a stale footer. Reproduced
++            with the installed TUI and extension events in tests/test_ext_todo_widget.py,
++            tests/test_ext_help.py, tests/test_ext_empty_state.py and tests/test_ext_status_line.py.
++    python-before parallel.1 (2026-11-15): invalid status calls left the wait guard unarmed, then
++            sleep/list polling continued while children wrote (tests/test_run_guards.py). Both
++            children used .pi/tmp/venv; the first deleted it before its sibling finished using it.
++    python-after parallel.1 (2026-11-15): both children again created .pi/tmp/venv despite private-
++            scratch guidance. tests/test_child_scratch.py replays those commands through the
++            command guard: this shared-environment creation and cleanup are refused with private-path guidance.
++            Saved tests could not import the delivered modules; passing inline assertions replaced
++            repairing and running those tests. tests/test_prompts.py pins the saved-test requirement
++            in the changing-code skill and both child definitions, without naming benchmark files.
++    2026-11-15 Python-port replay: a watchdog retained captured output after exit; an interpreter
++            probe exiting 127 raised KeyError; empty exclusions misplaced update/session arguments.
++            tests/test_python_launcher.py compares the real Bash reference and covers these cases.
++            The treadmill hid startup failures and split UTF-8 characters at pipe boundaries;
++            tests/test_treadmill.py holds failure reporting, cleanup and decoding to real processes.
+ """
+ 
+ import base64
+--- a/tests/test_agent_environment.py
++++ b/tests/test_agent_environment.py
+@@ -23,6 +23,25 @@
+ 
+ 
+ ROOT = Path(__file__).resolve().parents[1]
++
++
++def shipped_docs(root):
++    # Local development notes are not shipped documentation. Prefer the source
++    # inventory; copied fixtures have neither Git nor an install manifest, so
++    # use this repo's uppercase root-doc convention and the shim's doc folder.
++    if (root / ".git").exists():
++        result = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
++                                capture_output=True, text=True, check=True)
++        names = result.stdout.split("\0")
++    elif (root / ".elm-pi-source-manifest").is_file():
++        names = (root / ".elm-pi-source-manifest").read_text().splitlines()
++    else:
++        names = [p.relative_to(root).as_posix()
++                 for p in [*root.glob("*.md"), *root.glob("shim/*.md")]
++                 if p.parent != root or p.stem.isupper()]
++    return sorted(name for name in names if Path(name).suffix == ".md"
++                  and Path(name).parent in (Path("."), Path("shim"))
++                  and (root / name).is_file())
+ 
+ 
+ def from_an_install(rel):
+@@ -741,8 +760,27 @@
+         self.assertIn("do not\nanswer from memory, ask first, or offer to read it", where)
+         for pattern in ("@AGENT_DIR@/reference/*.md", "@AGENT_DIR@/skills/*/SKILL.md"):
+             self.assertIn(pattern, where)
+-        shipped = sorted(p.relative_to(ROOT).as_posix() for p in [*ROOT.glob("*.md"), *ROOT.glob("shim/*.md")])
++        shipped = shipped_docs(ROOT)
+         self.assertEqual([], [doc for doc in shipped if f"`{doc}`" not in where])
++
++    def test_shipped_docs_use_source_inventory_and_ignore_local_notes(self):
++        for inventory in ("git", "manifest", "copied"):
++            with self.subTest(inventory=inventory), tempfile.TemporaryDirectory() as tmp:
++                root = Path(tmp)
++                (root / "shim").mkdir()
++                for name in ("README.md", "shim/README.md", "OPERATIONS.md", "usage.md", "working-notes.md"):
++                    (root / name).write_text("Documentation\n")
++                if inventory == "git":
++                    subprocess.run(["git", "init", "-q", str(root)], check=True)
++                    subprocess.run(["git", "-C", str(root), "add", "README.md", "shim/README.md",
++                                    "OPERATIONS.md", "usage.md"], check=True)
++                elif inventory == "manifest":
++                    (root / ".elm-pi-source-manifest").write_text(
++                        "README.md\nshim/README.md\nOPERATIONS.md\nusage.md\ninstall.sh\n")
++                expected = ["OPERATIONS.md", "README.md", "shim/README.md"]
++                if inventory != "copied":
++                    expected.append("usage.md")
++                self.assertEqual(expected, shipped_docs(root))
+ 
+     def test_sizes_do_not_creep_back(self):
+         # 10,000 until 2026-11-12, when the user asked for images to be used unasked and often:
+--- a/tests/test_project.py
++++ b/tests/test_project.py
+@@ -379,11 +379,21 @@
+         at = next(i for i, line in enumerate(lines) if line.startswith("export PYTHONDONTWRITEBYTECODE="))
+         line = "; ".join(lines[at:at + 2])      # and the line that passes 0 on as unset, for Python before 3.11
+         self.assertIn("unset PYTHONDONTWRITEBYTECODE", line)
+-        probe = lambda env: subprocess.run(
+-            ["bash", "-c", f'{line}; "{sys.executable}" -c "import sys; print(sys.dont_write_bytecode)"'],
+-            env=env, capture_output=True, text=True).stdout.strip()
+-        self.assertEqual("True", probe({"PATH": "/usr/bin:/bin"}))
+-        self.assertEqual("False", probe({"PATH": "/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "0"}))
++        # Apple's Python 3.9 disables bytecode even without this variable when
++        # HOME is absent. Give the probe a private home, as a real session has.
++        with tempfile.TemporaryDirectory() as home:
++            def probe(env):
++                result = subprocess.run(
++                    ["bash", "-c", f'{line}; "$1" -c "$2"', "probe", sys.executable,
++                     'import json, os, sys; print(json.dumps([sys.dont_write_bytecode, '
++                     'os.environ.get("PYTHONDONTWRITEBYTECODE")]))'],
++                    env={"PATH": "/usr/bin:/bin", "HOME": home, **env},
++                    capture_output=True, text=True)
++                self.assertEqual(0, result.returncode, result.stderr)
++                return json.loads(result.stdout)
++
++            self.assertEqual([True, "1"], probe({}))
++            self.assertEqual([False, None], probe({"PYTHONDONTWRITEBYTECODE": "0"}))
+ 
+ if __name__ == "__main__":
+     unittest.main()
+--- a/INSTALL.md
++++ b/INSTALL.md
+@@ -280,7 +280,7 @@
+ | `agent/extensions/elm-shim.ts` | registers the Llama tool-shim provider |
+ | `agent/extensions/protected-paths.ts` | blocks writes to `.env`, `.git/`, `node_modules/` It also refuses writes into the elm-pi install the session runs on - its guards, launcher and configuration - outside `.pi` folders: elm-pi is developed in a clone (the repository's AGENTS.md, `scripts/dev-setup.sh`), and an install changes through `pi update`. |
+ | `agent/extensions/trust-guard.ts` | never grants project trust to home, the filesystem root or a folder that holds credentials (`untrustedFolders` in `config/elm-pi.json`), and does not let a saved "Trust parent folder" there pass down to the folders beneath (see [LOCKDOWN.md](LOCKDOWN.md)) |
+-| `agent/extensions/command-guard.ts` | refuses a `bash` command the permission gate's rules deny when it is spelled so they miss it: quoted or escaped (`'ssh' host`), by full path, after `sudo`, `env`, `xargs`, `command` or `exec`, inside `bash -c`, or with extra whitespace (see [LOCKDOWN.md](LOCKDOWN.md)); and a `python -m http.server` not bound to `127.0.0.1`, which would serve the folder to the whole network The same for the shell: a command that would change the running install - `rm`, `mv`, `touch`, `sed -i` and the like on its files, `cp`/`rsync`/`ln` into it, a redirection, or `git` changing its tree - is refused; reading or copying out of it is not. |
++| `agent/extensions/command-guard.ts` | refuses a `bash` command the permission gate's rules deny when it is spelled so they miss it: quoted or escaped (`'ssh' host`), by full path, after `sudo`, `env`, `xargs`, `command` or `exec`, inside `bash -c`, or with extra whitespace (see [LOCKDOWN.md](LOCKDOWN.md)); and a `python -m http.server` not bound to `127.0.0.1`, which would serve the folder to the whole network The same for the shell: a command that would change the running install - `rm`, `mv`, `touch`, `sed -i` and the like on its files, `cp`/`rsync`/`ln` into it, a redirection, or `git` changing its tree - is refused; reading or copying out of it is not. In sub-agents, direct creation or destructive cleanup of the shared `.pi/tmp/venv` is refused, as is removing `.pi/tmp` itself; the refusal gives a `mktemp` command for private scratch. Existing shared environments may still be used to run tests, and the parent may prepare them. This narrow rule follows two parallel Qwen runs that chose the same virtualenv despite unique-scratch instructions; in the first, one child deleted it while its sibling was still using it. |
+ | `agent/extensions/claim-guard.ts` | sends Mistral or Llama back, once, when a run made no tool call but its reply says something was added, changed or run - and Qwen too when it is a sub-agent, where a test5 child reported "Created new file" having made no call (see [Mistral Small 4](#mistral-small-4-the-other-model-with-tools-and-images)) A run counts as making no call when none of its calls succeeded: test13's workflow agent had every write refused and reported "The stylesheet file has been created". In a sub-agent, a tool call made earlier in its session backs a later reply, and no session is sent the note more than twice: a child retried after a 429 was otherwise sent it 189 times in 16 minutes. |
+ | `agent/extensions/repeat-guard.ts` | stops a run that makes the same failing tool call over and over: at 3 identical failing turns in a row it tells the model so, at 8 it ends the run, so a sub-agent stuck that way ends and reports instead of looping to its 30-minute timeout (see [Sub-agent fan-out](#sub-agent-fan-out)) A sub-agent also has a budget of turns for its whole session: told once at 30 to finish and report what is left, stopped at 60. Two children in one driven session took 140 and 98 turns of small edits - 21M of that session's 26M tokens - with nothing failing for the other rule to count; children that wrote a page took 3 to 32. |
+ | `agent/extensions/image-mentions.ts` | attaches the images a message names by path (`figures/fit.png`, a Desktop screenshot's path with spaces, a path dropped into the terminal) to that message, as a pasted image is, for a model that sees images; sub-agent tasks too. Hidden folders are skipped; at most 8 images, 20 MB each; only files whose first bytes are a PNG, JPEG, GIF or WebP (the gateway refuses a request holding anything else) |
+@@ -288,10 +288,10 @@
+ | `agent/extensions/server-reaper.ts` | stops, when the session ends, a web or dev server (`python3 -m http.server`, `npx serve`, `vite`, `flask run` and the like) that a bash command started in the background: the new listening port is recorded with its process group, the command's result says the server stops with the session and that `view` needs none, and at quit (or the end of `pi -p`, a new or resumed session, a sub-agent finishing) it gets SIGTERM, with a line on stderr. test4, test5 and test7 each left one running. Other background jobs are left alone |
+ | `agent/extensions/report-guard.ts` | refuses creating a new README, SUMMARY, REPORT, NOTES, *_VERIFICATION or similar Markdown file unless the request asks for one (a user message, or a sub-agent's task, that names the file or says readme, report, summary, notes, document, docs or write-up): a report goes in the reply. test6 and test7 wrote a README and a link-verification report unasked, after AGENTS.md said not to. Editing an existing file and anything under `.pi/` are never refused; checks `write` and bash redirects "Report" alone does not count as asking for one - "Report: the files you wrote" asks for a reply - so it takes "a report", "write a summary", a named file, readme, docs or a write-up. A `subagent` launch or `workflow` script that tells an agent to write a report-like file the user did not ask for, and that is not already in the project, is not started (test11: a workflow told its verification agent to write VERIFICATION_REPORT.md). A README beside a software project's manifest (`pyproject.toml`, `package.json`, `Cargo.toml` and the like) is part of the project, not a report, and is not refused: one was, in a session asked for "a proper package layout" (2026-11-13). |
+ | `agent/extensions/date-note.ts` | adds today's date (this machine's time zone) to the system prompt as a section of its own. pi gives none, and test7's pages all said "© 2024". The first version returned a whole replacement prompt, which pi sends instead of the sections, so the sections of extensions loaded after it (pinned instructions, `--remote`'s research instruction) never reached the model; a test now refuses any extension that does that |
+-| `agent/extensions/wait-guard.ts` | refuses `bg_wait` in an interactive session, where a sub-agent run wakes the session when it ends: the model is told to end its turn instead of holding the session (it did for 6.5 minutes in test5, after the prompt already said not to). `pi -p` and sub-agents keep it. Once refused in a turn, the other ways of waiting are refused for the rest of it (test9 then ran `sleep 5`, `sleep 10`, two status checks and read the run's log): a bash command that only sleeps, a `subagent` status check, and reading a run's files under async-subagent-runs Refused, it was still called four times in a row (2026-11-13), so the launcher no longer offers `bg_wait` to a session its runs wake - only to `pi -p`, `--mode json`, `--with-all` and sub-agent children - and here a second `subagent` status check in one turn is the refused wait. A command that reads a running run's own files under `async-subagent-runs/` is refused from the first time: a manual session read its child's log again and again, each read put to the user to allow. Told twice, a third refused wait in one turn is held inside the guard - until a sub-agent's notice is queued, or two minutes - before it is answered: the wait the model wanted, with no model request spent on it (a parent was refused eight times in 45 s). It is never ended with an abort: that was tried, and pi-subagents, which takes any abort for the user pressing Esc, stopped waking the session - in three driven sessions of three the children finished and the site was never checked. The same shell command three times running, with no other call between, is a wait too: a parent ran one `ls` of its site 91 times while its children wrote the pages - 195 turns, 8M tokens, and in manual mode an ask for each. It also takes `contact_supervisor`, a sub-agent's tool, out of the top session's tools: two of four driven sessions called it there and got an error. |
++| `agent/extensions/wait-guard.ts` | refuses `bg_wait` in an interactive session, where a sub-agent run wakes the session when it ends: the model is told to end its turn instead of holding the session (it did for 6.5 minutes in test5, after the prompt already said not to). `pi -p` and sub-agents keep it. Once refused in a turn, the other ways of waiting are refused for the rest of it (test9 then ran `sleep 5`, `sleep 10`, two status checks and read the run's log): a bash command that only sleeps, a `subagent` status check, and reading a run's files under async-subagent-runs Refused, it was still called four times in a row (2026-11-13), so the launcher no longer offers `bg_wait` to a session its runs wake - only to `pi -p`, `--mode json`, `--with-all` and sub-agent children - and here a second `subagent` status check in one turn is the refused wait. A successful async launch also arms sleep/poll detection immediately: in python-before parallel.1 (2026-11-15), calls to the wrong status tools never armed it, so the parent kept sleeping and changing files its children were still writing. A command that reads a running run's own files under `async-subagent-runs/` is refused from the first time: a manual session read its child's log again and again, each read put to the user to allow. Told twice, a third refused wait in one turn is held inside the guard - until a sub-agent's notice is queued, or two minutes - before it is answered: the wait the model wanted, with no model request spent on it (a parent was refused eight times in 45 s). It is never ended with an abort: that was tried, and pi-subagents, which takes any abort for the user pressing Esc, stopped waking the session - in three driven sessions of three the children finished and the site was never checked. The same shell command three times running, with no other call between, is a wait too: a parent ran one `ls` of its site 91 times while its children wrote the pages - 195 turns, 8M tokens, and in manual mode an ask for each. It also takes `contact_supervisor`, a sub-agent's tool, out of the top session's tools: two of four driven sessions called it there and got an error. |
+ | `agent/extensions/ultracode-note.ts` | in a session without the `workflow` tool, replaces the note `/ultracode` and `/effort` add to each message (call the `workflow` tool, fan out widely) with one line saying the tool is not here and to fan out with `subagent` instead (see [Dynamic Workflows](#dynamic-workflows-and-the-one-control-it-lacks)) |
+ | `agent/extensions/permission-mode.ts` | `/mode`: a menu to change the permission mode (manual, read-only-auto, auto, yolo) and keeps it in the footer; the permission gate, patched by `patch-pi.py --gate`, applies it (see [Permission modes](#permission-modes)) In manual mode a system-prompt section says `read`, `grep`, `find`, `ls` and `view` never ask, so looking is not put to the user through bash (a manual session put 31 dialogs to its user in 16 minutes, seven of them `ls`, `grep` and `cat`). |
+-| `agent/extensions/todo.ts` | adds a `todo` tool for multi-step work, and keeps the list **on screen**: a live panel above the editor showing `plan 2/5` and the items, capped at five lines with a count of the rest, repainted when the list changes and after a resume (the list otherwise lives in scrollback and is lost at the next tool result - the plan's item 12). Nothing of it is sent to the model |
++| `agent/extensions/todo.ts` | adds a `todo` tool for multi-step work, and keeps the list **on screen**: a live panel above the editor showing `plan 2/5` and the items, capped at five terminal rows with a count of the rest, repainted when the list changes and after a resume (the list otherwise lives in scrollback and is lost at the next tool result - the plan's item 12). Long items are clipped to the current terminal width and multiline items are displayed on one row; the full text stays in the list. Nothing of the panel is sent to the model |
+ | `agent/extensions/remote-research.ts` | in a `pi --remote` session (and its sub-agents) only, which the launcher marks with `PI_ELM_REMOTE=1`: a system-prompt section telling the model to ALWAYS research with the web tools, cite what it used, and say what it could not confirm, rather than answer from memory. It also says that what the model writes for the user (pages, reports) is facts to look up too - before handing the writing to a `qwen` child, which has no web tools - with one number for one fact across pages, and that pictures of a real thing are real ones from the web (Wikimedia Commons, by `Special:FilePath`), looked at and credited on the page - test9 wrote an alpaca site from memory with seven random picsum.photos images. With computer use on as well (`PI_ELM_COMPUTER_USE=1`, the top-level session only: a sub-agent child inherits the variable but has no computer use, so in a child (`PI_SUBAGENT_CHILD`) the section is taken out - which reaches a child started fresh; a forked child is sent its parent's system prompt unchanged by pi-subagents, to reuse the parent's prompt cache, so it still reads the section, with no tools to act on it), a second one for driving Safari: Safari is for the web, and a page or figure on this machine is looked at with `view` (a live run checked its pages through Safari's accessibility outline and never saw them); press Return after typing a URL, and when finished minimise the window and bring the terminal back to the front Under `--remote` it also refuses a download of a Commons file name - `Special:FilePath/<name>` or an `upload.wikimedia.org` path - that no search result, message or task in the session has shown: a child guessed eleven, each a 404, before searching (2026-11-13). Without `--remote`, a request to download something from the web gets a note right after it: this session cannot reach the web, say so in the first reply with `pi --remote` as the way, and call any stand-in a stand-in (2026-11-13: 21 labelled yellow boxes were reported as "downloaded/generated"). Its refusal of a guessed name runs Commons' search for what the guess was after and lists the exact titles it finds, which then count as seen (a session was refused five times in a row, guessing anew each time); its example search encodes the words with `--data-urlencode`, since one with raw spaces broke. Spaces in a quoted `Special:FilePath` URL are written as `%20` before the command runs: curl refuses them ("URL rejected: Malformed input"), twice in driven sessions. |
+ | `agent/extensions/pinned-instructions.ts` | `pin_instruction`: standing instructions kept in the system prompt, where compaction cannot summarise them away |
+ | `agent/extensions/skill-router.ts` | adds the skills a request needs (see [Skills](#skills-and-the-skill-router)) A request for agents in a session that has none (`pi --fast`) gets one note saying so: one called `subagent` and `workflow`, was told each was not found, and built the site alone without a word. |
+@@ -303,9 +303,9 @@
+ | `agent/extensions/workflow-script.ts` | lets a `workflow` call name its checked script file - `workflow({ script: ".pi/tmp/<name>.mjs" })` - and runs that file, so what runs is what `workflow-check` passed and the script is not typed twice (test15, 2026-11-13: the model retyped a checked script, and the copy did not parse). Refuses a script whose prompts name a text constant that nothing uses - test15's page tasks said "copy sharedStyles verbatim" and none of them held the CSS - and adds the line a syntax error's "(176:11)" points at. `permission-mode.ts` and `report-guard.ts` read a named file too, as pi loads a folder's extensions in no set order. |
+ | `agent/extensions/notebook-outputs.ts` | `notebook_summary` shows an output's first five lines; when one is cut, a note says which cells and how to read one whole with `notebook_read_cell_output`, and a read that names a markdown cell gets the notebook's code cells. In a decay-chain notebook the peak-activity table was cut after two rows, both reads named markdown cells, and the reply gave a peak time that was in no output (23.65 min; the notebook said 38.32). |
+ | `agent/extensions/verify-guard.ts` | sends a turn back, once and at most twice a session, when it wrote a code file and ran nothing in that turn: in the ten-session, 200-problem treadmill batch of 2026-11-14 (`docs/tuning/README.md`), two sessions wrote all twenty files and executed none, replying "Done." twenty times - 40 and 41 requests against the other eight sessions' 60-63. A written file is not a known-working one, and `claim-guard` cannot catch this because the writes succeeded. Any executing call counts whether it failed or not - `bash`, a python tool, a notebook run, a sub-agent launch - and only files whose extension can be executed count, so writing a README, a config or a `.csv` is not this guard's business |
+-| `agent/extensions/help.ts` | `/help`: this session's commands, its skill commands and the tools it has, each with the description the extension or template gives it - read from `pi.getCommands()` and `pi.getAllTools()`, so a template this repo drops stops being listed. `/help <word>` filters on name and description. Costs no model turn and no tokens until typed; it is the reflex first command a first session did not have |
+-| `agent/extensions/empty-state.ts` | on a new session, with a screen, three lines naming `/help`, the prompt templates this install actually has in `agent/prompts`, and where `INSTALL.md` and `agent/reference` are. Nothing on a resumed or forked session, nothing in `pi -p` (there is no screen), and nothing it cannot check: the template names are read from the directory pi loads them from |
+-| `agent/extensions/status-line.ts` | one footer line naming the model when it is not the install's default and `web` when the session has `web_search` (which is what `pi --remote` buys), and nothing at all for the ordinary session. Both change what a whole session can do and neither shows after launch: a `--remote` session's 403 is how a gateway gets blamed for a proxy |
++| `agent/extensions/help.ts` | `/help`: this session's commands, its skill commands and the tools offered to the model - read from `pi.getCommands()` and `pi.getActiveTools()`, with descriptions from `pi.getAllTools()`, so removed templates and disabled tools are not listed. `/help <word>` filters commands and tools on name and description. Costs no model turn and no tokens until typed; it is the reflex first command a first session did not have |
++| `agent/extensions/empty-state.ts` | on a new session, with a screen, three lines naming `/help`, the prompt templates this install actually has in `agent/prompts`, and where `INSTALL.md` and `agent/reference` are. Nothing on a resumed or forked session, including one resumed from the command line, nothing in `pi -p` (there is no screen), and nothing it cannot check: the template names are read from the directory pi loads them from |
++| `agent/extensions/status-line.ts` | one footer line naming the model when it is not the install's default and `web` when the session has `web_search` (which is what `pi --remote` buys), and nothing at all for the ordinary session. It refreshes immediately when a model is selected and at each turn. Both change what a whole session can do and neither shows after launch: a `--remote` session's 403 is how a gateway gets blamed for a proxy |
+ | `agent/extensions/subagent/config.json` | fan-out budget: 12 concurrent, 64 per run |
+ | `agent/bin/pi` | symlink to the launcher, so sub-agent children find `pi` whatever PATH looks like |
+ | `agent/pixi/` | pixi's global tools, environments and cache (`PIXI_HOME`), when the agent has used it |
+--- a/docs/tuning/TREADMILL.md
++++ b/docs/tuning/TREADMILL.md
+@@ -145,6 +145,25 @@
+ takes 30 to 60 minutes and 20 to 50 million ELM tokens; eight short analysis
+ tasks take about 15 minutes and 1 to 3 million.
+ 
++For repeated local installs without downloading dependencies again, set
++`TREADMILL_FROM=/path/to/a/working/install`. The batch copies the working tree
++as usual, then runs that copy's `scripts/dev-setup.sh --from` against the given
++install. The Python launcher and rendered extensions still come from the
++working tree. This omits the optional analysis Python environment; stdlib
++checks use the interpreter recorded in `agent/python-path`.
++
++A failed bootstrap stops the batch before any sessions start. A missing or
++prematurely exiting launcher and a time limit make the driver fail, and a
++failed driver or analyzer makes the batch exit nonzero after saving the
++remaining reports and summary. RPC extension errors are recorded in the log;
++a startup failure without a session file retains its stderr in the report.
++The driver's pipes decode UTF-8 across chunks, so split characters survive
++in the recorded text. On macOS and Linux each driven launcher has its own
++process group, which the driver stops on completion, timeout or interruption;
++this also closes pipes left open by tools after a launcher crashes.
++Deadlines and elapsed seconds use a monotonic clock, so a wall-clock adjustment
++cannot expire a healthy run; the log's readable timestamps still use wall time.
++
+ ### What the reports record
+ 
+ `analyze.py` writes one `report.md` per run, in this order: **Steps** when the
+@@ -174,7 +193,8 @@
+ of the check's stderr when it failed - prints the table, ends with
+ `N/M passed, X tokens`, and saves `scores.json` beside the reports. It runs each
+ `checks/<task>.py` in the run's project folder with the *batch's own* install
+-Python (`agent/python/env/bin/python`), `PYTHONPATH=.:src`, a 300 s timeout, and
++Python (`agent/python/env/bin/python`, or its recorded interpreter when the
++optional environment was not installed), `PYTHONPATH=.:src`, a 300 s timeout, and
+ exit 0 meaning pass.
+ 
+ What was not recorded when this file was first written, and is now (in

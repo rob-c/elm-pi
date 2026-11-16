@@ -1,0 +1,1650 @@
+#!/usr/bin/env bash
+# The previous launcher, kept as the reference the Python one is held to.
+#
+# This is the bash implementation `pi` used to be. It is not what an install
+# runs: `pi` is, and it hands over to python/pi and python/elmpi. Nothing loads
+# this file - it is here so the replacement can be read against the thing it
+# replaces, and so tests/test_python_launcher.py can run both on the same
+# install and compare what they decide (which flag, which environment, which
+# extensions, which refusal) case by case.
+#
+# It stays runnable on its own: `./pi.bash -p "..."` behaves as `./pi` did
+# before the Python launcher replaced it. Three self-references name it rather
+# than `$HERE/pi`, so that running it re-executes *it* (`--with-all`), points
+# sub-agent children at *it*, and names *it* in the permission gate's error -
+# this header is the only other difference from the file it came from.
+# pi, wired to Edinburgh ELM and locked to university-hosted models.
+# Self-contained: bundled Node, local config dir, nothing installed system-wide.
+set -euo pipefail
+unset CDPATH
+
+# Resolve through symlinks: the installer puts ~/.local/bin/pi -> here, and
+# "$(dirname "$0")" on a symlink points at the link, not the install.
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  LINKDIR="$(cd "$(dirname "$SELF")" && pwd)"
+  SELF="$(readlink "$SELF")"
+  case "$SELF" in /*) ;; *) SELF="$LINKDIR/$SELF" ;; esac
+done
+HERE="$(cd "$(dirname "$SELF")" && pwd)"
+
+# bundled Node, and this install's own tools ahead of anything the machine has.
+# agent/bin is pi's managed-binary directory: bootstrap.sh puts the toolbox
+# there (fd, rg, jq, yq, ast-grep and a shell linter), pi looks there before it
+# looks at PATH for the two it uses itself, and putting it on PATH here means
+# the agent's bash tool gets the same binaries on every host rather than
+# whatever is lying around. A comment line must not begin with the linter's
+# name - that is a directive, and it stops the file being checked at all.
+export PATH="$HERE/agent/bin:$HERE/.node/bin:$PATH"
+
+# --- a working folder that no longer exists ----------------------------------
+# A shell keeps its current folder open after the folder is deleted - removed
+# by `rm -rf`, a branch switch or a rebuild, often with a new folder made at the
+# same path - and anything started from it inherits a directory with no path.
+# pi would run there with every write failing, sessions and memory going
+# nowhere, and node's process.cwd() throwing at whatever first asks. getcwd is
+# what notices: `pwd -P` fails for a deleted folder in every bash this runs
+# under (3.2 to 5.3) whichever shell started it. Before everything, --help
+# included, and with no override: there is nothing to work on.
+# bash 5 reports such a folder's $PWD as "."; 3.2 keeps the old path.
+if ! pwd -P >/dev/null 2>&1; then
+  case "${PWD:-}" in
+    /*) echo "pi: the folder this shell is in has been deleted ($PWD)." >&2
+        if [ -d "$PWD" ]; then
+          echo "    A new folder exists at that path; the shell is still in the old one. Run: cd \"$PWD\"" >&2
+        else
+          echo "    cd to a folder that exists, then run pi again." >&2
+        fi ;;
+    *)  echo "pi: the folder this shell is in has been deleted." >&2
+        echo "    cd to a folder that exists - cd \"\$PWD\" in your shell if it was recreated - then run pi again." >&2 ;;
+  esac
+  exit 2
+fi
+
+# --- pi --help ---------------------------------------------------------------
+# Before the key check, the load preflight and the egress proxy: an install
+# that cannot start is exactly the one whose help you want to read. This
+# launcher adds flags of its own, and until now `pi --help` showed only pi's,
+# so they were documented everywhere except where you would look.
+#
+# Detected here, acted on below, once PI_CODING_AGENT_DIR and the telemetry
+# switch are set: pi runs its migrations and loads every extension before it
+# prints its help, and run from here that was vanilla pi on ~/.pi.
+elm_usage() {
+  cat <<'EOU'
+elm-pi: pi wired to the University's ELM gateway. Models are ELM-only - see
+LOCKDOWN.md for what that blocks and how to lift it.
+
+Flags added by this launcher:
+  --fast              load only the local extensions and the permission gate:
+                      no sub-agents, web access or anchor editing. Much
+                      quicker to start
+  --llama             run on Llama 3.3 70B through the tool-call shim
+  --mistral           run on Mistral Small 4 119B, ELM's other model with
+                      tool calling and images; Qwen stays the default
+  --no-workflows      leave the `workflow` tool (pi-dynamic-workflows) out of
+                      this run; it is offered by default
+  --workflows         offer it even where PI_ELM_WORKFLOWS=0 leaves it out
+  --with-all          every optional extra: sets up the agent's Python and the
+                      offline PyPI index if they are not installed (once, ~2GB),
+                      and offers every tool left out for size. Not --remote:
+                      the web, the open proxy and computer use stay off
+  --remote            allow this run to reach the internet: the web tools come
+                      back on and the egress proxy records every destination
+                      instead of refusing all but the ELM gateway and the
+                      package sources (PyPI, conda-forge, container
+                      registries). The model is not affected - inference still
+                      goes to ELM and nowhere else, and no other provider
+                      becomes reachable. The model is told to research with
+                      the web tools rather than answer from memory
+  --no-computer-use   with --remote, the web but not the screen: computer use
+                      (seeing the screen, driving apps) stays off
+  --help, -h          this text, then pi's own
+
+Permission modes - how much the agent may do without asking:
+  --manual            nothing runs without your yes: commands, edits, Python,
+                      sub-agents and every other tool ask first; reading
+                      files in the project does not. Where every new
+                      session starts, unless auto has been made the default
+  --read-only-auto    manual, except that a shell command which can only read,
+                      and only inside the project (ls, cat, grep, find, cd
+                      into it), runs without asking; everything that
+                      changes something still asks
+  --auto              the permission gate's rules: most commands and edits in
+                      the project run, the risky ones (git push, sudo,
+                      brew install, ...) ask first
+  --yolo              every ask is answered yes, for this session only; a
+                      deny is still a deny. Never saved, never the default
+  A flag sets the mode for one run and leaves the default alone. In a session,
+  /mode opens a menu of the modes: manual, read-only-auto or auto then offers
+  "Change for this session" or "Change default mode" (saved in
+  agent/permission-mode); yolo
+  offers only "Change for this session only". Sub-agents run in their session's mode and
+  ask through it. PI_ELM_PERMISSION_MODE set in the environment can only make a
+  run stricter.
+
+pi's own subcommands (auth, mcp, config, list, install, remove, update
+--models) are not available: the key, packages and models are this install's.
+
+Optional parts, added or taken back (recorded, so pi update keeps the choice):
+  pi setup --no-python      remove the agent's own Python - uv-managed CPython with
+                            numpy, scipy, pandas, matplotlib, Jupyter tools... (~1GB),
+                            part of every install otherwise - and the index
+  pi setup --python         put the agent's Python back
+  pi setup --pypi-index     offline PyPI search, `pypi-search` (~1GB download,
+                            ~390MB kept); adds --python
+  pi setup --no-pypi-index  remove the index
+  pi setup --all            both (what pi --with-all sets up before starting)
+
+Useful environment:
+  PI_ELM_WEB=1              web tools for one run, without opening the proxy
+  PI_ELM_WORKFLOWS=0        leave the workflow tool out (the same as --no-workflows)
+  PI_ELM_BANNER=0           no "Powered by ELM" banner when a session starts
+  ELM_PI_PROXY_ALLOW=a,b    let this run reach these hosts as well
+  ELM_PI_NO_PROXY=1         run unproxied (debugging)
+  ELM_PI_NO_JAIL=1          run without the OS network fence (debugging)
+  ELM_PI_PREVIEW_PORT=8765  host-loopback port for a web UI built in the session;
+                            Linux chooses a free port when this is unset
+  PI_ELM_NETWORK=offline    offline, trusted-remote or yolo, as a default for
+                            every session started from this shell
+  ELM_PI_SHARED_STATE=1     preserve existing shared session/memory permissions
+  ELM_PI_ALLOW_EXTERNAL_MODULES=1
+                            let pi load packages from node_modules outside this
+                            install, which it otherwise refuses (debugging)
+  PI_ELM_UNLOCK=1           lift the credential scrub and the argument guard
+                            (which also refuses -e/--extension)
+  PI_FORCE=1                start in home or another folder that is not a project, and
+                            skip the busy-machine and inside-the-install warnings
+  PI_ELM_STARTUP_CHECKS=1   restore pi's own startup network checks
+  PI_CLIPBOARD_OSC52=0      copy to this machine's clipboard only, not also
+                            through the terminal (on by default, for remote hosts)
+
+Network modes - what this session may reach, and what the OS enforces:
+  --offline           the ELM gateway only: no web tools, no PyPI, no package
+                      registries, and no packet to anything but this install's
+                      egress proxy, enforced by the OS
+  --trusted-remote    the gateway, the package sources and the search providers
+                      this install allows (proxyAllow in config/elm-pi.json),
+                      through the proxy, with the OS allowing nothing else.
+                      The default
+  --remote            now the same as --yolo: every destination and every
+                      protocol, for this session only, with the proxy recording
+                      rather than gating and no OS fence. Never saved
+
+pi's own flags follow.
+EOU
+}
+# pi reads a "--" that is an option's value (`--name -- --help`) as that value
+# and goes on parsing options, so the help check skips option values as the
+# argument guard does. lib/policy.sh only defines functions; a checkout that
+# lost it still answers --help, stopping at the first --.
+# shellcheck source=/dev/null
+[ -f "$HERE/lib/policy.sh" ] && . "$HERE/lib/policy.sh"
+WANTS_HELP=0
+help_value=0
+for a in "$@"; do
+  if [ "$help_value" = "1" ]; then help_value=0; continue; fi
+  case "$a" in
+    --) break ;;   # prompt text from here on
+    -h|--help) WANTS_HELP=1; break ;;
+  esac
+  if command -v elm_policy_takes_value >/dev/null 2>&1 && elm_policy_takes_value "$a"; then help_value=1; fi
+done
+
+# Telemetry is off, and not a knob: it reports the install to pi.dev.
+export PI_TELEMETRY=0
+# Nothing on this list belongs in a locked install: where /share points, and
+# pi's switch for unreleased features.
+unset PI_SHARE_VIEWER_URL PI_EXPERIMENTAL 2>/dev/null || true
+# Copies (/copy, Ctrl+X, copy-on-select) also go to the terminal as OSC 52, so
+# they reach the clipboard of the machine you are sitting at when pi runs on
+# another one. pi does that by itself only when it sees SSH or mosh variables,
+# which a tmux session reattached from elsewhere or a remote IDE terminal does
+# not carry. Locally it is a second write of the same text. Write-only: pi never
+# reads the clipboard this way. PI_CLIPBOARD_OSC52=0 turns it off.
+export PI_CLIPBOARD_OSC52="${PI_CLIPBOARD_OSC52:-1}"
+
+# Python leaves __pycache__ beside every module it imports, so an agent that
+# runs a script in the user's project leaves directories nobody asked for: the
+# treadmill batch of 2026-11-14 (two sessions of ten stock coding problems) put
+# one into each project folder, and score.py already sets this for the same
+# reason when it imports a session's answer. Set here, everything the agent runs
+# inherits it; a run that wants the bytecode sets PYTHONDONTWRITEBYTECODE=0.
+# Before Python 3.11 any value, "0" included, means "do not write" (macOS's
+# 3.9 failed this line's test on exactly that), so 0 is passed on as unset.
+export PYTHONDONTWRITEBYTECODE="${PYTHONDONTWRITEBYTECODE:-1}"
+[ "$PYTHONDONTWRITEBYTECODE" != 0 ] || unset PYTHONDONTWRITEBYTECODE
+
+# keep config, sessions and credentials inside this directory, not ~/.pi
+export PI_CODING_AGENT_DIR="$HERE/agent"
+
+# Figures go to files, which view-outputs shows the model; nothing the agent
+# runs should open a window - on macOS a plt.show() with the GUI backend can
+# hang the command, the persistent python kernel included. Not MPLBACKEND: a
+# Jupyter kernel picks its inline backend only when that is unset, and with it
+# set to Agg a notebook's plots came out as a warning and no image. A
+# matplotlibrc saying Agg ranks below both, so notebooks keep inline figures and
+# scripts get Agg. Only where the researcher has no matplotlib setup of their
+# own; a matplotlibrc in the project folder still wins.
+mpl_user_rc=0
+for rc in "${MPLCONFIGDIR:-}/matplotlibrc" "${XDG_CONFIG_HOME:-$HOME/.config}/matplotlib/matplotlibrc" "$HOME/.matplotlib/matplotlibrc"; do
+  [ -f "$rc" ] && mpl_user_rc=1
+done
+if [ -z "${MPLBACKEND:-}" ] && [ -z "${MATPLOTLIBRC:-}" ] && [ "$mpl_user_rc" = "0" ] && [ -f "$HERE/config/matplotlibrc" ]; then
+  export MATPLOTLIBRC="$HERE/config/matplotlibrc"
+fi
+
+# pi's half of --help gets what a session gets, as far as an install that may
+# not start allows: this agent/ (above), no startup network work, and no
+# provider credentials. runtime.env has the credential list; an install that
+# lost it still has config/elm-pi.json, read here without needing Python.
+if [ "$WANTS_HELP" = "1" ]; then
+  elm_usage
+  [ -x "$HERE/pi.orig" ] || exit 0
+  echo
+  export PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1
+  if [ -f "$HERE/agent/runtime.env" ]; then
+    # shellcheck source=/dev/null
+    . "$HERE/agent/runtime.env"
+  else
+    ELM_PROVIDER_CREDENTIALS="$(sed -n '/"providerCredentials"/,/]/p' "$HERE/config/elm-pi.json" 2>/dev/null \
+      | grep -o '"[A-Z][A-Z0-9_]*"' | tr -d '"' || true)"
+  fi
+  if [ "${PI_ELM_UNLOCK:-0}" != "1" ]; then
+    for credential_name in ${ELM_PROVIDER_CREDENTIALS:-}; do
+      unset "$credential_name" 2>/dev/null || true
+    done
+    unset PI_ELM_ALLOWED_PROVIDERS 2>/dev/null || true
+  fi
+  exec "$HERE/pi.orig" --help
+fi
+
+[ -f "$HERE/agent/runtime.env" ] || {
+  echo "elm-pi runtime configuration is missing. Run $HERE/bootstrap.sh." >&2
+  exit 1
+}
+# shellcheck source=/dev/null
+. "$HERE/agent/runtime.env"
+for helper in policy state sandbox; do
+  [ -f "$HERE/lib/$helper.sh" ] || {
+    echo "elm-pi helper is missing: $HERE/lib/$helper.sh. Run $HERE/bootstrap.sh." >&2
+    exit 1
+  }
+  # shellcheck source=/dev/null
+  . "$HERE/lib/$helper.sh"
+done
+
+# The key, read as data rather than sourced as shell: see elm_load_dotenv.
+elm_load_dotenv "$HERE/.env"
+
+# Relative PATH entries out: with "." on PATH, a repository's own ./git or ./fd
+# runs whenever pi looks up that command in it. The rest of PATH - conda
+# included - is the researcher's, and the agent's shell needs it.
+PATH="$(elm_clean_path "$PATH" relative-only)"
+export PATH
+
+# Packages come from this install only, whatever node_modules the machine has
+# elsewhere: lib/node-guard.mjs, which pi.orig preloads, refuses a load from
+# any of them, by Node's loader or by jiti's.
+
+# --- this install's Python, never the shell's --------------------------------
+# The proxy, the shim and the launcher's own helpers run on the interpreter
+# bootstrap.sh chose and recorded - not whatever conda or a venv put first on
+# PATH - and always as `python -E -S`, so PYTHONPATH and site-packages cannot
+# reach them. Exported for the elm-shim extension. The rest of the environment
+# is left alone on purpose: the agent's bash tool needs the researcher's conda.
+# shellcheck disable=SC2034 # read by elm_py, in lib/sandbox.sh
+ELM_PI_ROOT="$HERE"
+elm_select_python "$HERE" fast || {
+  echo "pi: $ELM_PY_ERROR" >&2
+  exit 1
+}
+
+# --- the agent's Python -------------------------------------------------------
+# bootstrap.sh builds agent/python/env: a uv-managed CPython with the analysis
+# stack (python.packages in config/elm-pi.json), pip seeded, and PyPI reachable
+# through the proxy, so the agent can install what a task needs without
+# touching the system Python. It goes on PATH after agent/bin - so `python3`
+# and `pip` are this environment - unless the researcher started pi from an
+# environment of their own: an active venv, or a conda env other than base,
+# stays first, because that is the one their project uses.
+#
+# uv's interpreters and cache stay inside the install too, as everything else
+# here does; a project's own `uv venv`/`uv run` works as usual on top.
+AGENT_PY_ENV="$HERE/agent/python/env"
+if [ -x "$AGENT_PY_ENV/bin/python" ]; then
+  export ELM_PI_AGENT_PYTHON="$AGENT_PY_ENV/bin/python"
+  export UV_PYTHON_INSTALL_DIR="$HERE/agent/python/interpreters"
+  export UV_CACHE_DIR="$HERE/agent/python/cache"
+  if [ -z "${VIRTUAL_ENV:-}" ] && { [ -z "${CONDA_DEFAULT_ENV:-}" ] || [ "${CONDA_DEFAULT_ENV:-}" = "base" ]; }; then
+    case ":$PATH:" in
+      *":$AGENT_PY_ENV/bin:"*) ;;   # a sub-agent child, started from a session that already has it
+      *) PATH="$HERE/agent/bin:$AGENT_PY_ENV/bin:${PATH#"$HERE/agent/bin:"}"; export PATH ;;
+    esac
+  fi
+fi
+
+# --- pixi: conda-forge packages, kept in this install ------------------------
+# pixi (agent/bin) installs from conda-forge without sudo. PIXI_HOME puts its
+# global tools and environments in agent/pixi rather than ~/.pixi, and the
+# cache beside them, so nothing lands in the account and rm -rf takes the lot.
+# Tools the agent installs with `pixi global install` come next on PATH after
+# agent/bin; `pixi exec` runs one without installing it.
+if [ -x "$HERE/agent/bin/pixi" ]; then
+  export PIXI_HOME="$HERE/agent/pixi"
+  export PIXI_CACHE_DIR="$HERE/agent/pixi/cache"
+  case ":$PATH:" in
+    *":$PIXI_HOME/bin:"*) ;;
+    *) PATH="$HERE/agent/bin:$PIXI_HOME/bin:${PATH#"$HERE/agent/bin:"}"; export PATH ;;
+  esac
+fi
+
+# --- where jiti keeps its transpile cache -----------------------------------
+# The npm packages ship raw TypeScript and are transpiled at first use: ~21s of
+# CPU, cached in $TMPDIR/jiti and reused by every later launch. bootstrap.sh
+# fills that cache at install time, but $TMPDIR is not forever - tmp cleaners
+# sweep it, and a second login node has its own - and a cold cache means a 20
+# second launch.
+#
+#   ELM_PI_OWN_TMP=1    keep the cache (and pi's other temp files) inside the
+#                       install, where it survives and follows a shared home
+#                       directory between machines
+#
+# Off by default deliberately: it moves TMPDIR for everything pi runs, the
+# agent's own bash tool included, so a model that untars something large would
+# spend home-directory quota rather than scratch space.
+if [ "${ELM_PI_OWN_TMP:-0}" = "1" ]; then
+  export TMPDIR="$HERE/agent/tmp"
+  mkdir -p "$TMPDIR"
+fi
+# Either way the directory must be this account's alone: jiti executes what it
+# finds in $TMPDIR/jiti. See elm_private_tmpdir.
+elm_private_tmpdir || {
+  echo "pi: $ELM_PY_ERROR" >&2
+  exit 1
+}
+# pi-hashline-edit-pro keeps its settings and anchor store here rather than in
+# ~/.config, so every install is configured by bootstrap.sh (requirePath on, so
+# protected-paths.ts can see which file an edit targets; copy/move off).
+export PI_HASHLINE_DIR="$HERE/agent/hashline"
+
+# the elm-shim extension starts this proxy so Llama can call tools
+export ELM_SHIM_PATH="${ELM_SHIM_PATH:-$HERE/shim/shim.py}"
+
+# --- radius: pi's own hosted gateway ----------------------------------------
+# /bug uploads report.json, diagnostics.json and session.jsonl - the entire
+# transcript - to radius.pi.dev, and /share tries the same host before falling
+# back to a GitHub gist. patch-pi.py removes both commands from the release at
+# install time; this is the belt to that pair of braces, and unlike the patch
+# it survives someone running `npm install` by hand. Pointing the gateway at a
+# closed local port makes those uploads fail to connect instead of succeeding.
+# Nothing here uses radius for anything else: the ELM-only policy leaves its
+# model catalogue empty.
+export PI_RADIUS_GATEWAY="${PI_RADIUS_GATEWAY:-http://127.0.0.1:1}"
+
+# --- sub-agent children find this launcher, not a bare "pi" ------------------
+# pi-subagents spawns children by resolving the pi CLI from process.argv[1] and
+# from package resolution, and when both fail it falls back to `command: "pi"` -
+# a bare PATH lookup. When this install's command was still elm-pi there was no
+# `pi` on PATH, so that fallback failed and sub-agents could not start until a
+# `pi` symlink was dropped into agent/bin, which pi prepends to PATH for child
+# processes. The installer now links ~/.local/bin/pi as well.
+#
+# Both routes are now covered: PI_SUBAGENT_PI_BINARY is the documented override
+# and short-circuits the resolution entirely, and bootstrap.sh creates
+# agent/bin/pi -> this launcher for anything else that looks for `pi` on PATH.
+# Children go through the launcher deliberately, so the ELM-only policy, the
+# .env key and the bundled Node apply to them too.
+export PI_SUBAGENT_PI_BINARY="${PI_SUBAGENT_PI_BINARY:-$HERE/pi.bash}"
+
+# --- --fast / --llama ------------------------------------------------------
+# Measured on this install when the package set was three packages: pi core
+# plus the set cost ~4.4s of CPU at every launch, because the packages ship raw
+# TypeScript and are transpiled and imported from hundreds of files each time
+# (the set is larger now; not re-measured). pi itself starts in well under a
+# second. --fast loads only local extensions, so a one-shot question does not
+# pay for sub-agents and web access it will never use.
+#
+#   pi --fast -p "what does this regex do?"     quick, no sub-agents/web
+#   pi --llama -p "..."                          run on Llama 3.3 via the shim
+#   pi --mistral -p "..."                        run on Mistral Small 4
+#
+# --fast keeps the policy extensions (POLICY_EXTENSIONS below: the ELM-only
+# guard agent/extensions/elm-only.ts, the write protections, pinned
+# instructions, the command guard and the permission gate), todo, the skill router,
+# remote-research, permission-mode (/mode) and the claim guard, and pi's
+# built-in edit tool; it drops anchor editing, subagent/bg_wait and web search.
+# Use a plain `pi` for real multi-step work.
+# The workflow tool is offered unless the run says otherwise: PI_ELM_WORKFLOWS=0
+# or --no-workflows. Its agents load the policy and the per-agent guards
+# (agent/workflows/settings.json), owner-guard's unseen-change rule included.
+FAST=0; OFFLINE=0; TRUSTED_REMOTE=0; LLAMA=0; REMOTE=0; MISTRAL=0; WORKFLOWS="${PI_ELM_WORKFLOWS:-1}"; WITH_ALL=0; MODE_FLAG=""; ARGS=()
+# Computer use comes with --remote unless this says otherwise: the web without
+# the screen. Each install's helper app is signed afresh, so macOS asks for
+# Screen Recording again at the first --remote of a new install.
+COMPUTER_USE=1; [ "${PI_ELM_COMPUTER_USE:-}" != "0" ] || COMPUTER_USE=0
+[ "$WORKFLOWS" = "0" ] || WORKFLOWS=1
+# As given, for the re-launch after --with-all has set something up.
+ORIG_ARGS=("$@")
+# Up to the -- that ends pi's options, as pi reads them: after it, and as the
+# value of an option before it, `--remote` is text, passed on as given.
+flag_prev=""
+for a in "$@"; do
+  if [ -n "$flag_prev" ]; then
+    ARGS+=("$a")
+    [ "$flag_prev" = "stop" ] || flag_prev=""
+    continue
+  fi
+  case "$a" in
+    --) flag_prev="stop"; ARGS+=("$a") ;;
+    --fast) FAST=1 ;;
+    --llama) LLAMA=1 ;;
+    --mistral) MISTRAL=1 ;;
+    --offline) OFFLINE=1 ;;
+    --trusted-remote) TRUSTED_REMOTE=1 ;;
+    --remote) REMOTE=1 ;;
+    --no-computer-use) COMPUTER_USE=0 ;;
+    --workflows) WORKFLOWS=1 ;;
+    --no-workflows) WORKFLOWS=0 ;;
+    --with-all) WITH_ALL=1; WORKFLOWS=1 ;;
+    --manual) MODE_FLAG=manual ;;
+    --read-only-auto) MODE_FLAG=read-only-auto ;;
+    --auto) MODE_FLAG=auto ;;
+    --yolo) MODE_FLAG=yolo ;;
+    *) ARGS+=("$a"); if elm_policy_takes_value "$a"; then flag_prev="value"; fi ;;
+  esac
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
+if [ "$LLAMA" = "1" ] && [ "$MISTRAL" = "1" ]; then
+  echo "pi: --llama and --mistral each choose the model for the run; give one of them." >&2
+  exit 2
+fi
+
+# --- pi's own subcommands -----------------------------------------------------
+# Refused, each with what to do instead. pi dispatches a subcommand only as its
+# first argument, and everything below adds options in front of the caller's,
+# so a subcommand that got past here never reached pi as one: `pi auth login x`
+# became a prompt to the model. patch-pi.py makes pi refuse them as well.
+#
+# install/remove/uninstall: the packages this install loads are a reviewed set
+# at tested versions - templates/packages.json, pinned by config/versions.json -
+# and bootstrap.sh rebuilds agent/npm and settings.json "packages" from it on
+# every run, `pi update` included. A package pi installed by itself would load
+# unreviewed and unpinned until then, and then be deleted without a word. The
+# egress proxy, which allows only the gateway, also refused npm's registry
+# request, so in practice the command never worked here; it now says why.
+# LOCKDOWN.md has the reasoning; CONTRIBUTING.md has how to add a package.
+#
+# auth: the only credential is the ELM key in .env, and auth.json is read-only.
+# mcp: pi's MCP support is off (LOCKDOWN.md, -builtin:mcp).
+# config: which package resources load is templates/settings.json, rebuilt the
+# same way as the packages, so a change made with it would not last.
+# list: agent/installed-versions.json is what is running.
+case "${1:-}" in
+  auth)
+    echo "pi: \`pi auth\` is not available in this install." >&2
+    echo "    pi signs in to ELM with the key in $HERE/.env, and offers no other provider" >&2
+    echo "    ($HERE/LOCKDOWN.md). To change the key, edit .env and run $HERE/configure.sh." >&2
+    exit 2 ;;
+  mcp)
+    echo "pi: \`pi mcp\` is not available in this install." >&2
+    echo "    pi's MCP support is switched off here: an MCP server is a program or a remote service" >&2
+    echo "    outside the reviewed set and the egress policy ($HERE/LOCKDOWN.md, -builtin:mcp)." >&2
+    exit 2 ;;
+  config)
+    echo "pi: \`pi config\` is not available in this install." >&2
+    echo "    Which package resources load is set in $HERE/templates/settings.json, which every" >&2
+    echo "    bootstrap and \`pi update\` rebuilds agent/settings.json from, so a change made here" >&2
+    echo "    would be undone at the next update (CONTRIBUTING.md)." >&2
+    exit 2 ;;
+  list)
+    echo "pi: \`pi list\` is not available in this install." >&2
+    echo "    What is running: $HERE/agent/installed-versions.json. The reviewed set:" >&2
+    echo "    $HERE/templates/packages.json. pi itself: pi --version." >&2
+    exit 2 ;;
+  install|remove|uninstall)
+    echo "pi: \`pi ${1}\` is not available in this install." >&2
+    echo "    Its packages are the reviewed set in $HERE/templates/packages.json," >&2
+    echo "    which every bootstrap and \`pi update\` rebuilds agent/npm and agent/settings.json from," >&2
+    echo "    so a package added here would be removed again at the next update." >&2
+    echo "    To add one for good: list it in templates/packages.json and, as npm:<name>, in" >&2
+    echo "    templates/settings.json \"packages\", then run $HERE/bootstrap.sh (CONTRIBUTING.md)." >&2
+    echo "    To try a local extension for one session: PI_ELM_UNLOCK=1 pi -e /path/to/extension.ts" >&2
+    exit 2 ;;
+esac
+
+# --- ELM-only policy ---------------------------------------------------------
+# Staff allocations are funded at industry token rates, which does not buy a
+# meaningful amount of commercial-model usage. This install offers the
+# university's self-hosted models only. See LOCKDOWN.md.
+#
+# Three layers, all deliberately visible and reversible:
+#   1. credential scrub  - a stray key in ~/.zshrc cannot enable a paid provider
+#   2. argument guard    - --provider/--model/--api-key cannot route elsewhere
+#   3. elm-only extension - strips every non-ELM provider's model catalogue
+#
+# Before the key check, so a refusal does not wait on a key: an install with
+# none yet still refuses --model anthropic/..., which is also what makes
+# bootstrap.sh's probe of the guard mean something there.
+#
+# Escape hatch, for when someone genuinely needs it:
+#   PI_ELM_UNLOCK=1 pi ...            lifts layers 1 and 2 for that run
+#   PI_ELM_UNLOCK=1 PI_ELM_ALLOWED_PROVIDERS="elm,elm-shim,anthropic" pi ...
+UNLOCK="${PI_ELM_UNLOCK:-0}"
+
+if [ "$UNLOCK" != "1" ]; then
+  # 1. credential scrub. Only LLM-provider credentials are removed, and only
+  #    from pi's own environment - your shell is untouched. AWS_* and GITHUB_*
+  #    are deliberately left alone: the agent's bash tool needs them for real
+  #    work, and layer 3 already removes bedrock/copilot from the catalogue.
+  for credential_name in $ELM_PROVIDER_CREDENTIALS; do
+    unset "$credential_name" 2>/dev/null || true
+  done
+  unset PI_ELM_ALLOWED_PROVIDERS 2>/dev/null || true
+
+  # 2. argument guard: default-deny every provider outside the allowlist. This
+  # is deliberately not a list of providers known when this file was written.
+  refuse() {
+    echo "pi: $1" >&2
+    echo "    This install is restricted to the University's self-hosted ELM models." >&2
+    echo "    Why, and how to lift it: $HERE/LOCKDOWN.md" >&2
+    exit 2
+  }
+  type elm_policy_check_args >/dev/null 2>&1 || refuse "the argument policy helper is missing."
+  elm_policy_check_args "$@" || refuse "$ELM_POLICY_ERROR"
+fi
+
+# ---------------------------------------------------------------------------
+
+# Catalogue commands do not contact the ELM inference endpoint, and neither
+# does `pi update`. Keep them usable when a key has expired or a fresh install
+# still needs configuring; ordinary sessions continue to fail early with guidance.
+NEEDS_ELM_KEY=1
+case "${1:-}" in update|setup|--list-models|--version|-v) NEEDS_ELM_KEY=0 ;; esac
+if [ "$NEEDS_ELM_KEY" = "1" ] && [ -z "${ELM_API_KEY:-}" ]; then
+  echo "ELM_API_KEY is not set. Copy $HERE/.env.example to $HERE/.env and add your ELM key." >&2
+  echo "Run $HERE/bootstrap.sh if this install has not been set up yet." >&2
+  exit 1
+fi
+
+# --- not in home, the root, or a credential folder ---------------------------
+# The folder pi starts in is the project. The permission gate asks before the
+# agent touches anything outside it and nothing inside it, so started in home,
+# the whole home folder is the project: every repository, document and dotfile
+# in it readable and writable without a prompt, and the agent's searches and
+# context-gathering sweep all of it. Only the path denials (~/.ssh, .env, ...)
+# would still hold. The list is untrustedFolders in config/elm-pi.json; the
+# trust-guard extension keeps project trust off the same folders.
+# Sessions only - --version, --list-models and `pi update` run anywhere - and
+# not sub-agent children, which start where their parent already chose to.
+if [ "$NEEDS_ELM_KEY" = "1" ] && [ "${PI_FORCE:-0}" != "1" ] && [ -z "${PI_ELM_CHILD:-}" ]; then
+  if type elm_untrusted_folder >/dev/null 2>&1 && elm_untrusted_folder "$PWD"; then
+    echo "pi: not starting in $PWD - $ELM_UNTRUSTED_WHAT." >&2
+    echo "    The folder pi starts in is the project it works on, and nothing inside it is" >&2
+    echo "    asked about. cd to a project folder first (mkdir ~/scratch for a quick question)," >&2
+    echo "    or start here anyway with PI_FORCE=1. Why: $HERE/LOCKDOWN.md" >&2
+    exit 2
+  fi
+fi
+
+# --- Powered by ELM ----------------------------------------------------------
+# A session started at a terminal opens by crediting the service it runs on and
+# the team that hosts it, while pi takes its few seconds to start; elm-pi's TUI
+# draws inline, so the banner stays in the scrollback above. Not for `pi -p` or
+# --mode json/rpc, whose output programs read, nor for sub-agent children or a
+# stderr that is not a terminal. PI_ELM_BANNER=0 leaves it out.
+#
+# Drawn the same everywhere: plain ASCII, and colours from the 256-colour
+# palette - 22 (#005f00, dark green) on 255 (#eeeeee, light grey), about 6.9:1
+# contrast - whose entries are fixed RGB in practically every terminal, unlike
+# the 16 basic colours each theme redefines (and "bold is bright" recolours).
+# With NO_COLOR, TERM=dumb, or a terminal narrower than the box, it is the
+# same text without the box, rather than a box broken across lines.
+if [ "$NEEDS_ELM_KEY" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] && [ "${PI_ELM_BANNER:-1}" != "0" ] \
+   && [ -t 0 ] && [ -t 2 ]; then
+  ELM_BANNER=1; banner_prev=""
+  for a in "$@"; do
+    case "$a" in -p|--print|--mode=*) ELM_BANNER=0 ;; esac
+    [ "$banner_prev" != "--mode" ] || ELM_BANNER=0
+    banner_prev="$a"
+  done
+  if [ "$ELM_BANNER" = "1" ]; then
+    banner_width=74
+    banner_cols="$(stty size 2>/dev/null | cut -d' ' -f2)"
+    case "$banner_cols" in ''|0|*[!0-9]*) banner_cols="${COLUMNS:-80}" ;; esac
+    banner_on=""; banner_off=""
+    if [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ] && [ "$banner_cols" -ge "$banner_width" ] 2>/dev/null; then
+      banner_on=$'\033[0;1;38;5;22;48;5;255m'; banner_off=$'\033[0m'
+    fi
+    while IFS= read -r banner_line; do
+      if [ -n "$banner_on" ]; then
+        printf '%s  %-*s%s\n' "$banner_on" "$((banner_width - 2))" "$banner_line" "$banner_off"
+      else
+        printf '  %s\n' "$banner_line"
+      fi
+    done >&2 <<'ELM_BANNER'
+
+Powered by ELM:
+
+     .-----.       EEEEEEE  LL       MM     MM
+  .-'  (@)  '-.    EE       LL       MMM   MMM
+ ( (@)  |  (@) )   EEEEE    LL       MM MMM MM
+  '-- '.|.' --'    EE       LL       MM     MM
+   o_.--'--._o     EEEEEEE  LLLLLLL  MM     MM
+
+Every model in this session runs on ELM, the University of Edinburgh's
+AI platform. Thank you to the ELM team at EDINA.
+https://elm.edina.ac.uk/elm
+
+ELM_BANNER
+    echo >&2
+  fi
+fi
+
+# --- --remote: let this run reach the internet -------------------------------
+# Two things stop pi reaching anything but the gateway: the web tools are off by
+# default, and the egress proxy allows one host. Turning the tools on without
+# the proxy gets a session of refused connections, so --remote does both, for
+# this run only.
+#
+# It does NOT touch the model policy. The credential scrub, the argument guard
+# and the catalogue strip all stay exactly as they are: inference goes to ELM,
+# no other provider becomes reachable or visible, and Qwen stays the model.
+#
+# What it does cost: the proxy is also the backstop that would have stopped a
+# lifted model policy reaching a commercial API. With --remote that second line
+# of defence is down for the run, so the scrub and the guard are on their own.
+# Every destination is logged to agent/egress.log, which is the trade.
+#
+#   pi --remote                        web tools + open proxy, ELM models
+#   PI_ELM_WEB=1 pi                    web tools, proxy still allows ELM only
+#   ELM_PI_PROXY_ALLOW=api.exa.ai pi   one extra host, nothing else
+# --- network mode: what this run may reach -------------------------------
+# One decision, three consequences: whether the web tools are offered, which
+# hosts the proxy connects to, and whether the OS fences the session to that
+# proxy. Both launchers use python/elmpi/jail.py for that final hand-over.
+NETWORK_FROM_SAVED=0
+if [ "$OFFLINE" = "1" ]; then NETWORK_MODE=offline
+elif [ "$REMOTE" = "1" ] || [ "$MODE_FLAG" = "yolo" ]; then NETWORK_MODE=yolo
+elif [ "$TRUSTED_REMOTE" = "1" ]; then NETWORK_MODE=trusted-remote
+else
+  # The default /network saved (agent/network-mode), below a shell's own.
+  NETWORK_SAVED=""
+  if [ -r "$HERE/agent/network-mode" ]; then
+    IFS= read -r NETWORK_SAVED < "$HERE/agent/network-mode" || true
+    NETWORK_SAVED="$(printf '%s' "$NETWORK_SAVED" | tr -d '[:space:]')"
+  fi
+  case "$NETWORK_SAVED" in offline|trusted-remote|yolo) ;; *) NETWORK_SAVED="" ;; esac
+  NETWORK_MODE="${PI_ELM_NETWORK:-${NETWORK_SAVED:-trusted-remote}}"
+  [ -n "${PI_ELM_NETWORK:-}" ] || [ -z "$NETWORK_SAVED" ] || NETWORK_FROM_SAVED=1
+fi
+case "$NETWORK_MODE" in
+  offline|trusted-remote|yolo) ;;
+  *) echo "pi: PI_ELM_NETWORK=$NETWORK_MODE is not one of offline, trusted-remote, yolo." >&2
+     exit 2 ;;
+esac
+export PI_ELM_NETWORK="$NETWORK_MODE"
+if [ -r "$HERE/agent/network-mode" ]; then
+  IFS= read -r PI_ELM_NETWORK_DEFAULT < "$HERE/agent/network-mode" || true
+  PI_ELM_NETWORK_DEFAULT="$(printf '%s' "${PI_ELM_NETWORK_DEFAULT:-}" | tr -d '[:space:]')"
+fi
+case "${PI_ELM_NETWORK_DEFAULT:-}" in offline|trusted-remote|yolo) ;; *) PI_ELM_NETWORK_DEFAULT=trusted-remote ;; esac
+export PI_ELM_NETWORK_DEFAULT
+# A machine that cannot make the fence: offline is refused, anything else
+# starts without one and says so (python/elmpi/jail.py has the request and the
+# words). A session started from this one inherits ELM_PI_NO_JAIL, so it is
+# neither asked nor warned again.
+[ -n "${PI_ELM_CHILD:-}" ] || unset ELM_PI_UNFENCED
+# `pi --offline` typed in a session that started without its fence: the
+# ELM_PI_NO_JAIL it inherits is the launcher's, not a request (cli.py has the
+# session that showed it). Asked again: refused if the machine still has no
+# fence, fenced if it now has.
+if [ -n "${PI_ELM_CHILD:-}" ] && [ "${ELM_PI_UNFENCED:-}" = fallback ] && [ "${OFFLINE:-0}" = 1 ] \
+   && [ -n "${ELM_PI_PYTHON:-}" ] && [ -f "$HERE/python/elmpi/launch.py" ]; then
+  "$ELM_PI_PYTHON" -E -s -S -B -X utf8 "$HERE/python/elmpi/launch.py" --fence-check offline --asked-again \
+    || exit 1
+  unset ELM_PI_NO_JAIL ELM_PI_UNFENCED
+fi
+FENCE_WARNING=""
+if [ "$NETWORK_MODE" != yolo ] && [ -z "${ELM_PI_NO_JAIL:-}" ] && [ "${ELM_PI_NO_PROXY:-0}" != 1 ] \
+   && [ -z "${ELM_PI_FENCED:-}" ] && [ -n "${ELM_PI_PYTHON:-}" ] && [ -f "$HERE/python/elmpi/launch.py" ]; then
+  FENCE_STATUS=0
+  FENCE_WARNING="$("$ELM_PI_PYTHON" -E -s -S -B -X utf8 "$HERE/python/elmpi/launch.py" \
+    --fence-check "$NETWORK_MODE")" || FENCE_STATUS=$?
+  case "$FENCE_STATUS" in
+    0) FENCE_WARNING="" ;;
+    3) export ELM_PI_NO_JAIL=1 ELM_PI_UNFENCED=fallback
+       [ "${NEEDS_ELM_KEY:-1}" = 1 ] || FENCE_WARNING="" ;;
+    *) exit 1 ;;
+  esac
+fi
+# "enforced by the OS" only of a run that will be: with ELM_PI_NO_JAIL=1 the
+# line still claimed it (seen on Ubuntu 26.04, 2026-11-16), and with
+# ELM_PI_NO_PROXY=1 it described a filter that was not running.
+NETWORK_FENCE=", enforced by the OS"
+[ -z "${ELM_PI_NO_JAIL:-}" ] || NETWORK_FENCE="; no OS fence (ELM_PI_NO_JAIL)"
+[ "${ELM_PI_UNFENCED:-}" != fallback ] || NETWORK_FENCE="; NOT fenced by the OS"
+if [ "$NETWORK_MODE" = "offline" ]; then
+  unset PI_ELM_WEB PI_ELM_REMOTE 2>/dev/null || true
+  if [ "${ELM_PI_NO_PROXY:-0}" = 1 ]; then
+    echo "    network: offline asked for, but ELM_PI_NO_PROXY=1 - no proxy and no OS fence, so nothing is filtered" >&2
+  else
+    echo "    network: offline - the ELM gateway only$NETWORK_FENCE" >&2
+  fi
+else
+  export PI_ELM_WEB=1
+  # remote-research.ts reads this, here and in sub-agents, which inherit it
+  export PI_ELM_REMOTE=1
+  if [ "$NETWORK_MODE" = "yolo" ]; then
+    ELM_PI_PROXY_ALLOW="${ELM_PI_PROXY_ALLOW:+$ELM_PI_PROXY_ALLOW,}*"
+    export ELM_PI_PROXY_ALLOW
+    echo "    network: yolo - every destination, no jail; this session only" >&2
+    echo "pi: --remote/--yolo - the egress proxy is recording rather than gating," >&2
+    echo "    and no OS fence is applied. Models are unchanged: ELM only." >&2
+    echo "    Destinations: agent/egress.log" >&2
+    [ -d "$HERE/agent/npm/node_modules/pi-web-access" ] || \
+      echo "    note: pi-web-access is not installed, so there are no web tools to enable." >&2
+  else
+    if [ "${ELM_PI_NO_PROXY:-0}" = 1 ]; then
+      echo "    network: trusted-remote asked for, but ELM_PI_NO_PROXY=1 - no proxy and no OS fence, so nothing is filtered" >&2
+    else
+      echo "    network: trusted-remote - the gateway, the package sources and the research hosts, through this install's proxy$NETWORK_FENCE" >&2
+    fi
+    [ -z "$FENCE_WARNING" ] || printf '%s\n' "$FENCE_WARNING" >&2
+  fi
+fi
+
+PRE=()
+
+# --- computer use, with --remote only ----------------------------------------
+# @injaneity/pi-computer-use lets the agent see the screen and drive apps through
+# the macOS accessibility API (and Linux's AT-SPI), browsers included. A logged-in
+# browser reaches anything, past the egress proxy entirely, so it loads only in
+# a run that has already opened the network: it is installed with the other
+# packages but is not in settings.json's list, and sub-agent children never get
+# it. Its helper app is kept inside this install and signed ad hoc - its own
+# setup would otherwise put it in ~/Applications and generate a code-signing
+# certificate in the login keychain. macOS asks once for Accessibility and
+# Screen Recording for that helper (System Settings > Privacy & Security).
+CU_EXT="$HERE/agent/npm/node_modules/@injaneity/pi-computer-use/extensions/computer-use.ts"
+# Asked for with this run, not by a default /network saved: a browser the agent
+# drives is not something every new session should come with.
+[ "${NETWORK_FROM_SAVED:-0}" = 0 ] || COMPUTER_USE=0
+if [ "$NETWORK_MODE" = "yolo" ] && [ "$COMPUTER_USE" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] && [ -f "$CU_EXT" ]; then
+  PRE+=(-e "$CU_EXT")
+  export PI_COMPUTER_USE_HELPER_APP_PATH="$HERE/agent/helpers/pi-computer-use.app"
+  export PI_COMPUTER_USE_LINUX_HELPER_PATH="$HERE/agent/helpers/linux-bridge"
+  export PI_COMPUTER_USE_WINDOWS_HELPER_PATH="$HERE/agent/helpers/windows-bridge.exe"
+  export PI_COMPUTER_USE_CODESIGN_IDENTITY="-"
+  # remote-research.ts adds how to drive Safari and hand the screen back.
+  export PI_ELM_COMPUTER_USE=1
+  echo "    computer use is on for this run: the agent can see the screen and drive apps." >&2
+else
+  # A sub-agent inherits the parent's environment but never gets computer use,
+  # so it must not get the instructions for it either.
+  unset PI_ELM_COMPUTER_USE
+fi
+
+LLAMA_MODEL="elm-shim/$ELM_LLAMA_MODEL_ID"
+WANTS_SHIM=$LLAMA
+case " $* " in *" elm-shim"*|*"elm-shim/"*) WANTS_SHIM=1 ;; esac
+
+# The policy extensions: what has to load whenever pi's own discovery is off,
+# whether --fast turned it off or the caller did with --no-extensions/-ne. One
+# list for both, because the two used to differ - -ne got the model policy
+# alone, and ran with no permission gate, write protection, trust guard or
+# pinned instructions. The permission gate ships as a package, so it is named by
+# path; a release that moves its entry point must not quietly drop the gate,
+# so a missing entry in an installed package stops the launch.
+POLICY_EXTENSIONS="elm-only protected-paths trust-guard pinned-instructions command-guard"
+GATE_PKG="$HERE/agent/npm/node_modules/@gotgenes/pi-permission-system"
+GATE="$GATE_PKG/src/index.ts"
+add_policy_extensions() {
+  local e
+  for e in $POLICY_EXTENSIONS; do
+    if [ ! -f "$HERE/agent/extensions/$e.ts" ]; then
+      echo "pi: agent/extensions/$e.ts is missing, and with extension discovery off nothing else loads it." >&2
+      echo "    Run $HERE/bootstrap.sh to put it back." >&2
+      exit 1
+    fi
+    PRE+=(-e "$HERE/agent/extensions/$e.ts")
+  done
+  # No package directory is an install made with --no-packages, which has no
+  # gate in any mode. A package without its entry point is a broken one.
+  if [ -d "$GATE_PKG" ]; then
+    if [ ! -f "$GATE" ]; then
+      echo "pi: the permission gate is installed but $GATE is not there." >&2
+      echo "    Not starting without it. If @gotgenes/pi-permission-system moved its entry point," >&2
+      echo "    GATE_ENTRY in $HERE/python/elmpi/extensions.py needs the new path; otherwise: pi update --extensions" >&2
+      exit 1
+    fi
+    PRE+=(-e "$GATE")
+  fi
+}
+
+if [ "$FAST" = "1" ]; then
+  PRE+=(--no-extensions)
+  add_policy_extensions
+  # Conveniences on top of the policy: cheap, local, and what makes --fast
+  # still feel like this install.
+  for e in todo network skill-router remote-research permission-mode claim-guard repeat-guard server-reaper report-guard date-note; do
+    if [ -f "$HERE/agent/extensions/$e.ts" ]; then PRE+=(-e "$HERE/agent/extensions/$e.ts"); fi
+  done
+  if [ "$WANTS_SHIM" = "1" ] && [ -f "$HERE/agent/extensions/elm-shim.ts" ]; then
+    PRE+=(-e "$HERE/agent/extensions/elm-shim.ts")
+  fi
+fi
+# A caller may turn off package discovery, but the policy is an invariant of
+# the locked launcher. Load it explicitly for either spelling, just as --fast
+# does. The helper respects --, where these tokens become prompt text.
+if [ "$FAST" != "1" ] && elm_policy_extensions_disabled "$@"; then
+  add_policy_extensions
+fi
+# --llama or --mistral picks the model, unless the caller already chose: a
+# --model or --provider among pi's options, not those words inside the prompt
+# or an option's value.
+FLAG_MODEL=""
+[ "$LLAMA" = "1" ] && FLAG_MODEL="$LLAMA_MODEL"
+if [ "$MISTRAL" = "1" ]; then
+  # runtime.env names Mistral from the bootstrap that first served it on.
+  if [ -z "${ELM_MISTRAL_MODEL_ID:-}" ]; then
+    echo "pi: --mistral needs this install's Mistral model id, which $HERE/agent/runtime.env" >&2
+    echo "    does not have yet. Run $HERE/bootstrap.sh once, then try again." >&2
+    exit 1
+  fi
+  FLAG_MODEL="elm/$ELM_MISTRAL_MODEL_ID"
+fi
+if [ -n "$FLAG_MODEL" ]; then
+  model_chosen=0; model_prev=""
+  for a in "$@"; do
+    if [ "$model_prev" = "value" ]; then model_prev=""; continue; fi
+    case "$a" in
+      --) break ;;
+      --model|--model=*|--provider) model_chosen=1; break ;;
+    esac
+    if elm_policy_takes_value "$a"; then model_prev="value"; fi
+  done
+  [ "$model_chosen" = "1" ] || PRE+=(--model "$FLAG_MODEL")
+fi
+# ---------------------------------------------------------------------------
+
+# --- web tools off by default -----------------------------------------------
+# pi-web-access registers five tools: web_search, source_check, fetch_content,
+# get_search_content, and web_enable, which switches the others on. The list is
+# webTools in config/elm-pi.json, passed here as $ELM_WEB_TOOLS. Between them
+# they send the model's queries out - and
+# the model composes those from the code in front of it, so a function name or
+# an error string goes with them - fetch arbitrary pages, and then treat what
+# comes back as input. That last part is the one leak path that needs nobody to
+# do anything wrong: a fetched page can tell the agent to put data in a URL.
+#
+# Off by default, per run rather than per install: the package stays installed,
+# so turning it back on costs nothing.
+#
+#   PI_ELM_WEB=1 pi ...          web search and fetching for this run
+#   ./bootstrap.sh --no-packages  or drop pi-web-access to remove it entirely
+#
+# The names are pi-web-access defaults and can be renamed in
+# agent/web-search.json. Rename them there and webTools in config/elm-pi.json
+# needs the same edit - pi silently ignores an exclusion for a tool that does
+# not exist. bootstrap.sh compares the two lists on every run.
+#
+# Other tools are left out too (excludedTools in config/elm-pi.json): every
+# tool's definition goes with every request, so a rarely used one costs its
+# length on all of them. Five notebook tools with simple substitutes always, and
+# the `workflow` tools when this run leaves them out (--no-workflows,
+# PI_ELM_WORKFLOWS=0) - about 6.9k characters of each request between them.
+#
+# pi keeps only the last --exclude-tools it is given (a comma-separated list,
+# split once), so a caller's own `-xt bash` used to replace this exclusion and
+# turn the web tools back on. The caller's lists are folded into this one
+# instead, as one flag. An explicit --tools/-t allowlist is still left alone:
+# naming a web tool there is asking for it.
+XT_LIST=""
+[ "$WITH_ALL" = "1" ] || XT_LIST="${ELM_EXCLUDED_TOOLS:-}"
+[ "${PI_ELM_WEB:-0}" = "1" ] || XT_LIST="${XT_LIST:+$XT_LIST,}$ELM_WEB_TOOLS"
+[ "$WORKFLOWS" = "1" ] || XT_LIST="${XT_LIST:+$XT_LIST,}${ELM_WORKFLOW_TOOLS:-}"
+XT_LIST="${XT_LIST%,}"
+# bg_wait only where nothing wakes the session: `pi -p` and `--mode json`, which
+# end when the reply does. An interactive session (or --mode rpc) is woken by
+# each run's notices, and agent/extensions/wait-guard.ts refused bg_wait there -
+# yet the model kept calling it: four times in a row in a driven session on
+# 2026-11-13 (auto01), each one a turn of ~50k input tokens. Not offered, it is
+# not called. A sub-agent child keeps it, for runs of its own.
+BG_WAIT_USED=0; xt_mode=""
+for a in "$@"; do
+  case "$a" in -p|--print|--mode=json|--mode=print) BG_WAIT_USED=1 ;; esac
+  [ "$xt_mode" = "--mode" ] && case "$a" in json|print) BG_WAIT_USED=1 ;; esac
+  xt_mode="$a"
+done
+[ "$BG_WAIT_USED" = "1" ] || [ "$WITH_ALL" = "1" ] || [ -n "${PI_SUBAGENT_CHILD:-}" ] || XT_LIST="${XT_LIST:+$XT_LIST,}bg_wait"
+XT_LIST="${XT_LIST%,}"
+# An empty list leaves "$@" intact for update/setup and session-dir handling;
+# swapping the result slots in the Python port bypassed those later steps.
+if [ -n "$XT_LIST" ]; then
+  XT_ARGS=(); XT_USER=""; XT_TOOLS=0; xt_prev=""
+  for a in "$@"; do
+    if [ "$xt_prev" = "stop" ]; then XT_ARGS+=("$a"); continue; fi
+    if [ "$xt_prev" = "value" ]; then XT_USER="${XT_USER:+$XT_USER,}$a"; xt_prev=""; continue; fi
+    # Another option's value, "-xt" or "--" included, is passed on as it is.
+    if [ "$xt_prev" = "other" ]; then XT_ARGS+=("$a"); xt_prev=""; continue; fi
+    case "$a" in
+      --) xt_prev="stop"; XT_ARGS+=("$a") ;;
+      --exclude-tools|-xt) xt_prev="value" ;;
+      --tools|-t) XT_TOOLS=1; xt_prev="other"; XT_ARGS+=("$a") ;;
+      *) XT_ARGS+=("$a"); if elm_policy_takes_value "$a"; then xt_prev="other"; fi ;;
+    esac
+  done
+  # A trailing flag with no value is pi's to report, not ours to swallow.
+  [ "$xt_prev" != "value" ] || XT_ARGS+=("--exclude-tools")
+  if [ "$XT_TOOLS" = "0" ]; then
+    set -- ${XT_ARGS[@]+"${XT_ARGS[@]}"}
+    PRE+=(--exclude-tools "$XT_LIST${XT_USER:+,$XT_USER}")
+  fi
+fi
+# ---------------------------------------------------------------------------
+
+# --- no update work at launch -----------------------------------------------
+# pi does four things over the network while it starts, and on a fresh install
+# the first one blocks the prompt from appearing at all:
+#
+#   1. downloads fd and ripgrep from GitHub  - awaited before the TUI renders
+#   2. `npm view` on each package in settings.json (one npm process each)
+#   3. asks pi.dev whether a newer pi exists, and reports the install
+#   4. refreshes the remote model catalogue - useless here, ELM models are local
+#
+# (1) is the slow first launch. bootstrap.sh now installs fd and rg into
+# agent/bin, so there is nothing left to download; the rest is still work this
+# install never wants at startup, and pi bundles all of it behind one switch,
+# its own --offline / PI_OFFLINE. It disables startup network operations only:
+# ELM requests, web search and everything you type are untouched.
+#
+# Updates therefore happen when you ask for them, not when you start work:
+#     pi update                 elm-pi + pi + the extension packages
+#     PI_ELM_STARTUP_CHECKS=1 pi     restore pi's own startup checks for a run
+#
+# `pi update` needs the network by definition, so it is exempt. (install and
+# remove are refused above.)
+case "${1:-}" in
+  update|setup) ;;
+  *)
+    if [ "${PI_ELM_STARTUP_CHECKS:-0}" != "1" ]; then
+      export PI_OFFLINE="${PI_OFFLINE:-1}"
+      export PI_SKIP_VERSION_CHECK="${PI_SKIP_VERSION_CHECK:-1}"
+    fi ;;
+esac
+# ---------------------------------------------------------------------------
+
+# --- intercept 'pi update' --------------------------------------------------
+# `pi update` on its own means "update this install": install.sh --update,
+# which brings the elm-pi source up to date and then has bootstrap.sh install
+# the latest pi and extension packages, putting the previous trees back if the
+# checks fail. `pi update --extensions` is intercepted too: it reinstalls the
+# tested set (bootstrap.sh --force-packages). `pi update --models` is pi's own
+# catalogue refresh, and is refused.
+if [ "${1:-}" = "update" ]; then
+    HAS_EXTENSIONS=0
+    HAS_MODELS=0
+    for arg in "$@"; do
+        case "$arg" in
+            --extensions) HAS_EXTENSIONS=1 ;;
+            --models) HAS_MODELS=1 ;;
+        esac
+    done
+    
+    if [ "$HAS_MODELS" = "1" ]; then
+        # pi's own: it refreshes the providers' catalogues. ELM's models are
+        # agent/models.json, which configure.sh refreshes from the gateway, and
+        # every other provider is stripped. It never ran here anyway: the
+        # options added in front of it below made it a prompt to the model.
+        echo "pi: \`pi update --models\` is not available in this install." >&2
+        echo "    ELM's models are agent/models.json; $HERE/configure.sh refreshes them from the gateway." >&2
+        exit 2
+    fi
+    if [ "$HAS_EXTENSIONS" = "0" ]; then
+        # One command updates the whole install, in the order the pieces depend
+        # on each other: the repo and pi first, then the extension packages pi
+        # itself manages. Doing only the first leaves pi-subagents et al. on
+        # whatever npm resolved at install time, which is the half-updated
+        # state this used to produce.
+        echo "pi: updating this install." >&2
+        echo "    source, then pi and the extension packages at their latest versions;" >&2
+        echo "    if the new versions fail the install's checks, the current ones are put back." >&2
+        echo "    To go back to the tested versions instead: pi update --extensions" >&2
+        echo "    The options this install was made with (agent/install-options) are kept." >&2
+        echo "" >&2
+        # The launch-time offline default must not follow us into an update.
+        unset PI_OFFLINE PI_SKIP_VERSION_CHECK
+        # install.sh reads the branch and repository from agent/install-options,
+        # and bootstrap.sh the --no-* flags, so neither needs repeating here.
+        ELM_PI_PREFIX="$HERE" ELM_PI_NO_PATH=1 ELM_PI_NO_LINK=1 \
+          "$HERE/install.sh" --update --no-path --no-link || {
+            # install.sh and bootstrap.sh have said what was put back and what
+            # was not; this only must not claim more than they did.
+            echo "pi: the update did not complete - see above for what was rolled back." >&2
+            exit 1
+        }
+        exit 0
+    fi
+    if [ "$HAS_EXTENSIONS" = "1" ]; then
+        # "The tested versions" means the tested set: bootstrap.sh's
+        # --force-packages also returns pi to config/versions.json's pin when a
+        # `pi update` moved it on, since the packages were tested against that pi.
+        echo "pi: reinstalling the extension packages at the tested versions (config/versions.json)," >&2
+        echo "    and pi itself if it is not at its tested version." >&2
+        unset PI_OFFLINE PI_SKIP_VERSION_CHECK
+        "$HERE/bootstrap.sh" --force-packages --non-interactive
+        exit $?
+    fi
+fi
+# ---------------------------------------------------------------------------
+
+# --- 'pi setup': an optional part, added or taken back ----------------------
+# The agent's Python and the offline PyPI index are opt-in parts of the
+# install, built by bootstrap.sh. This is the way in from the pi command: it
+# runs bootstrap.sh with the matching flag, which records it in
+# agent/install-options so `pi update` keeps it. Like `pi update` it runs before
+# the egress proxy starts - it downloads from PyPI, GitHub and Hugging Face.
+if [ "${1:-}" = "setup" ]; then
+  shift
+  SETUP_FLAGS=()
+  for arg in "$@"; do
+    case "$arg" in
+      --python) SETUP_FLAGS+=(--with-python) ;;
+      --pypi-index) SETUP_FLAGS+=(--with-pypi-index) ;;
+      --all) SETUP_FLAGS+=(--with-all) ;;
+      --no-python|--no-pypi-index) SETUP_FLAGS+=("$arg") ;;
+      *) echo "pi setup: unknown option: $arg" >&2; SETUP_FLAGS=(); break ;;
+    esac
+  done
+  if [ "${#SETUP_FLAGS[@]}" = "0" ]; then
+    elm_usage | sed -n '/^Optional parts/,/^$/p' >&2
+    exit 2
+  fi
+  unset PI_OFFLINE PI_SKIP_VERSION_CHECK
+  exec "$HERE/bootstrap.sh" --non-interactive "${SETUP_FLAGS[@]}"
+fi
+# ---------------------------------------------------------------------------
+
+# --- --with-all: every optional extra, set up once ----------------------------
+# The installed extras - the agent's Python and the offline PyPI index - are
+# built by bootstrap.sh (as `pi setup --all` would), recorded so pi update keeps
+# them, and then this launcher starts again from the top, since the agent's
+# Python is put on PATH further up than here. The run-time extras follow from
+# the flag itself (the workflow tools and the tools left out for size). Nothing
+# that opens the network: that is --remote's, per run. ELM_PI_WITH_ALL_SET_UP
+# stops a part that will not build from turning into a loop of re-installs.
+if [ "$WITH_ALL" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] \
+   && { [ ! -x "$HERE/agent/python/env/bin/python" ] || [ ! -s "$HERE/agent/pypi-index.db" ]; }; then
+  if [ -n "${ELM_PI_WITH_ALL_SET_UP:-}" ]; then
+    echo "pi: --with-all: some optional parts did not build (see above); starting without them." >&2
+  else
+    echo "pi: --with-all - setting up the optional parts first: the agent's Python and the" >&2
+    echo "    offline PyPI index (~2GB to download, once). Recorded, so pi update keeps them." >&2
+    ( unset PI_OFFLINE PI_SKIP_VERSION_CHECK; "$HERE/bootstrap.sh" --non-interactive --with-all ) || {
+      echo "pi: setting up the optional parts failed - see above. Without them: pi (no --with-all)." >&2
+      exit 1
+    }
+    ELM_PI_WITH_ALL_SET_UP=1 exec "$HERE/pi.bash" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
+  fi
+fi
+# ---------------------------------------------------------------------------
+
+# --- permission mode -----------------------------------------------------------
+# How much the agent may do without asking (config/elm-pi.json permissionModes):
+#   manual  nothing runs without your yes, beyond reading files in the project
+#           and the tools in manualNoPrompt
+#   read-only-auto
+#           manual, and shell commands that only read inside the project run
+#   auto    the permission gate's rules as written
+#   yolo    every ask answered yes, for this session only; a deny is a deny
+# The gate, patched by patch-pi.py --gate, reads PI_ELM_PERMISSION_MODE on every
+# decision; /mode (permission-mode.ts) changes it inside a session.
+#
+# A run's mode, in order:
+#   1. --manual/--auto/--yolo, for that run only: a flag never changes the default
+#   2. a sub-agent's: the mode of the session that started it. A yolo session's
+#      runs as auto and sends its asks to that session, which answers yes:
+#      yolo is never handed on, so nothing started from a session's shell
+#      inherits it
+#   3. this install's default: manual or auto, never yolo. agent/permission-mode
+#      once /mode has saved one there (the gate's path rules deny it to the
+#      agent's tools), else permissionModes.default (manual)
+#
+# Started from a shell, a PI_ELM_PERMISSION_MODE already in the environment can
+# make the run stricter, never looser, so the agent cannot loosen a session by
+# setting it; and `pi --yolo` itself asks first (the gate's bash rules).
+# read-only-auto (2026-11-14) sits between manual and auto. To the gate it is
+# manual: PI_ELM_PERMISSION_MODE=manual, with PI_ELM_READ_AUTO=1 switching on
+# command-guard.ts's reviewer, which allows an ask for a shell command that can
+# only read inside the project. PI_ELM_READ_AUTO is set here from the mode and
+# from nothing else: found in a shell's environment without manual beside it,
+# or beside a flag that says otherwise, it is dropped.
+elm_mode_rank() { case "$1" in manual) echo 3 ;; read-only-auto) echo 2 ;; auto) echo 1 ;; yolo) echo 0 ;; *) echo -1 ;; esac; }
+DEFAULT_MODE="${ELM_PERMISSION_MODE_DEFAULT:-manual}"
+SAVED_MODE="$(head -n 1 "$HERE/agent/permission-mode" 2>/dev/null | tr -d '[:space:]' || true)"
+case "$SAVED_MODE" in manual|read-only-auto|auto) DEFAULT_MODE="$SAVED_MODE" ;; esac
+case "$DEFAULT_MODE" in manual|read-only-auto|auto) ;; *) DEFAULT_MODE=manual ;; esac
+INHERITED_MODE="${PI_ELM_PERMISSION_MODE:-}"
+[ "$INHERITED_MODE" = "manual" ] && [ "${PI_ELM_READ_AUTO:-}" = "1" ] && INHERITED_MODE=read-only-auto
+if [ -n "$MODE_FLAG" ]; then
+  MODE="$MODE_FLAG"
+elif [ -n "${PI_ELM_CHILD:-}" ] && [ -n "$INHERITED_MODE" ]; then
+  # Anything but a known mode is read as the strictest: whoever set it meant
+  # to restrict something.
+  case "$INHERITED_MODE" in manual|read-only-auto|auto) MODE="$INHERITED_MODE" ;; yolo) MODE=auto ;; *) MODE=manual ;; esac
+else
+  MODE="$DEFAULT_MODE"
+fi
+if [ -z "${PI_ELM_CHILD:-}" ] && [ -n "$INHERITED_MODE" ]; then
+  [ "$(elm_mode_rank "$INHERITED_MODE")" -ge 0 ] || INHERITED_MODE=manual
+  if [ "$(elm_mode_rank "$INHERITED_MODE")" -gt "$(elm_mode_rank "$MODE")" ]; then
+    [ -z "$MODE_FLAG" ] || echo "    note: PI_ELM_PERMISSION_MODE=$INHERITED_MODE in the environment keeps this run $INHERITED_MODE; --$MODE_FLAG cannot loosen it." >&2
+    MODE="$INHERITED_MODE"
+  elif [ "$INHERITED_MODE" != "$MODE" ]; then
+    echo "    note: PI_ELM_PERMISSION_MODE=$INHERITED_MODE in the environment cannot loosen a run; this one is $MODE (pi --$INHERITED_MODE to choose it)." >&2
+  fi
+fi
+# Only the gate applies a mode. Asked for by name, a mode the gate cannot apply
+# is refused rather than run as auto. As the default, on an install made with
+# --no-patch or --no-packages - which chose to go without - it runs as auto,
+# and says so.
+if [ "$MODE" != "auto" ]; then
+  GATE_PROBLEM=""
+  if [ ! -d "$GATE_PKG" ]; then
+    GATE_PROBLEM="has no permission gate (made with --no-packages)"
+  elif ! grep -qF 'PI_ELM_PERMISSION_MODE === "manual"' "$GATE_PKG/src/policy/permission-manager.ts" 2>/dev/null \
+       || ! grep -qF 'PI_ELM_PERMISSION_MODE === "yolo"' "$GATE_PKG/src/index.ts" 2>/dev/null; then
+    GATE_PROBLEM="has a permission gate that does not apply the permission modes (--no-patch, or pi update --extensions patches it)"
+  fi
+  if [ -n "$GATE_PROBLEM" ]; then
+    if [ -n "$MODE_FLAG" ]; then
+      echo "pi: this install $GATE_PROBLEM, so it cannot run in $MODE mode." >&2
+      exit 2
+    fi
+    [ -n "${PI_ELM_CHILD:-}" ] || echo "    note: this install $GATE_PROBLEM, so it runs in auto mode." >&2
+    MODE=auto DEFAULT_MODE=auto
+  fi
+fi
+if [ "$MODE" = "read-only-auto" ]; then
+  export PI_ELM_PERMISSION_MODE=manual PI_ELM_READ_AUTO=1
+else
+  export PI_ELM_PERMISSION_MODE="$MODE"
+  unset PI_ELM_READ_AUTO
+fi
+export PI_ELM_PERMISSION_DEFAULT="$DEFAULT_MODE"
+# Always this install's list, never the caller's: a longer one would loosen manual.
+export PI_ELM_MANUAL_ALLOW="${ELM_MANUAL_NO_PROMPT:-}"
+# What the sub-agents of a launch you allowed run in, in a manual session: auto or
+# manual (permissionModes.approvedAgents). Also this install's, never the caller's.
+case "${ELM_APPROVED_AGENTS:-manual}" in auto) PI_ELM_APPROVED_AGENTS=auto ;; *) PI_ELM_APPROVED_AGENTS=manual ;; esac
+export PI_ELM_APPROVED_AGENTS
+# Before each child of a parallel or chain run starts, pi-subagents makes a call of
+# its own, `subagent_launch`, for permission extensions to see. In manual every
+# call asks, so a launch you had just allowed asked again for each child (seen
+# live, 2026-11-13). With approvedAgents auto, allowing the launch is the
+# permission for its children, and their launch calls are part of it.
+if [ "$PI_ELM_APPROVED_AGENTS" = "auto" ]; then
+  PI_ELM_MANUAL_ALLOW="${PI_ELM_MANUAL_ALLOW:+$PI_ELM_MANUAL_ALLOW,}subagent_launch"
+  export PI_ELM_MANUAL_ALLOW
+fi
+# The switch to auto happens only in the process pi-subagents starts for a launch
+# you allowed, which it starts directly - never through here - and which sets
+# PI_SUBAGENT_RUNNER_PID to its own pid. A pi started through here is never that
+# process, so it must not pass for one: `PI_SUBAGENT_RUNNER_PID=$$ exec pi` from
+# a manual session's shell would otherwise switch itself to auto.
+unset PI_SUBAGENT_RUNNER_PID
+if [ -z "${PI_ELM_CHILD:-}" ]; then
+  if [ "$MODE" = "yolo" ]; then
+    echo "    permission mode: yolo for this session only - every ask is answered yes; denies still apply. New sessions start in $DEFAULT_MODE." >&2
+  elif [ "$MODE" != "$DEFAULT_MODE" ]; then
+    echo "    permission mode: $MODE for this session; new sessions start in $DEFAULT_MODE (/mode $MODE can change that)." >&2
+  fi
+  if [ "$MODE" = "manual" ] || [ "$MODE" = "read-only-auto" ]; then
+    case " $* " in *" -p "*|*" --print "*)
+      echo "    note: $MODE mode with -p: there is no one to ask, so commands and edits are refused (pi --auto -p lets them run)." >&2 ;;
+    esac
+  fi
+fi
+# ---------------------------------------------------------------------------
+
+
+# --- keep .pi out of the repository -----------------------------------------
+# pi writes session transcripts to .pi/sessions in the working directory, and a
+# transcript holds every file the agent read and everything pasted in. In a git
+# repository that sits in the tree a `git push` would publish, and no project's
+# own .gitignore knows to exclude it.
+#
+# So .pi ignores itself: a .gitignore inside .pi matching `*`, which covers the
+# .gitignore too, so the directory is invisible to git rather than merely
+# untracked - `git add -A` cannot stage anything in it. It needs no cooperation
+# from the project's .gitignore, survives being copied, and leaves no trace in
+# files the researcher maintains. Only ever created inside a work tree.
+if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [ ! -f .pi/.gitignore ]; then
+    if mkdir -p .pi 2>/dev/null; then printf '*\n' > .pi/.gitignore 2>/dev/null || true; fi
+  fi
+fi
+
+# Session transcripts and memory contain source, prompts and command output.
+# Secure their directories directly rather than setting umask for the process,
+# which would unexpectedly change permissions on project files created by tools.
+SESSION_DIR="$(elm_py - "$HERE/agent/settings.json" <<'PY'
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("sessionDir", ".pi/sessions"))
+except Exception:
+    print(".pi/sessions")
+PY
+)"
+[ -z "${PI_CODING_AGENT_SESSION_DIR:-}" ] || SESSION_DIR="$PI_CODING_AGENT_SESSION_DIR"
+session_prev=""
+for session_arg in "$@"; do
+  if [ "$session_prev" = "stop" ]; then continue; fi
+  if [ "$session_prev" = "value" ]; then SESSION_DIR="$session_arg"; session_prev=""; continue; fi
+  case "$session_arg" in
+    --) session_prev="stop" ;;
+    --session-dir) session_prev="value" ;;
+    --session-dir=*) SESSION_DIR="${session_arg#*=}" ;;
+  esac
+done
+type elm_secure_runtime_state >/dev/null 2>&1 || {
+  echo "pi: the state-permission helper is missing; refusing to create readable transcripts." >&2
+  exit 1
+}
+SESSION_DIR="$(elm_normalize_session_dir "$SESSION_DIR" "$PWD")" || {
+  echo "pi: could not resolve the session directory safely." >&2
+  exit 1
+}
+elm_secure_runtime_state "$HERE" "$SESSION_DIR"
+# ---------------------------------------------------------------------------
+
+# --- egress proxy -----------------------------------------------------------
+# Everything from here on goes through an allowlisting CONNECT proxy on
+# loopback, and the only host on the list is the ELM gateway. HTTPS through a
+# proxy starts with a plaintext CONNECT line, so the host is checked without
+# any certificate, interception or decryption - see proxy/egress.py.
+#
+# Deliberately placed after the update intercept: `pi update` needs npm, GitHub
+# and nodejs.org, and it is the one operation that runs unproxied. Everything
+# else - every session, every sub-agent, the shim, and every command the agent
+# runs that honours proxy variables - is filtered, and every refusal is logged
+# to agent/egress.log so the call can be stopped at source later.
+#
+# Fail-closed: if the proxy cannot start, pi does not start. That includes an
+# install whose recorded interpreter (agent/python-path) has gone.
+#
+#   ELM_PI_NO_PROXY=1 pi ...        run unfiltered, for debugging
+#   ELM_PI_PROXY_ALLOW=host,host    add hosts for a run
+#
+# What it is not: enforcement. Proxy variables are honoured by well-behaved
+# clients and ignored by git-over-SSH, raw sockets, and anything that unsets
+# them. It stops accidents and records attempts. See LOCKDOWN.md.
+if [ "${ELM_PI_NO_PROXY:-0}" != "1" ]; then
+  refuse_unproxied() {
+    echo "pi: $1" >&2
+    echo "    This install refuses to run unproxied. See LOCKDOWN.md." >&2
+    echo "    To run without the filter for one command: ELM_PI_NO_PROXY=1 pi ..." >&2
+    exit 1
+  }
+  PYBIN="$ELM_PI_PYTHON"
+  [ -f "$HERE/proxy/egress.py" ] || refuse_unproxied "proxy/egress.py is missing from this install."
+
+  # One source of truth for the gateway: the same value the shim uses.
+  ELM_HOST="$("$PYBIN" -E -S -c '
+import sys
+from urllib.parse import urlsplit
+value = sys.argv[1]
+try:
+    print(urlsplit(value if "://" in value else "//" + value).hostname or "")
+except ValueError:
+    print("")
+' "${ELM_BASE_URL:-https://elm.edina.ac.uk/api/v1}")"
+  [ -n "$ELM_HOST" ] || refuse_unproxied "could not work out the ELM host from ELM_BASE_URL."
+  # Plus the hosts every session may reach (proxyAllow in config/elm-pi.json:
+  # PyPI, so the agent can install Python packages), plus any for this run.
+  # offline reaches the gateway and nothing else; trusted-remote and yolo reach
+  # the gateway plus the allowlist ("*" for yolo, appended above).
+  case "${NETWORK_MODE:-trusted-remote}" in
+    offline) PROXY_ALLOW="$ELM_HOST" ;;
+    *)       PROXY_ALLOW="$ELM_HOST${ELM_PROXY_ALLOW:+,$ELM_PROXY_ALLOW}${ELM_PI_PROXY_ALLOW:+,$ELM_PI_PROXY_ALLOW}" ;;
+  esac
+
+  # A proxy already in the environment is a campus proxy, not an obstacle:
+  # chain to it rather than routing around it.
+  #
+  # Unless it is one of ours. A sub-agent child is a fresh pi launched through
+  # this script, and it inherits HTTPS_PROXY from its parent session - so
+  # without this, every child chains through its parent's proxy instead of
+  # going direct, grandchildren chain twice, and the whole tree breaks the
+  # moment a parent's proxy goes away. That surfaces as "Connection error" on
+  # the child, which pi-subagents then caches as a model exclusion, refusing
+  # every later launch until it expires. Loopback means ours: ignore it.
+  PROXY_UPSTREAM="${HTTPS_PROXY:-${https_proxy:-}}"
+  INHERITED_PROXY="$PROXY_UPSTREAM"
+  case "$PROXY_UPSTREAM" in
+    *//127.0.0.1:*|*//localhost:*|*//\[::1\]:*)
+      PROXY_UPSTREAM="${ELM_PI_UPSTREAM_PROXY:-}" ;;
+  esac
+  # For agent/bin/brew, which runs an approved install past this proxy but must
+  # still go through a campus one. A child sees only ours, so it keeps the
+  # parent's value.
+  [ -z "$PROXY_UPSTREAM" ] || export ELM_PI_UPSTREAM_PROXY="$PROXY_UPSTREAM"
+
+  # --- is a proxy of ours alive on that port? ----------------------------------
+  # A TCP connect proves only that something holds the port. This asks the proxy
+  # who it is, over its own local health route, and is the test used both to
+  # adopt an inherited proxy and as the heartbeat below.
+  EGRESS_HEALTH="/__elm_pi_egress__/health"
+  proxy_health() {   # $1 = port; the response is stdout
+    (
+      exec 3<>"/dev/tcp/127.0.0.1/$1" || exit 1
+      printf 'GET %s HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n' \
+        "$EGRESS_HEALTH" >&3
+      _reply=""
+      while [ "${#_reply}" -le 131072 ]; do
+        _line=""
+        if IFS= read -r -t 1 _line <&3; then
+          _reply="$_reply$_line"$'\n'
+        elif [ -n "$_line" ]; then
+          _reply="$_reply$_line"
+          break
+        else
+          break
+        fi
+      done
+      [ "${#_reply}" -le 131072 ] || exit 1
+      printf '%s' "$_reply"
+    ) 2>/dev/null
+  }
+  proxy_alive() {   # $1 = port
+    case "$(proxy_health "$1")" in
+      *'HTTP/1.1 200 '*'"proxy": "elm-pi-egress"'*) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+  # Adoption is a policy decision, not just a liveness shortcut. Generate the
+  # exact JSON fragment egress.py reports so an offline child never inherits a
+  # trusted/yolo parent's broader proxy. json.dumps also quotes unusual input
+  # safely instead of putting it into a shell pattern as syntax.
+  PROXY_ALLOW_JSON="$("$PYBIN" -E -S -c \
+    'import json,sys; print(json.dumps([x.strip().lower().strip(".") for x in sys.argv[1].split(",") if x.strip()]))' \
+    "$PROXY_ALLOW")" || refuse_unproxied "could not describe the egress proxy policy."
+  if [ -n "$PROXY_UPSTREAM" ]; then PROXY_UPSTREAM_JSON=true
+  else PROXY_UPSTREAM_JSON=false; fi
+  proxy_compatible() {   # $1 = port
+    _health="$(proxy_health "$1")"
+    case "$_health" in
+      *'HTTP/1.1 200 '*'"proxy": "elm-pi-egress"'*) ;;
+      *) return 1 ;;
+    esac
+    case "$_health" in *"\"allow\": $PROXY_ALLOW_JSON"*) ;; *) return 1 ;; esac
+    case "$_health" in *"\"upstream\": $PROXY_UPSTREAM_JSON"*) return 0 ;; *) return 1 ;; esac
+  }
+
+  # --- adopt the session's proxy rather than starting a second one --------------
+  # Every launch of this script used to start its own proxy on its own ephemeral
+  # port. In one session that produced two proxies on two ports, and the children
+  # that were mid-flight when the first went away failed with "Connection error"
+  # - which pi-subagents cached as a model exclusion and used to refuse every
+  # later launch.
+  #
+  # So an inherited loopback proxy that answers as ours is adopted: one proxy per
+  # session, one stable port for its whole life, and whoever started it keeps it
+  # alive. Only the owner runs the heartbeat, because only the owner can rebind
+  # that port.
+  ADOPTED_PROXY=""
+  case "$INHERITED_PROXY" in
+    *//127.0.0.1:*|*//localhost:*|*//\[::1\]:*)
+      _port="${INHERITED_PROXY##*:}"
+      _port="${_port%%/*}"
+      if [ -n "$_port" ] && proxy_compatible "$_port"; then
+        ADOPTED_PROXY="$INHERITED_PROXY"
+        PROXY_PORT="$_port"
+      fi
+      ;;
+  esac
+
+  # --- inside a fenced session: that session's proxy, or a refusal ---------------
+  # ELM_PI_FENCED is set (python/elmpi/jail.py) in every fenced session and
+  # inherited by whatever it starts, as the fence is. A proxy started in here
+  # would be inside the fence too, with one thing in reach: the session's own
+  # proxy. So `pi --offline -p x` from a session's shell started a proxy with no
+  # route out, and ended as sandbox-exec's "sandbox_apply: Operation not
+  # permitted" on macOS, or as a run that could not reach the model on Linux
+  # (both measured, 2026-11-15) - as an ordinary sub-agent did whenever the
+  # session's proxy missed one health check on a busy machine, which is why
+  # that case is asked again before it is believed.
+  if [ -z "$ADOPTED_PROXY" ] && [ -n "${ELM_PI_FENCED:-}" ]; then
+    FENCED_PORT=""
+    case "$INHERITED_PROXY" in
+      *//127.0.0.1:*|*//localhost:*|*//\[::1\]:*)
+        FENCED_PORT="${INHERITED_PROXY##*:}"
+        FENCED_PORT="${FENCED_PORT%%/*}" ;;
+    esac
+    case "$FENCED_PORT" in
+      ''|*[!0-9]*)
+        echo "pi: this run is inside a session fenced to its proxy on 127.0.0.1:$ELM_PI_FENCED, and HTTPS_PROXY no longer names it." >&2
+        echo "    That proxy is the only route out of the session, so a run started in it has to use it." >&2
+        echo "    Leave HTTPS_PROXY as the session set it, or start this run from your own terminal." >&2
+        exit 1 ;;
+    esac
+    FENCED_ANSWERED=0
+    for _try in 1 2 3; do
+      [ "$_try" = 1 ] || sleep 0.5
+      if proxy_compatible "$FENCED_PORT"; then
+        ADOPTED_PROXY="$INHERITED_PROXY"
+        PROXY_PORT="$FENCED_PORT"
+        break
+      fi
+      if proxy_alive "$FENCED_PORT"; then FENCED_ANSWERED=1; break; fi
+    done
+    if [ -z "$ADOPTED_PROXY" ] && [ "$FENCED_ANSWERED" = 1 ]; then
+      echo "pi: this run asks for a network policy the session it is inside does not have." >&2
+      echo "    The session is fenced to its own proxy (127.0.0.1:$FENCED_PORT), which is the only route out," >&2
+      echo "    so a run started in it keeps the session's network mode and hosts: drop" >&2
+      echo "    --offline, --trusted-remote, --remote and ELM_PI_PROXY_ALLOW here, or start this run" >&2
+      echo "    from your own terminal." >&2
+      exit 1
+    fi
+    if [ -z "$ADOPTED_PROXY" ]; then
+      echo "pi: the proxy of the session this run is inside (127.0.0.1:$FENCED_PORT) is not answering." >&2
+      echo "    It is the only route out of the session, and the session restarts it within a few seconds" >&2
+      echo "    if it has stopped: try again." >&2
+      exit 1
+    fi
+  fi
+
+  if [ -n "$ADOPTED_PROXY" ]; then
+    # Someone up the tree owns a live proxy on this port and is already
+    # heartbeating it. Use it and start nothing.
+    :
+  else
+  # $$ survives the exec below - exec replaces the image, not the pid - so the
+  # watchdog started here ends up following pi itself.
+  PORT_FILE="${TMPDIR:-/tmp}/elm-pi-egress-$$.port"
+  rm -f "$PORT_FILE"
+
+  start_proxy() {   # $1 = port to bind, 0 for "pick one"
+    "$PYBIN" -E -S "$HERE/proxy/egress.py" \
+        --allow "$PROXY_ALLOW" \
+        --port "$1" \
+        --port-file "$PORT_FILE" \
+        --log "$HERE/agent/egress.log" \
+        --parent-pid "$$" \
+        ${PROXY_UPSTREAM:+--upstream "$PROXY_UPSTREAM"} >/dev/null 2>&1 &
+  }
+  start_proxy 0
+
+  # measured: python3 starts and the proxy is listening in ~125ms, so poll
+  # tightly and cap at five seconds rather than paying a coarse interval
+  waited=0
+  while [ ! -s "$PORT_FILE" ] && [ "$waited" -lt 250 ]; do
+    sleep 0.02
+    waited=$((waited + 1))
+  done
+  [ -s "$PORT_FILE" ] || refuse_unproxied "the egress proxy did not come up."
+  PROXY_PORT="$(cat "$PORT_FILE")"
+  # The file stays for the life of the session, and the proxy removes it when it
+  # goes. It is how the tool-call shim finds a live proxy: the shim is reused
+  # across sessions and outlives the one that started it, so the address in its
+  # environment stops working while the shim itself is still up.
+
+  # --- one proxy, one port, for the whole session ------------------------------
+  # Everything pi does leaves through this one process, so if it ever goes, the
+  # session is finished - and an overnight run has hours in which to find that
+  # out. The proxy no longer ends its accept loop on a transient error, but that
+  # cannot cover being OOM-killed, or any other death from outside.
+  #
+  # The port is fixed for the life of the session and a replacement is bound to
+  # the same one, which is what --port is for: HTTPS_PROXY has already been
+  # exported into pi, into every child, and into the detached sub-agent runners,
+  # and none of them can renegotiate it afterwards. A session that answered a
+  # dead address once already cost a fan-out four children.
+  #
+  # The heartbeat asks the proxy who it is rather than only whether the port
+  # accepts, because a port can be held by something that is not ours, and a
+  # proxy can hold the port while being unable to answer. One bash subshell a
+# second, no interpreter and no network, so it is affordable all night at an
+  # interval short enough that nothing notices the gap.
+  #
+  # It follows $$, the same pid the proxy's own watchdog follows, so it goes when
+  # the session goes and never outlives it.
+  # Keep its output detached: the Python-port regression held captured runs
+  # open after pi exited when the heartbeat inherited their stdout/stderr.
+  (
+    fails=0
+    while kill -0 "$$" 2>/dev/null; do
+      if proxy_alive "$PROXY_PORT"; then
+        fails=0
+      else
+        kill -0 "$$" 2>/dev/null || break
+        fails=$((fails + 1))
+        # Two consecutive misses before rebinding: one miss can be a proxy busy
+        # enough to miss a health check, and rebinding a working port would cut
+        # the tunnels it is carrying.
+        if [ "$fails" -ge 2 ]; then
+          start_proxy "$PROXY_PORT"
+          fails=0
+          sleep 1
+        fi
+      fi
+      sleep 1
+    done
+  ) >/dev/null 2>&1 &
+  fi
+
+  export HTTPS_PROXY="http://127.0.0.1:$PROXY_PORT"
+  export HTTP_PROXY="$HTTPS_PROXY"
+  export https_proxy="$HTTPS_PROXY"
+  export http_proxy="$HTTPS_PROXY"
+  # the Llama shim is on loopback, and so is the proxy itself. All three
+  # spellings: a client that resolves localhost to ::1 and finds only the other
+  # two in the list sends its loopback traffic to the proxy, which refuses it.
+  export NO_PROXY="127.0.0.1,localhost,::1"
+  export no_proxy="$NO_PROXY"
+fi
+# ---------------------------------------------------------------------------
+
+# --- preflight: note a saturated machine, but do not stand in the way -------
+# Each sub-agent is a full node process. On a 12-thread laptop a 32-worker run
+# drove load average to 104 and made every new pi invocation hang.
+#
+# This used to refuse to start. It now warns and carries on. A shared login
+# node, a compute host or simply a busy desktop sits over the threshold most of
+# the day, and "pi refused to start" is a worse first hour for someone new than
+# a slow start they were told about. Force is therefore the default:
+#   PI_FORCE=1        start silently, no warning at all
+#   PI_STRICT_LOAD=1  restore the old refusal (for unattended or batch use)
+CORES="$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 8)"
+if [ -r /proc/loadavg ]; then
+  LOAD1="$(awk '{print $1}' /proc/loadavg)"
+else
+  LOAD1="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}' || true)"
+fi
+if command -v pgrep >/dev/null 2>&1; then
+  # Counted with wc: pgrep -c is procps only, and a usage error on macOS.
+  RUNNERS="$( { pgrep -f 'pi-subagents/runner-peer-preload' 2>/dev/null || true; } | wc -l | tr -d ' ')"
+else
+  RUNNERS=0
+fi
+if [ -n "${LOAD1:-}" ] && [ "${PI_FORCE:-0}" != "1" ] && [ -z "${PI_ELM_CHILD:-}" ]; then
+  OVER=$(awk -v l="$LOAD1" -v c="$CORES" 'BEGIN{print (l > c*1.5) ? 1 : 0}')
+  if [ "$OVER" = "1" ]; then
+    echo "pi: this machine is busy - load $LOAD1 across $CORES threads, $RUNNERS sub-agent runner(s) live." >&2
+    if [ "${PI_STRICT_LOAD:-0}" = "1" ]; then
+      echo "    PI_STRICT_LOAD=1 is set, so not starting. Unset it, or set PI_FORCE=1." >&2
+      exit 1
+    fi
+    echo "    Starting anyway; it may take longer than usual to come up." >&2
+  elif [ "${RUNNERS:-0}" -gt 0 ]; then
+    echo "pi: note - $RUNNERS sub-agent runner(s) already running (load $LOAD1/$CORES)." >&2
+  fi
+fi
+
+# --- note a session started inside the install --------------------------------
+# The directory pi starts in is the project it works on. Started in the install
+# itself, a session writes its work among the installer's files: observed, a
+# slide-deck session replaced this repo's README.md with its own and left thirty
+# files in the install root - and the tracked change then made `pi update`
+# refuse to run. Warned, not refused - but the agent's writes to the install are
+# refused (protected-paths.ts, command-guard.ts): working on elm-pi happens in a
+# clone, with its AGENTS.md and scripts/dev-setup.sh.
+# PI_FORCE=1 silences it, as it does the load warning.
+if [ "$NEEDS_ELM_KEY" = "1" ] && [ "${PI_FORCE:-0}" != "1" ] && [ -z "${PI_ELM_CHILD:-}" ]; then
+  case "$(pwd -P)/" in
+    "$(cd "$HERE" && pwd -P)"/*)
+      echo "pi: this session is starting inside the elm-pi install ($HERE)." >&2
+      echo "    The agent cannot change the install it runs on: its writes here are refused (only .pi/ is" >&2
+      echo "    open). For your own work, cd to a project directory first; to work on elm-pi itself, clone" >&2
+      echo "    it (git clone $HERE ~/src/elm-pi) and start pi there - its AGENTS.md says how." >&2 ;;
+  esac
+fi
+# ---------------------------------------------------------------------------
+
+
+
+
+# --- stdin guard ------------------------------------------------------------
+# In print mode pi reads stdin so you can pipe input to it. A pipe ends with EOF
+# and all is well; an interactive terminal never does, so `pi -p "..."` typed at
+# a prompt waits on stdin forever and looks hung. When stdin is a TTY there is
+# nothing to pipe, so close it. Real piped input is untouched.
+PRINT_MODE=0
+for a in "$@"; do
+  case "$a" in -p|--print) PRINT_MODE=1 ;; esac
+done
+# pi.orig is the unwrapped CLI: this wrapper is `pi`, and it hands over to the
+# original the way a `mv thing thing.orig` wrapper always has. Everything this
+# script exported - the key, PI_CODING_AGENT_DIR, the ELM-only policy - is
+# inherited across the exec.
+ORIG="$HERE/pi.orig"
+if [ ! -x "$ORIG" ]; then
+  echo "pi is not installed here: $ORIG is missing. Run $HERE/bootstrap.sh first." >&2
+  exit 1
+fi
+# Anything this process spawns is a child of ours; see the preflight above.
+export PI_ELM_CHILD=1
+
+# The network-mode port initially fenced neither launcher's actual exec. Share
+# the trusted Python hand-over so both apply the same Seatbelt/netns policy.
+if [ "$NETWORK_MODE" != yolo ] && [ -z "${ELM_PI_NO_JAIL:-}" ] && [ "${ELM_PI_NO_PROXY:-0}" != 1 ]; then
+  exec "$ELM_PI_PYTHON" -E -s -S -B -X utf8 "$HERE/python/elmpi/launch.py" \
+    "$HERE" "$PROXY_PORT" ${PRE[@]+"${PRE[@]}"} "$@"
+fi
+
+# Without a jail the server and browser already share the host loopback. The
+# fenced hand-over above chooses and exports its Linux bridge port itself.
+ELM_PI_PREVIEW_PORT="${ELM_PI_PREVIEW_PORT:-8765}"
+if ! awk -v p="$ELM_PI_PREVIEW_PORT" 'BEGIN { exit !(p ~ /^[0-9]+$/ && p + 0 >= 1 && p + 0 <= 65535) }'; then
+  echo "pi: ELM_PI_PREVIEW_PORT=$ELM_PI_PREVIEW_PORT is not a TCP port from 1 to 65535." >&2
+  exit 1
+fi
+export ELM_PI_PREVIEW_PORT ELM_PI_PREVIEW_BRIDGED=0
+
+if [ "$PRINT_MODE" = "1" ] && [ -t 0 ]; then
+  exec "$ORIG" ${PRE[@]+"${PRE[@]}"} "$@" < /dev/null
+fi
+# ---------------------------------------------------------------------------
+
+exec "$ORIG" ${PRE[@]+"${PRE[@]}"} "$@"

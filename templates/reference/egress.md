@@ -35,9 +35,12 @@ The rest of this page is about a session **without** `--remote`.
 
 Everything pi does leaves through an allowlisting proxy on loopback. On its list
 are the ELM gateway, PyPI (`pypi.org`, `files.pythonhosted.org`), conda-forge
-(`conda.anaconda.org`, `api.anaconda.org`, `prefix.dev`) and the container
-registries (Docker Hub, GHCR, Quay) - see `proxyAllow` in the install's
-`config/elm-pi.json`. A host that is not on it gets **403 Forbidden**, which
+(`conda.anaconda.org`, `api.anaconda.org`, `prefix.dev`), the container
+registries (Docker Hub, GHCR, Quay) and the web search providers
+(`duckduckgo.com`, `html.duckduckgo.com`, `exa.ai`, `api.exa.ai`, `r.jina.ai`) -
+see `proxyAllow` in the install's `config/elm-pi.json`. An `--offline` session
+reaches the gateway alone; `--remote`/`--yolo` reaches anything and this page's
+403 section no longer applies. A host that is not on it gets **403 Forbidden**, which
 looks exactly like a site refusing you.
 
 Measured here, the cost of not knowing that: a session downloading images read

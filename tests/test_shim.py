@@ -118,6 +118,14 @@ class FakeUpstreamHandler(http.server.BaseHTTPRequestHandler):
         pass
 
     def _handle(self):
+        if self.command == "GET" and self.path == "/__elm_pi_egress__/health":
+            payload = b'{"proxy":"elm-pi-egress"}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         n = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(n) if n else b""
         self.server.requests.append({"method": self.command, "path": self.path,
@@ -664,20 +672,24 @@ class ProxyResolutionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.shim = load_shim("elm_pi_shim_proxy")
-        cls.listener = socket.socket()
-        cls.listener.bind(("127.0.0.1", 0))
-        cls.listener.listen(16)
-        cls.live = cls.listener.getsockname()[1]
-        cls.other = socket.socket()
-        cls.other.bind(("127.0.0.1", 0))
-        cls.other.listen(16)
-        cls.live2 = cls.other.getsockname()[1]
+        cls.listener = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _EgressHealth)
+        cls.other = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _EgressHealth)
+        threading.Thread(target=cls.listener.serve_forever, daemon=True).start()
+        threading.Thread(target=cls.other.serve_forever, daemon=True).start()
+        cls.live = cls.listener.server_address[1]
+        cls.live2 = cls.other.server_address[1]
+        cls.plain = socket.socket()
+        cls.plain.bind(("127.0.0.1", 0))
+        cls.plain.listen(16)
         cls.dead = closed_port()
 
     @classmethod
     def tearDownClass(cls):
-        cls.listener.close()
-        cls.other.close()
+        cls.listener.shutdown()
+        cls.listener.server_close()
+        cls.other.shutdown()
+        cls.other.server_close()
+        cls.plain.close()
 
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
@@ -739,6 +751,11 @@ class ProxyResolutionTests(unittest.TestCase):
     def test_resolve_none_when_nothing_answers(self):
         os.environ["HTTPS_PROXY"] = f"http://127.0.0.1:{self.dead}"
         self.assertIsNone(self.shim.resolve_proxy())
+
+    def test_resolve_skips_an_unrelated_service_in_a_stale_port_file(self):
+        self.port_file("stale", str(self.plain.getsockname()[1]))
+        self.port_file("live", str(self.live), age=10)
+        self.assertEqual(f"http://127.0.0.1:{self.live}", self.shim.resolve_proxy())
 
     def test_resolve_keeps_a_live_cached_proxy(self):
         self.port_file("a", str(self.live))

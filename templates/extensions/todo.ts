@@ -14,6 +14,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { stripVTControlCharacters } from "node:util";
 
 interface Todo {
 	id: number;
@@ -34,6 +35,35 @@ interface TodoDetails {
  * rewrite them.
  */
 const copy = (list: Todo[]): Todo[] => list.map((t) => ({ ...t }));
+
+/** How many lines the live plan may take. The widget sits above the editor, so it is in the way
+ * unless it is short: five items is what fits in a terminal next to the composer. */
+export const MAX_WIDGET_LINES = 5;
+
+// The 2026-11-15 TUI replay turned five plan entries into 111 terminal rows. Keep display text on
+// one row; the original text remains in tool results and session history.
+const displayText = (text: string): string => stripVTControlCharacters(text).replace(/[\r\n\t\v\f\u0085\u2028\u2029]+/g, " ");
+
+/**
+ * The live plan, drawn above the editor: what is left, what is done, and how many of each.
+ *
+ * Why: the list otherwise lives in scrollback, where it is lost the moment the next tool result
+ * arrives - the plan's item 12 (deepseek_suggestions.md). Nothing is added to the request: the
+ * widget is drawn by pi and never sent to the model.
+ *
+ * Cap at MAX_WIDGET_LINES with a count of the rest, and no widget at all for an empty list.
+ */
+export function planLines(todos: Todo[]): string[] {
+	if (todos.length === 0) return [];
+	const done = todos.filter((t) => t.done).length;
+	const room = MAX_WIDGET_LINES - 1;               // the header takes one line
+	const truncated = todos.length > room;
+	const shown = truncated ? todos.slice(0, room - 1) : todos;   // and the "… more" line one more
+	const lines = [`plan ${done}/${todos.length}`];
+	for (const todo of shown) lines.push(`${todo.done ? "☑" : "☐"} ${displayText(todo.text)}`);
+	if (truncated) lines.push(`… and ${todos.length - shown.length} more`);
+	return lines;
+}
 
 const TodoParams = Type.Object({
 	action: StringEnum(["list", "add", "toggle", "clear"] as const),
@@ -89,7 +119,7 @@ class TodoListComponent {
 			for (const todo of this.todos) {
 				const check = todo.done ? th.fg("success", "✓") : th.fg("dim", "○");
 				const id = th.fg("accent", `#${todo.id}`);
-				const text = todo.done ? th.fg("dim", todo.text) : th.fg("text", todo.text);
+				const text = th.fg(todo.done ? "dim" : "text", displayText(todo.text));
 				lines.push(truncateToWidth(`  ${check} ${id} ${text}`, width));
 			}
 		}
@@ -136,8 +166,31 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	// Reconstruct state on session events
-	pi.on("session_start", async (_event, ctx) => reconstructState(ctx));
-	pi.on("session_tree", async (_event, ctx) => reconstructState(ctx));
+	pi.on("session_start", async (_event, ctx) => { await reconstructState(ctx); paint(ctx); });
+
+	// The live plan panel. Painted from the state this extension already keeps - never from the
+	// model - so it shows what the session's own list says, and on a resumed session it starts from
+	// the reconstructed list rather than empty.
+	// A stand-in context - a test's, or any caller without a screen - has no ui; a widget is not
+	// worth an exception in the middle of a session, so paint only where it can.
+	const paint = (ctx: Pick<ExtensionContext, "ui">) => {
+		if (typeof ctx.ui?.setWidget !== "function") return;
+		const lines = planLines(todos);
+		if (lines.length === 0) {
+			ctx.ui.setWidget("todos", []);
+			return;
+		}
+		// String-array widgets word-wrap each entry. Render at the terminal's width so five rows
+		// really mean five rows, including after a resize or with wide characters in a task.
+		ctx.ui.setWidget("todos", () => ({
+			render: (width: number) => lines.map((line) => truncateToWidth(line, Math.max(0, width))),
+			invalidate() {},
+		}));
+	};
+	pi.on("tool_result", async (event, ctx) => {
+		if ((event as { toolName?: string }).toolName === "todo") paint(ctx);
+	});
+	pi.on("session_tree", async (_event, ctx) => { await reconstructState(ctx); paint(ctx); });
 
 	// Register the todo tool for the LLM
 	pi.registerTool({
@@ -226,7 +279,7 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme, _context) {
-			let text = theme.fg("toolTitle", theme.bold("todo ")) + theme.fg("muted", args.action);
+			let text = theme.fg("toolTitle", theme.bold("todo ")) + theme.fg("muted", typeof args.action === "string" ? args.action : "");
 			if (args.text) text += ` ${theme.fg("dim", `"${args.text}"`)}`;
 			if (args.id !== undefined) text += ` ${theme.fg("accent", `#${args.id}`)}`;
 			return new Text(text, 0, 0);

@@ -89,9 +89,16 @@ WEB_SEARCH = json.loads(read("templates/web-search.json"))
 AUTO_COMPACT = json.loads(read("templates/config/pi-auto-compact/config.json"))
 SKILLS = sorted(p.parent.name for p in TEMPLATES.glob("skills/*/SKILL.md"))
 
-LAUNCHER = read("pi")
+# The launcher the docs describe is python/elmpi now, and `pi` is the hand-over
+# to it. The prose talks about what a launcher does - which flags it takes,
+# which variables it exports, where its messages are - and the reference
+# implementation pi.bash is where those `case` blocks and `export` lines still
+# are; tests/test_python_launcher.py holds the Python launcher to exactly this
+# text and to what pi.bash decides, so a doc statement that is true of one is
+# checked against the other.
+LAUNCHER = read("pi.bash")
 INSTALL_SH = read("install.sh")
-BOOTSTRAP = read("bootstrap.sh")
+BOOTSTRAP = read("bootstrap.bash")
 CONFIGURE = read("configure.sh")
 COLOUR = read("templates/shell/colour.sh")
 ELM_SHIM_TS = read("templates/extensions/elm-shim.ts")
@@ -356,9 +363,9 @@ class LauncherBehaviourClaimTests(unittest.TestCase):
         self.assertIn("printf '*\\n' > .pi/.gitignore", LAUNCHER)
 
     def test_fast_adds_todo_the_skill_router_mode_and_remote_research(self):
-        self.assertIn("plus `todo`, the skill router, `/mode` and, with `--remote`, the research instruction",
+        self.assertIn("plus `todo`, the skill router, `/mode`, `/network` and, with `--remote`, the research instruction",
                       FLAT["INSTALL.md"])
-        self.assertIn("for e in todo skill-router remote-research permission-mode claim-guard repeat-guard server-reaper report-guard date-note; do", LAUNCHER)
+        self.assertIn("for e in todo network skill-router remote-research permission-mode claim-guard repeat-guard server-reaper report-guard date-note; do", LAUNCHER)
 
     def test_remote_opens_the_proxy_with_a_star(self):
         self.assertIn("Open mode is a single `*` in the allowlist", FLAT["LOCKDOWN.md"])
@@ -366,11 +373,13 @@ class LauncherBehaviourClaimTests(unittest.TestCase):
 
     def test_remote_turns_the_web_tools_on(self):
         self.assertIn("web tools on", FLAT["INSTALL.md"])
-        self.assertIn("export PI_ELM_WEB=1", between(LAUNCHER, 'if [ "$REMOTE" = "1" ]; then', "\nfi\n"))
+        self.assertIn("export PI_ELM_WEB=1",
+                      between(LAUNCHER, "# --- network mode: what this run may reach", "\n\n"))
 
     def test_computer_use_never_loads_in_a_child(self):
         self.assertIn("never for a sub-agent child", FLAT["LOCKDOWN.md"])
-        self.assertIn('[ "$REMOTE" = "1" ] && [ "$COMPUTER_USE" = "1" ] && [ -z "${PI_ELM_CHILD:-}" ] && [ -f "$CU_EXT" ]', LAUNCHER)
+        self.assertIn('[ "$NETWORK_MODE" = "yolo" ] && [ "$COMPUTER_USE" = "1" ] && '
+                      '[ -z "${PI_ELM_CHILD:-}" ] && [ -f "$CU_EXT" ]', LAUNCHER)
 
     def test_computer_use_helper_lives_in_agent_helpers(self):
         self.assertIn("the launcher points it at `agent/helpers/` instead and has it signed ad hoc",
@@ -430,7 +439,14 @@ def _strip_for_reads(text):
                      if not re.match(r"\s*(#|//|\*|/\*)", l))
 
 
-CODE_FILES = ["pi", "install.sh", "bootstrap.sh", "configure.sh", "shim/shim.py", "proxy/egress.py",
+# The launcher's own Python, so a knob it reads and a message it prints count
+# as "the install reads/named it" alongside the reference's shell.
+# The launcher and the installer: both read the environment with env.get(...).
+PYTHON_LAUNCHER = [str(p.relative_to(ROOT)) for package in ("elmpi", "elmboot")
+                   for p in sorted((ROOT / "python" / package).glob("*.py"))]
+
+CODE_FILES = ["pi.bash", *PYTHON_LAUNCHER,
+              "install.sh", "bootstrap.sh", "bootstrap.bash", "configure.sh", "shim/shim.py", "proxy/egress.py",
               "templates/shell/colour.sh",
               *[str(p.relative_to(ROOT)) for p in sorted(ROOT.glob("lib/*")) if p.suffix in {".sh", ".mjs"}],
               *[str(p.relative_to(ROOT)) for p in sorted(TEMPLATES.glob("extensions/*.ts"))],
@@ -443,7 +459,7 @@ def reads(name, code=CODE):
     n = re.escape(name)
     # `env.NAME`: an extension reading through an `env` parameter that defaults to process.env
     return re.search(rf"\$\{{?{n}\b|process\.env\.{n}\b|\benv\.{n}\b|process\.env\[[\"']{n}|environ(?:\.get)?\(\s*[\"']{n}"
-                     rf"|environ\[[\"']{n}|getenv\([\"']{n}", code) is not None
+                     rf"|environ\[[\"']{n}|getenv\([\"']{n}|\benv\.get\(\s*[\"']{n}", code) is not None
 
 
 ENV_NAME = re.compile(r"\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b")
@@ -477,11 +493,15 @@ DOC_KNOBS = [n for n in DOC_ENV
 # Where a reader learns a knob exists: the docs, a usage text, or the message
 # the code prints when the knob is the way out.
 MESSAGES = "\n".join(l for f in CODE_FILES for l in read(f).splitlines()
-                     if re.search(r"\b(echo|die|warn|printf|refuse)\b|`\$\{", l))
+                     if re.search(r"\b(echo|die|warn|printf|refuse)\b|`\$\{|console\.note\(|Refusal\.about\(", l))
 DOCUMENTED = "\n".join([*DOCS.values(), *USAGES.values(), read("shim/README.md"), MESSAGES])
 # Read with a default by the launcher and installers, but handed from one
 # script to the next rather than set by anyone.
 INTERNAL_ENV = {"ELM_PI_WITH_ALL_SET_UP", "ELM_PI_DISK_NOTED", "ELM_PI_USER_PATH", "ELM_PI_ROOT",
+                "ELM_PI_PREVIEW_BRIDGED",
+                # bootstrap.sh to python/elmboot: how it was typed, and that it
+                # said "Python" itself when it had to download one first
+                "ELM_PI_BOOTSTRAP_NAME", "ELM_PI_BOOTSTRAP_SAID_PYTHON",
                 "ELM_PI_UPSTREAM_PROXY",
                 # set by bootstrap.sh / workflow-check for the node scripts they
                 # run, and by ./pi for elm-shim.ts
@@ -490,9 +510,12 @@ INTERNAL_ENV = {"ELM_PI_WITH_ALL_SET_UP", "ELM_PI_DISK_NOTED", "ELM_PI_USER_PATH
                 "ELM_QWEN_MODEL_ID", "ELM_LLAMA_MODEL_ID", "ELM_MISTRAL_MODEL_ID",
                 # the default ./pi worked out, for permission-mode.ts to show and update
                 "PI_ELM_PERMISSION_DEFAULT"}
-CODE_KNOBS = sorted(({n for f in ["pi", "install.sh", "bootstrap.sh", "configure.sh", "lib/sandbox.sh",
+CODE_KNOBS = sorted(({n for f in ["pi.bash", "install.sh", "bootstrap.sh", "bootstrap.bash", "configure.sh", "lib/sandbox.sh",
                                  "lib/state.sh", "lib/policy.sh"]
                      for n in re.findall(r"\$\{((?:ELM_PI|PI_ELM)_[A-Z0-9_]+):?[-=]", read(f))}
+                    | {n for f in PYTHON_LAUNCHER
+                       for n in re.findall(r"env\.get\(\s*[\"']((?:ELM_PI|PI_ELM)_[A-Z0-9_]+)",
+                                           read(f))}
                     | {n for n in re.findall(r"process\.env\.((?:ELM|PI_ELM)_[A-Z0-9_]+)", CODE)
                        if n not in {"ELM_ALLOWED_PROVIDERS", "ELM_BUILTIN_PROVIDERS"}}
                     | {"PI_FORCE", "PI_STRICT_LOAD", "PI_CLIPBOARD_OSC52", "PI_VERSION"}) - INTERNAL_ENV)
@@ -1412,6 +1435,10 @@ class SlashCommandTests(unittest.TestCase):
 
 
 def _command(self, doc, command):
+    if command in PROMPT_TEMPLATES:
+        # A prompt template is a command too: pi turns agent/prompts/<name>.md into /<name>.
+        self.assertTrue((TEMPLATES / "prompts" / f"{command}.md").is_file(), f"{doc} names /{command}")
+        return
     home = COMMAND_HOME[command]
     if home == "local":
         source = "\n".join(p.read_text() for p in TEMPLATES.glob("extensions/*.ts"))
@@ -1422,9 +1449,13 @@ def _command(self, doc, command):
     self.assertIn(f'registerCommand("{command}"', source, f"{doc} names /{command}")
 
 
+# The five prompt templates this install ships: a doc may name them like any other command.
+PROMPT_TEMPLATES = {p.stem for p in TEMPLATES.glob("prompts/*.md")}
+KNOWN_COMMANDS = set(COMMAND_HOME) | PROMPT_TEMPLATES
+
 _COMMAND_DOCS = {}
 for _doc, _text in {**DOCS, **PROMPTS}.items():
-    for _cmd in COMMAND_HOME:
+    for _cmd in KNOWN_COMMANDS:
         if re.search(rf"(?<![\w/.-])/{re.escape(_cmd)}(?![\w:-])", _text):
             _COMMAND_DOCS.setdefault(_cmd, []).append(_doc)
 generate(SlashCommandTests, [(f"command_{slug(c)}_is_registered", ", ".join(d), c) for c, d in _COMMAND_DOCS.items()],
@@ -1445,7 +1476,9 @@ UPDATE_HOSTS = re.findall(r"`([a-z0-9.-]+\.[a-z]+)`", between(FLAT["LOCKDOWN.md"
 
 class ProxyHostTests(unittest.TestCase):
     def test_the_lists_were_found(self):
-        self.assertEqual(5, len(EGRESS_LISTED))
+        # The gateway, PyPI (2), conda-forge (3), five registry names and the
+        # five search-provider names.
+        self.assertGreaterEqual(len(EGRESS_LISTED), 10)
         self.assertEqual(5, len(LOCKDOWN_LISTED))
         self.assertEqual(3, len(UPDATE_HOSTS))
 
@@ -1464,7 +1497,10 @@ class ProxyHostTests(unittest.TestCase):
 
     def test_the_elm_host_comes_from_elm_base_url(self):
         self.assertIn("taken from `ELM_BASE_URL`", FLAT["LOCKDOWN.md"])
-        self.assertRegex(LAUNCHER, r"ELM_HOST=.*ELM_BASE_URL")
+        self.assertIn("${ELM_BASE_URL:-", LAUNCHER)
+        python_proxy = read("python/elmpi/proxy.py")
+        self.assertIn('env.get("ELM_BASE_URL"', python_proxy)
+        self.assertIn("urlsplit", python_proxy)
 
     def test_the_proxy_is_on_loopback(self):
         self.assertIn("a small allowlisting proxy on loopback", FLAT["LOCKDOWN.md"])

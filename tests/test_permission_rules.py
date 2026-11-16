@@ -271,7 +271,25 @@ BASH = [
      "the containers skill's mount"),
     ("docker run -it --rm alpine sh", deny("docker run *"), ""),
     ("docker run", deny("docker run *"), ""),
-    ("docker run --network host alpine", deny("docker run *"), ""),
+    ("docker run --network host alpine", deny("docker *--network host*"), ""),
+    # Container escapes: a --network=none run that is still a way out. Each one was allowed by the
+    # broader --network=none allow until 2026-11-14; the safe pattern below must stay allowed.
+    ("docker run --network=none --privileged alpine true", deny("docker *--privileged*"),
+     "privileged reaches the host's devices and network past the proxy"),
+    ("podman run --network=none --privileged alpine true", deny("podman *--privileged*"), ""),
+    ("docker run --network=none --cap-add=SYS_ADMIN alpine true", deny("docker *--cap-add*"), ""),
+    ("podman run --network=none --cap-add NET_ADMIN alpine true", deny("podman *--cap-add*"), ""),
+    ("docker run --network=none --device /dev/sda alpine true", deny("docker *--device*"), ""),
+    ("podman run --network=none --device=/dev/kvm alpine true", deny("podman *--device*"), ""),
+    ("docker run --network=none --pid=host alpine true", deny("docker *--pid=host*"), ""),
+    ("podman run --network=none --pid host alpine true", deny("podman *--pid host*"), ""),
+    ("podman run --network=none --net=host alpine true", deny("podman *--net=host*"), ""),
+    ("docker run --network=none --userns=host alpine true", deny("docker *--userns=host*"), ""),
+    ("docker run --network=none --ipc=host alpine true", deny("docker *--ipc=host*"), ""),
+    ("docker run --network=none --security-opt seccomp=unconfined alpine true", deny("docker *--security-opt*"), ""),
+    ("docker run --network=none -v /etc:/host alpine cat /host/passwd", deny("docker *-v /etc*"), ""),
+    ("podman run --network=none -v /etc/shadow:/s alpine true", deny("podman *-v /etc*"), ""),
+    ("docker run --network=none --mount type=bind,source=/etc,target=/h alpine true", deny("docker *--mount *source=/etc*"), ""),
     ("docker run --network=none alpine && docker run alpine", deny("docker run *"), "the second run has a network"),
     ("docker run alpine sh -c 'echo --network=none'", deny("docker run *"),
      "--network=none must be a word of its own, but a word anywhere in the command"),
@@ -286,7 +304,7 @@ BASH = [
     ("docker run -it --network none alpine sh", allow("docker run *--network none *"), "combined short flags"),
     ("docker run --network=bridge --network=none alpine true", allow("docker run *--network=none *"),
      "the last network option wins, as in docker"),
-    ("docker run --network=none --network=host alpine true", deny("docker run"), "command-guard: host wins"),
+    ("docker run --network=none --network=host alpine true", deny("docker *--network=host*"), ""),
     ("docker run --some-future-opt x --network=none alpine", deny("docker run"),
      "command-guard: an unknown option ends the scan - the safe side"),
     ("docker run --network=none-bridge alpine", deny("docker run *"),
@@ -555,6 +573,7 @@ BASH_PATH = [
     ("cat .env", deny("*.env")),
     # Nor from the shell: /mode is how the default changes.
     ("echo auto > {agent}/permission-mode", deny("{agent}/permission-mode")),
+    ("echo yolo > {agent}/network-mode", deny("{agent}/network-mode")),
     ("cp .env /tmp/env.bak", deny("*.env")),
     ("echo KEY=1 >> .env", deny("*.env")),
     ("source config/.env.local", deny("*.env.*")),
@@ -637,6 +656,8 @@ PATHS = [
     ("write", "{agent}/permission-mode", deny("{agent}/permission-mode")),
     ("edit", "{agent}/permission-mode", deny("{agent}/permission-mode")),
     ("read", "{agent}/permission-mode", deny("{agent}/permission-mode")),
+    ("write", "{agent}/network-mode", deny("{agent}/network-mode")),
+    ("edit", "{agent}/network-mode", deny("{agent}/network-mode")),
 ]
 
 
@@ -693,13 +714,29 @@ def slug(text):
 
 
 @functools.lru_cache(maxsize=None)
+def fixture_parent():
+    """A folder for the fixture that no rule of the gate's names: the usual temporary folder,
+    unless that is /tmp, then /var/tmp."""
+    usual = os.path.realpath(tempfile.gettempdir())
+    shared = os.path.realpath("/tmp")
+    if usual != shared and not usual.startswith(shared + os.sep):
+        return usual
+    for other in ("/var/tmp", os.path.expanduser("~/.cache")):
+        if os.path.isdir(other) and os.access(other, os.W_OK):
+            return other
+    return usual
+
+
 def results():
     """Run every case in one node process; None when the install is missing."""
     binary = node()
     if not binary or not (PACKAGE / "src/service.ts").exists() or not JITI.exists():
         return None
     # Resolved, so HOME has no symlink in it (macOS /var is /private/var).
-    base = Path(tempfile.mkdtemp()).resolve()
+    # Not under /tmp: the gate reads anything there without asking (external_directory_read), so on
+    # Linux, whose temporary folder is /tmp, the fixture's home and install were all "allow" where
+    # the cases expect "ask" - seven failures on AlmaLinux 9, 10 and Ubuntu 26.04 (2026-11-16).
+    base = Path(tempfile.mkdtemp(dir=fixture_parent())).resolve()
     try:
         install, home, cwd = base / "install", base / "home", base / "project"
         agent = install / "agent"
@@ -734,6 +771,14 @@ def results():
         return out
     finally:
         shutil.rmtree(base, ignore_errors=True)
+
+
+class FixtureLocationTests(unittest.TestCase):
+    def test_the_fixture_is_not_somewhere_the_gate_already_allows(self):
+        parent = os.path.realpath(fixture_parent())
+        shared = os.path.realpath("/tmp")
+        self.assertTrue(os.path.isdir(parent))
+        self.assertFalse(parent == shared or parent.startswith(shared + os.sep), parent)
 
 
 class RuleCase(unittest.TestCase):

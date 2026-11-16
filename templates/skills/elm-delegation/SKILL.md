@@ -120,6 +120,15 @@ read-only - so say which it is, every time. Give write access only when the scop
 is unambiguous and confined, and never let two sub-agents write to the same file
 concurrently.
 
+Scratch is shared too. In the 2026-11-15 parallel.1 treadmill, two children
+created `.pi/tmp/venv`; one deleted it after testing while the other still
+needed it. Give each child this instruction: run `mkdir -p .pi/tmp`, then
+`mktemp -d .pi/tmp/child.XXXXXX` once, retain the returned path, and put any
+temporary virtualenv inside it. Clean up only your own directory; never create
+or remove a shared `.pi/tmp/venv`, and never delete `.pi/tmp` itself. A project
+environment prepared before launch can be shared for running tests; leave it
+in place for the other children and the parent's verification.
+
 ### Llama needs explicit steps, not goals
 
 Measured with anchor editing in place:

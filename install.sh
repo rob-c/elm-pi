@@ -291,7 +291,9 @@ validate_source() { # $1 = candidate source tree
   local source_dir="$1" f
   # One file per `bash -n`: given several, it checks the first and passes the
   # rest to it as arguments.
-  for f in install.sh bootstrap.sh configure.sh pi pi.orig lib/sandbox.sh; do
+  # Both launchers: `pi` hands over to python/pi, which is the shell that
+  # starts Python for python/elmpi, and pi.bash is the reference.
+  for f in install.sh bootstrap.sh bootstrap.bash configure.sh pi pi.bash pi.orig python/pi lib/sandbox.sh; do
     bash -n "$source_dir/$f" || die "downloaded source failed its shell syntax check"
   done
   # The interpreter is picked by the source being installed, so the rules for
@@ -309,7 +311,9 @@ import ast, json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 for path in [root / "patch-pi.py", root / "proxy/egress.py", root / "shim/shim.py",
              root / "scripts/elm_config.py", root / "scripts/verify_install.py",
-             root / "scripts/pin_versions.py"]:
+             root / "scripts/pin_versions.py",
+             root / "python/elmpi/__main__.py", root / "python/elmpi/cli.py",
+             root / "python/elmboot/__main__.py", root / "python/elmboot/cli.py"]:
     ast.parse(path.read_text(), filename=str(path))
 for path in list((root / "config").glob("*.json")) + list((root / "templates").rglob("*.json")):
     json.loads(path.read_text())
@@ -359,7 +363,8 @@ else
   fetch_tarball "$PREFIX"
   echo "    downloaded $SLUG@$BRANCH"
 fi
-chmod +x "$PREFIX/pi" "$PREFIX/pi.orig" "$PREFIX/bootstrap.sh" "$PREFIX/configure.sh" 2>/dev/null || true
+chmod +x "$PREFIX/pi" "$PREFIX/pi.bash" "$PREFIX/pi.orig" "$PREFIX/python/pi" \
+  "$PREFIX/bootstrap.sh" "$PREFIX/configure.sh" 2>/dev/null || true
 
 # --- 3. hand over to bootstrap ----------------------------------------------
 # bootstrap.sh does the real work: Node, pi, packages, agent/, the key, the
