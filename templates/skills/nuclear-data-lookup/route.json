@@ -1,0 +1,22 @@
+{
+  "patterns": [
+    "\\b(nudat|livechart|chart of (the )?nuclides|table of (the )?isotopes|nuclear data (sheets?|librar(y|ies)|evaluations?|files?)|evaluated nuclear data|evaluated cross[- ]sections?|decay schemes?|level schemes?|emission probabilit(y|ies))\\b",
+    "^(?=[\\s\\S]*\\b(half[- ]li(fe|ves)|gamma[- ](ray )?(lines?|energ(y|ies)|intensit(y|ies))|branching|mass excess(es)?|cross[- ]sections?|decay (data|modes?)|attenuation coefficients?)\\b)(?=[\\s\\S]*\\b(look(ing|ed)? ?up|evaluated|evaluations?|tabulated|data ?bases?|librar(y|ies))\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(NNDC|ENSDF|XUNDL|EXFOR|NUBASE(20\\d\\d)?|AME ?20\\d\\d|ENDF(/B)?(-[IVX]+(\\.\\d)?)?|JEFF(-\\d(\\.\\d)?)?|JENDL(-\\d)?|TENDL(-20\\d\\d)?|RIPL(-\\d)?|XCOM)\\b",
+    "^(?=[\\s\\S]*\\b([Hh]alf[- ]li(fe|ves)|[Gg]amma[- ](ray )?(lines?|energ(y|ies)|intensit(y|ies))|[Dd]ecay modes?|[Mm]ass excess(es)?|[Ll]evel energ(y|ies)|[Ss]pin and parity)\\b)(?=[\\s\\S]*\\b([A-Z][a-z]?-\\d{1,3}m?\\d?|\\d{1,3}m?[A-Z][a-z]?)\\b)"
+  ],
+  "examples": [
+    "what is the half-life of Cs-137 and the emission probability of its 662 keV line",
+    "get the 59Co(n,gamma) thermal cross section from ENDF/B-VIII and compare with EXFOR",
+    "look up the mass excess of the tin isotopes in AME2020",
+    "pull the gamma-ray energies and intensities of 152Eu from the IAEA LiveChart"
+  ],
+  "counterexamples": [
+    "look up the user in the database and cache the result",
+    "what is the half-life of a cache entry before eviction",
+    "plot a 2D cross-section of the mesh",
+    "fit this decay curve and give the half-life"
+  ]
+}

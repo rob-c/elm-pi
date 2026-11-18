@@ -1,0 +1,17 @@
+{
+  "patterns": [
+    "\\b((fiducial|differential) cross[- ]sections?|cross[- ]section measurements?|integrated luminosit(y|ies)|pile-?up reweighting|inverse (femtobarns?|picobarns?)|acceptance (times|x|×) efficiency|efficiency (times|x|×) acceptance|fiducial (region|phase space|acceptance|definition)s?)\\b",
+    "\\b\\d+(\\.\\d+)? ?(fb|pb|nb)(-1|⁻¹|\\^-1|\\^\\{-1\\})",
+    "^(?=[\\s\\S]*\\bmeasur\\w+\\b)(?=[\\s\\S]*\\bcross[- ]sections?\\b)(?=[\\s\\S]*\\b(luminosity|events|yields?|GeV|TeV|efficiency|acceptance|collisions?|LHC|pb|fb|nb|fiducial|differential|N?NLO)\\b)"
+  ],
+  "examples": [
+    "we see 1520 events with 310 expected background in 36.1 fb-1; efficiency times acceptance is 0.21 - what is the cross section",
+    "measure the fiducial Z to mumu cross section from this open-data sample and compare with NNLO",
+    "apply pileup reweighting to the simulation and recompute the integrated luminosity for the prescaled trigger"
+  ],
+  "counterexamples": [
+    "measure the cross-section of the steel beam in the CAD model",
+    "draw a cross section of the building for the planning application",
+    "compute the cross product of the two vectors"
+  ]
+}

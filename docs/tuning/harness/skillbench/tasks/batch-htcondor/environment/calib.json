@@ -1,0 +1,5 @@
+{
+ "gain_kev_per_channel": 2.5,
+ "offset_kev": 1.2,
+ "valid_from_run": 4000
+}

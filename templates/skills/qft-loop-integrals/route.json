@@ -1,0 +1,19 @@
+{
+  "patterns": [
+    "\\b(loop integrals?|feynman integrals?|(one|two|three|multi)[- ]loop (integrals?|diagrams?|corrections?|amplitudes?|calculations?|self[- ]energ(y|ies))|dimensional regulari[sz]ation|dim[- ]reg|passarino[- ]veltman|scalar integrals?|master integrals?|integration[- ]by[- ]parts (reduction|identities)|IBP reduction|feynman parameters?|wick rotation|sector decomposition|pysecdec|amflow|litered|qcdloop|ultraviolet divergen\\w*|(UV|IR|infrared) (poles?|divergen\\w*)|(soft|collinear) (poles?|divergen\\w*|singularit\\w*)|self[- ]energy (diagram|correction|integral)s?|vacuum polari[sz]ation|vertex corrections?|box (diagram|integral)s?)\\b"
+  ],
+  "caseSensitive": [
+    "^(?=[\\s\\S]*\\b(FIRE|Kira|Collier|Reduze|FIESTA)\\b)(?=[\\s\\S]*\\b(integrals?|reduction|IBP|loops?|topolog(y|ies))\\b)",
+    "^(?=[\\s\\S]*\\b[Tt]ensor (reduction|integrals?)\\b)(?=[\\s\\S]*\\b(loops?|Feynman|amplitudes?|Passarino|scalar integrals?)\\b)"
+  ],
+  "examples": [
+    "evaluate the one-loop self-energy integral in dimensional regularisation",
+    "reduce these tensor integrals to scalar integrals with Passarino-Veltman",
+    "run the IBP reduction with Kira and evaluate the master integrals numerically with pySecDec"
+  ],
+  "counterexamples": [
+    "the for loop integrates poorly with the async API",
+    "fire the webhook when the build finishes",
+    "unroll the inner loop for speed"
+  ]
+}

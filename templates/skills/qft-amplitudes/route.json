@@ -1,0 +1,16 @@
+{
+  "patterns": [
+    "\\b(feynman (rules?|diagrams?|amplitudes?)|matrix elements? squared|squared matrix elements?|spin[- ]averaged|spin sums?|polari[sz]ation sums?|ward identit(y|ies)|gamma[- ]matri(x|ces)|dirac (traces?|algebra|spinors?)|spinor[- ]helicity|helicity amplitudes?|tree[- ]level amplitudes?|scattering amplitudes?|crossing symmetry|parke[- ]taylor|bhabha scattering|m[oø]ller scattering)\\b",
+    "^(?=[\\s\\S]*\\b(amplitudes?|matrix elements?|colou?r factors?)\\b)(?=[\\s\\S]*\\b(QED|QCD|electroweak|quarks?|gluons?|leptons?|fermions?|bosons?|higgs|tree[- ]level|one[- ]loop|feynman|lagrangian)\\b)"
+  ],
+  "examples": [
+    "compute the spin-averaged matrix element squared for e+ e- -> mu+ mu- at tree level",
+    "write down the Feynman rules for scalar QED and get the amplitude for Compton scattering",
+    "what colour factor does the quark-antiquark to two gluons amplitude carry"
+  ],
+  "counterexamples": [
+    "the matrix elements are stored row-major; transpose them",
+    "reduce the amplitude of the audio signal by 3 dB",
+    "trace the request through the gamma release pipeline"
+  ]
+}

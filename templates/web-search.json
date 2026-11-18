@@ -1,11 +1,30 @@
 {
   "searchRouting": {
-    "providers": ["duckduckgo", "exa"],
-    "fallbackOn": ["unsupported", "transient", "quota", "network", "invalid-response"]
+    "providers": [
+      "duckduckgo",
+      "exa"
+    ],
+    "fallbackOn": [
+      "unsupported",
+      "transient",
+      "quota",
+      "network",
+      "invalid-response"
+    ]
   },
   "pdf": {
     "provider": "unpdf",
     "maxSizeMB": 20,
     "maxPages": 100
+  },
+  "ssrf": {
+    "trustEnvProxy": true
+  },
+  "fetchRouting": {
+    "providers": [
+      "http",
+      "jina"
+    ],
+    "allowRemoteHostedProviders": true
   }
 }

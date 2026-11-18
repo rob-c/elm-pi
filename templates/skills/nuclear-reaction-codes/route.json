@@ -1,0 +1,18 @@
+{
+  "patterns": [
+    "\\b(hauser[- ]feshbach|optical[- ]model potentials?|optical potentials?|koning[- ]delaroche|coupled[- ]channels? (calculations?|code|equations?|fusion)|distorted[- ]wave born|pre-?equilibrium (emission|models?|reactions?)|nuclear level densit(y|ies)|level densit(y|ies) models?|gamma[- ]?(ray )?strength functions?|photon strength functions?|spectroscopic factors?|fusion[- ]evaporation|excitation functions?|compound[- ]nucleus|statistical[- ]model (code|calculation)s? (for|of) (the )?(reaction|cross))\\b"
+  ],
+  "caseSensitive": [
+    "\\b(TALYS|EMPIRE-?3(\\.\\d)?|FRESCO|SFRESCO|DWUCK\\d?|TWOFNR|CCFULL|PACE4|NJOY(\\d+)?|CDCC|DWBA|NON-SMOKER)\\b"
+  ],
+  "examples": [
+    "run TALYS for 93Nb(n,2n) from threshold to 20 MeV and compare with EXFOR",
+    "set up a FRESCO DWBA calculation for 12C(d,p)13C at 30 MeV and extract the spectroscopic factor",
+    "how sensitive is the Hauser-Feshbach capture cross section to the level density and gamma strength function"
+  ],
+  "counterexamples": [
+    "the statistical model overfits the validation set",
+    "render the fresco texture at a higher level of detail",
+    "add optical character recognition to the upload model"
+  ]
+}

@@ -23,7 +23,11 @@ tried.
    - the neighbour of the example: a second key, group, file or caller;
    - the edges: empty, one item, zero, the largest sensible value, the value
      just outside what is allowed;
-   - what is inside: a list or dict within the thing you copied or compared;
+   - what is inside, from every source: a result built from two stored
+     things (defaults and an override, base and patch) can share a list or
+     dict with either. Take the example where the second one supplies the
+     list, change the result, then assert both stored things are unchanged.
+     Every promise in the changed function's docstring is a case;
    - twice: the same call again, in another order, from two threads if threads
      are involved.
    If one fails, the cause in step 2 was not the whole cause.

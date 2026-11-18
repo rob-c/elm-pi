@@ -1,0 +1,20 @@
+{
+  "patterns": [
+    "\\b(stopping powers?|bethe[- ]bloch|bethe (formula|equation)|bragg (peaks?|curves?|additivity)|energy loss (in|through|of) (the |a |an )?(\\d[\\d.]* ?\\w+ )?(target|foil|window|absorber|degrader|dead layer|detector|material|gas|air|silicon|aluminium|aluminum|mylar|kapton|water|lead|copper|gold)|range (of|for) (the |a )?(\\d+(\\.\\d+)? ?[kMGT]eV )?(protons?|alphas?|alpha particles?|electrons?|muons?|deuterons?|heavy ions?|ions?)|(proton|projected|csda|ion) ranges?|(range|energy) straggling|landau (distribution|fluctuations?|tail)|vavilov|minimum[- ]ioni[sz]ing|mean excitation energy|linear energy transfer|degrader thickness|energy[- ]loss (tables?|calculations?|straggling))\\b",
+    "\\bdE/dx\\b",
+    "^(?=[\\s\\S]*\\b(loses?|lost|losing|deposit\\w*|slow(s|ed|ing)? down|stop(s|ped|ping)?)\\b)(?=[\\s\\S]*\\b(protons?|alphas?|alpha particles?|muons?|deuterons?|heavy ions?|[kMG]eV)\\b)(?=[\\s\\S]*\\b(window|foil|target|absorber|degrader|microns?|µm|mg/cm2|thick\\w*|air|water|silicon|alumin(i)?um|mylar)\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(SRIM|PSTAR|ASTAR|ESTAR|ATIMA|CSDA)\\b"
+  ],
+  "examples": [
+    "how much energy does a 30 MeV proton lose in a 100 micron aluminium window",
+    "compute the range of 150 MeV protons in water and the position of the Bragg peak",
+    "use SRIM tables to get the stopping power of 5.5 MeV alphas in mylar"
+  ],
+  "counterexamples": [
+    "the alpha range of the colour picker should be 0 to 1",
+    "we lose packets when the window is too small for the buffer",
+    "stop the power supply test when the range check fails"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "patterns": [
+    "\\b(feyncalc|feynarts|formcalc|feynrules|qgraf|package-x|looptools|feynhelpers)\\b",
+    "^(?=[\\s\\S]*\\b(dirac traces?|gamma[- ]matri(x|ces)|feynman diagrams?|feynman rules?)\\b)(?=[\\s\\S]*\\b(mathematica|computer algebra|symbolic(ally)?|automat\\w*|generate)\\b)"
+  ],
+  "caseSensitive": [
+    "^(?=[\\s\\S]*\\bFORM\\b)(?=[\\s\\S]*\\b(traces?|amplitudes?|diagrams?|symbolic|Vermaseren|gamma matri(x|ces)|Dirac)\\b)"
+  ],
+  "examples": [
+    "use FeynCalc to compute the trace for Bhabha scattering",
+    "write a FORM program that does the Dirac traces for e+e- -> mu+mu-",
+    "generate the one-loop diagrams for h -> gamma gamma with FeynArts and reduce them with FormCalc"
+  ],
+  "counterexamples": [
+    "the form loop submits twice; fix the handler",
+    "add client-side validation to the login form",
+    "generate symbolic links for the package"
+  ]
+}

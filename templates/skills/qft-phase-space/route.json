@@ -1,0 +1,21 @@
+{
+  "patterns": [
+    "\\b((two|three|four|n|multi)[- ]body (phase[- ]space|decays?|final states?)|lorentz[- ]invariant phase[- ]space|phase[- ]space (integra\\w*|generators?|factors?)|dalitz|k[aä]ll[eé]n|narrow[- ]width approximation|breit[- ]wigner mapping|unweight(ed|ing)? events?)\\b",
+    "^(?=[\\s\\S]*\\bphase[- ]space\\b)(?=[\\s\\S]*\\b(cross[- ]sections?|decay (width|rate)s?|amplitudes?|matrix elements?|final[- ]states?|four[- ]moment(um|a)|collider|scattering)\\b)",
+    "^(?=[\\s\\S]*\\b(decay (width|rate)s?|partial widths?|cross[- ]sections?)\\b)(?=[\\s\\S]*\\b(matrix elements?|amplitudes?|feynman|tree[- ]level)\\b)",
+    "^(?=[\\s\\S]*\\bvegas\\b)(?=[\\s\\S]*\\b(integra\\w*|phase[- ]space|cross[- ]sections?|monte[- ]?carlo)\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(LIPS|RAMBO)\\b"
+  ],
+  "examples": [
+    "integrate the three-body phase space for mu -> e nu nu and get the decay width from the matrix element",
+    "write a RAMBO generator and check the massless n-body phase-space volume",
+    "get the differential cross section for 2 -> 2 scattering from this amplitude, with the flux factor"
+  ],
+  "counterexamples": [
+    "plot the phase space trajectory of the damped pendulum",
+    "book flights to Las Vegas for the offsite",
+    "compute the unweighted mean of the column"
+  ]
+}

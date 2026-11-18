@@ -1,0 +1,16 @@
+{
+  "patterns": [
+    "\\b(batch (jobs?|systems?|queues?|schedulers?|scripts?|farm)|job (scripts?|arrays?|schedulers?|submissions?)|array jobs?|submit(ting)? (a |the |this |these |my |\\d+ )?(batch |array )?jobs?|login nodes?|compute nodes?|worker nodes?|HPC (cluster|system|jobs?)|wall[- ]?time|(the|our|a|university) (compute |computing |HPC )?cluster|qsub|qstat|qdel)\\b",
+    "^(?=[\\s\\S]*\\b(cluster|scheduler)\\b)(?=[\\s\\S]*\\b(cores?|nodes?|jobs?|GPUs?|memory|submit\\w*)\\b)"
+  ],
+  "examples": [
+    "write a job script to run analyse.py over the 200 files in data/ on our cluster, 4 cores and 8 GB each",
+    "the job array on the university cluster keeps getting killed - how do I find out why",
+    "I have a qsub script from my old group; make it work here"
+  ],
+  "counterexamples": [
+    "submit the form and queue a toast",
+    "cluster the points with k-means",
+    "the job runner in CI needs more memory"
+  ]
+}

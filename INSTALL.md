@@ -166,6 +166,8 @@ Two things people get wrong:
 | `--with-pypi-index` | build an offline search index of PyPI for the agent (`pypi-search`); downloads ~1 GB once, keeps ~390 MB; implies `--with-python`; also `pi setup --pypi-index` |
 | `--with-all` | every optional part: `--with-python` and `--with-pypi-index` (recorded as those two). Nothing that opens the network - that is `pi --remote`, per run. Also `pi setup --all`, and `pi --with-all` sets it up on first use |
 | `--no-pypi-index` | take the index back, removing it |
+| `--no-skill-library` | leave out the K-Dense skill library, `agent/skills/kdense` (a 245 MB download once, 24 MB kept); removes it from an install that has it. See [the library](#the-k-dense-skill-library) |
+| `--with-skill-library` | take `--no-skill-library` back |
 | `--no-shim` | no Llama tool-call shim (Qwen unaffected) |
 | `--no-auth-lock` | leave `agent/auth.json` writable, so `/login` works |
 | `--no-patch` | leave pi's `/share` and `/bug` commands in place |
@@ -275,12 +277,12 @@ pi install.
 | `agent/models.json` | the ELM provider: base URL, `$ELM_API_KEY`, Qwen and Mistral (Llama is the shim's) |
 | `agent/settings.json` | defaults, packages, extensions, retry, `sessionDir` |
 | `agent/AGENTS.md` | loaded by every top-level session: delegation policy, model choice, the short form of every working rule. Sub-agents do not see it (nor `APPEND_SYSTEM.md`); their rules are in `agent/agents/*.md` |
-| `agent/reference/` | the detail behind the short rules in AGENTS.md and APPEND_SYSTEM.md (finished work, `.pi` and git, project memory, anchor editing, the egress proxy, reporting, asking, fits and figures, the ELM service), read by the model when the situation comes up rather than sent with every request |
+| `agent/reference/` | the detail behind the short rules in AGENTS.md and APPEND_SYSTEM.md (finished work, `.pi` and git, project memory, anchor editing, the egress proxy, reporting, asking, fits and figures, the ELM service, the skill index), read by the model when the situation comes up rather than sent with every request |
 | `agent/extensions/elm-only.ts` | the ELM-only policy — always refreshed |
 | `agent/extensions/elm-shim.ts` | registers the Llama tool-shim provider |
 | `agent/extensions/protected-paths.ts` | blocks writes to `.env`, `.git/`, `node_modules/` It also refuses writes into the elm-pi install the session runs on - its guards, launcher and configuration - outside `.pi` folders: elm-pi is developed in a clone (the repository's AGENTS.md, `scripts/dev-setup.sh`), and an install changes through `pi update`. |
 | `agent/extensions/trust-guard.ts` | never grants project trust to home, the filesystem root or a folder that holds credentials (`untrustedFolders` in `config/elm-pi.json`), and does not let a saved "Trust parent folder" there pass down to the folders beneath (see [LOCKDOWN.md](LOCKDOWN.md)) |
-| `agent/extensions/command-guard.ts` | refuses a `bash` command the permission gate's rules deny when it is spelled so they miss it: quoted or escaped (`'ssh' host`), by full path, after `sudo`, `env`, `xargs`, `command` or `exec`, inside `bash -c`, or with extra whitespace (see [LOCKDOWN.md](LOCKDOWN.md)); and a `python -m http.server` not bound to `127.0.0.1`, which would serve the folder to the whole network The same for the shell: a command that would change the running install - `rm`, `mv`, `touch`, `sed -i` and the like on its files, `cp`/`rsync`/`ln` into it, a redirection, or `git` changing its tree - is refused; reading or copying out of it is not. In sub-agents, direct creation or destructive cleanup of the shared `.pi/tmp/venv` is refused, as is removing `.pi/tmp` itself; the refusal gives a `mktemp` command for private scratch. Existing shared environments may still be used to run tests, and the parent may prepare them. This narrow rule follows two parallel Qwen runs that chose the same virtualenv despite unique-scratch instructions; in the first, one child deleted it while its sibling was still using it. |
+| `agent/extensions/command-guard.ts` | refuses a `bash` command the permission gate's rules deny when it is spelled so they miss it: quoted or escaped (`'ssh' host`), by full path, after `sudo`, `env`, `xargs`, `command` or `exec`, inside `bash -c`, or with extra whitespace (see [LOCKDOWN.md](LOCKDOWN.md)); and a `python -m http.server` not bound to `127.0.0.1`, which would serve the folder to the whole network; and a command put in the background inside `$(...)` with its output still attached (`PORT=$(python3 server.py &)`), which never returns - three treadmill sessions sat in that one call until their 15-minute limit - with the spelling that works (`python3 server.py > server.log 2>&1 & echo $!`). The same for the shell: a command that would change the running install - `rm`, `mv`, `touch`, `sed -i` and the like on its files, `cp`/`rsync`/`ln` into it, a redirection, or `git` changing its tree - is refused; reading or copying out of it is not. In sub-agents, direct creation or destructive cleanup of the shared `.pi/tmp/venv` is refused, as is removing `.pi/tmp` itself; the refusal gives a `mktemp` command for private scratch. Existing shared environments may still be used to run tests, and the parent may prepare them. This narrow rule follows two parallel Qwen runs that chose the same virtualenv despite unique-scratch instructions; in the first, one child deleted it while its sibling was still using it. |
 | `agent/extensions/claim-guard.ts` | sends Mistral or Llama back, once, when a run made no tool call but its reply says something was added, changed or run - and Qwen too when it is a sub-agent, where a test5 child reported "Created new file" having made no call (see [Mistral Small 4](#mistral-small-4-the-other-model-with-tools-and-images)) A run counts as making no call when none of its calls succeeded: test13's workflow agent had every write refused and reported "The stylesheet file has been created". In a sub-agent, a tool call made earlier in its session backs a later reply, and no session is sent the note more than twice: a child retried after a 429 was otherwise sent it 189 times in 16 minutes. |
 | `agent/extensions/repeat-guard.ts` | stops a run that makes the same failing tool call over and over: at 3 identical failing turns in a row it tells the model so, at 8 it ends the run, so a sub-agent stuck that way ends and reports instead of looping to its 30-minute timeout (see [Sub-agent fan-out](#sub-agent-fan-out)) A sub-agent also has a budget of turns for its whole session: told once at 30 to finish and report what is left, stopped at 60. Two children in one driven session took 140 and 98 turns of small edits - 21M of that session's 26M tokens - with nothing failing for the other rule to count; children that wrote a page took 3 to 32. |
 | `agent/extensions/image-mentions.ts` | attaches the images a message names by path (`figures/fit.png`, a Desktop screenshot's path with spaces, a path dropped into the terminal) to that message, as a pasted image is, for a model that sees images; sub-agent tasks too. Hidden folders are skipped; at most 8 images, 20 MB each; only files whose first bytes are a PNG, JPEG, GIF or WebP (the gateway refuses a request holding anything else) |
@@ -307,6 +309,11 @@ pi install.
 | `agent/extensions/empty-state.ts` | on a new session, with a screen, three lines naming `/help`, the prompt templates this install actually has in `agent/prompts`, and where `INSTALL.md` and `agent/reference` are. Nothing on a resumed or forked session, including one resumed from the command line, nothing in `pi -p` (there is no screen), and nothing it cannot check: the template names are read from the directory pi loads them from |
 | `agent/extensions/status-line.ts` | one footer line naming the model when it is not the install's default and `web` when the session has `web_search` (which is what `pi --remote` buys), and nothing at all for the ordinary session. It refreshes immediately when a model is selected and at each turn. Both change what a whole session can do and neither shows after launch: a `--remote` session's 403 is how a gateway gets blamed for a proxy |
 | `agent/extensions/network.ts` | `/network`: shows what this session may reach - offline, trusted-remote or yolo - and changes it, in a menu like `/mode`'s (`/network offline` goes straight to the second one; `default` names trusted-remote). A tighter mode can be taken for this session, or for this session and new ones: the proxy is told to keep only the shorter list and, for offline, the web tools are switched off. A looser one can only be made the default for new sessions (`agent/network-mode`), because a running session cannot be opened up: the OS fence cannot be taken off a process already inside it, and the proxy takes a narrower list from anyone but a wider one from nobody. The menu gives the command that starts again in the wider mode and continues the conversation. It keeps the mode in the footer, and says once, inside pi, when the session is running without its fence because this machine could not make one. Asked for on 2026-11-16, to sit beside `/mode`. |
+| `agent/extensions/spec-guard.ts` | When the request names a document (`FORMAT.md`, a spec, a protocol) and the session has read it, the first write of a code file is refused once, with what to do first: have a `subagent` read only that document and write `test_spec.py`, a test for each of its sentences, and then write the code against those tests. A session that writes the code and its own checks from one reading cannot see where that reading is wrong: on the treadmill of 2026-11-16 "write the parser FORMAT.md describes" passed its hidden check in 10 of 15 runs without this and 28 of 30 with it, for about four times the tokens and three times the time. Once per request, twice per session, never in a sub-agent, and not when `test_spec.py` is already there; a document the request does not name is left alone. |
+| `agent/extensions/result-hints.ts` | Two `bash` results a session reads as failures are said plainly. A search (`grep`, `rg`, `git grep`) that printed nothing and exited 1 comes back as "No matches", not as a failed command: that exit status is how grep says nothing matched. And in a session with nobody to ask (`pi -p`, a sub-agent), a command that writes a file under `/tmp` is refused with where scratch goes here (`.pi/tmp/`), where the gate's own refusal named no place; at the keyboard the gate still asks. In the penalty scan of 2026-11-17 these were most of the difference in tool errors between arms: 22 no-match searches and 5 refused `/tmp` files in the arm with the most. Exit 2, any output, and every other refusal are left as they are. |
+| `agent/extensions/unverified-guard.ts` | Keeps the list a session does not: commands that tried to run a script or a test and stopped on something missing (a file, a module, a program, a connection) and have not run successfully since. When the user's next message arrives it says what is still unverified, and that a result accepted without its check is written as accepted by the user, not as passed. In the long-session scenarios of 2026-11-17 a check could not run, the user said "it is almost certainly fine, I need a yes or no", and five sessions of six recorded it as true. A check that ran and failed is a result and is left alone; nothing is refused. Once per command, three notes a session, never in a sub-agent. |
+| `agent/extensions/standing-rules.ts` | A message that sets rules for the work that follows ("house rules", "from now on", "which apply to everything", "unless I say otherwise") is kept word for word, and every later request in the session gets it back in a short note: these still apply, check the result against each. In the long-session scenarios of 2026-11-17 six rules given in the first message were broken by the seventh in three sessions of six - each request done as asked, the rules no longer in view. The two most recent such messages, 1,500 characters each; not in a sub-agent. `pin_instruction` remains the way to keep an instruction across sessions. |
+| `agent/extensions/research-first.ts` | When the request is to set up a service or a cluster (the words that route the `package-admin` skill), the first build - an image, a long-running container, a compose project, a package install, a Dockerfile or `.conf` written - is refused once if nothing has been looked up yet, with what to search for; and a second failing command in a row with no search between gets one line: search this exact message first. On the SLURM-in-Docker treadmill of 2026-11-17, sessions built from memory and debugged for 15 to 34 minutes; one gave up on an error and one built a different system than asked, each a search away from the fix. Once per request and twice per session for the refusal, eight error notes a session, never in a sub-agent. |
 | `agent/extensions/subagent/config.json` | fan-out budget: 12 concurrent, 64 per run |
 | `agent/bin/pi` | symlink to the launcher, so sub-agent children find `pi` whatever PATH looks like |
 | `agent/pixi/` | pixi's global tools, environments and cache (`PIXI_HOME`), when the agent has used it |
@@ -611,7 +618,7 @@ fetching ~105 MB again, while still getting its own binaries in `agent/bin` —
 the cache saves the download, not the ownership. Cache hits are checksummed on
 every reuse exactly like a fresh download, so a corrupted or tampered entry
 fails the install rather than being installed; `--force` bypasses the cache and
-re-fetches.
+re-fetches. The skill library's archive is kept there too, under `kdense-skills/`.
 
 - **`bootstrap.sh` installs `fd` and `rg` into `agent/bin`** (pinned versions,
   sha256-checked against `templates/tools.sha256`), whether or not the machine
@@ -708,7 +715,8 @@ machine on macOS; either on Linux). Installing the engine is yours to do; elm-pi
 only governs how the agent uses it. Images can be pulled, and every container
 runs with `--network=none` - the permission gate refuses a `run` or `create`
 without it, because a container's traffic does not pass through the egress
-proxy. `push`, `login` and remote engines are refused, `build` and `compose`
+proxy - or, for containers that must reach each other, on a network made with
+`docker network create --internal`, which has no route out. `push`, `login` and remote engines are refused, `build` and `compose`
 ask. The `containers` skill has the commands and the images (for LaTeX:
 `texlive/texlive:latest-medium`, or `latest` for everything); LOCKDOWN.md has
 the reasoning.
@@ -918,7 +926,8 @@ across both models is slower than sending it all to Qwen** — the Llama half se
 the wall time.
 
 Llama still has its uses — a fallback when Qwen is rate-limited. (Neither costs
-anything: the University's own models are free for staff and students.) It is
+anything: the University's own models are free to anyone allocated an ELM key,
+with nothing charged to a budget code or a group.) It is
 reached with:
 
 ```bash
@@ -1316,7 +1325,7 @@ So the fixed part holds rules, and detail lives where it is read on demand:
 - `AGENTS.md` and `APPEND_SYSTEM.md` carry the short form of each rule and
   point to `agent/reference/` (finished-work checklist, `.pi` and git, project
   memory, anchor editing, the egress proxy, reporting, asking, fits and
-  figures, the ELM service) for the rest - 20.3k characters to 8.5k, and 12.1k
+  figures, the ELM service, the skill index) for the rest - 20.3k characters to 8.5k, and 12.1k
   to 7.3k. `APPEND_SYSTEM.md` also tells the model where this install keeps
   what it might be asked about - the reference files, the skills, the settings
   and these documents - so it reads them when a question needs them.
@@ -1489,7 +1498,8 @@ orchestration comes from somewhere else.
 
 ## Skills and the skill router
 
-`agent/skills` holds seventeen skills from `templates/skills`: physics methods
+`agent/skills` holds 74 skills from `templates/skills`, and the
+[K-Dense library](#the-k-dense-skill-library) beside them. Eighteen are general: physics methods
 (fitting, statistics, uncertainties, histograms, derivations, numerical
 methods, constants, documents), scientific Python and C++, changing code (a bug,
 failing tests, code from a spec: `changing-code`), installing software
@@ -1510,6 +1520,67 @@ summarised it away. The keywords are deliberately narrow: ordinary software
 requests ("add a regression test", "make the magic number a named constant")
 add nothing, and neither does the idiom "fits in with".
 `tests/test_skill_router.py` runs both kinds of request through it.
+
+### Fifty-six more: particle and nuclear physics, and batch systems
+
+The other 56 are for one topic each: 23 for experimental particle physics
+(`hep-root`, `hep-likelihood-limits`, `hep-unfolding`, `hep-jets`, ...), 12 for
+theory (`qft-amplitudes`, `qft-loop-integrals`, `effective-field-theory`,
+`lattice-qcd-analysis`, ...) and 15 for nuclear physics (`nuclear-data-lookup`,
+`gamma-spectroscopy`, `radiation-transport-monte-carlo`, ...), and six for
+running work on a cluster's batch system: `batch-jobs` for what every scheduler
+shares, and `batch-slurm`, `batch-grid-engine` (SGE, Univa), `batch-pbs` (PBS
+Professional, OpenPBS, Torque), `batch-lsf` and `batch-htcondor`.
+`agent/reference/skills.md` lists them all. They were written on request
+(2026-11-17), not from sessions that went wrong as the general ones were, so
+each states standard practice and claims nothing about this install; a session
+that shows one to be wrong or missing something is the reason to change it.
+
+pi does not list them: each has `disable-model-invocation: true`, because 56
+more descriptions would be 12,000 characters in every session's system
+prompt, for skills most sessions never need. The router reaches them instead.
+Each carries a `route.json` beside its `SKILL.md` - its patterns, and the
+requests that must and must not match, which `tests/test_domain_skills.py`
+runs - and when a request matches, the best matching one is added in full
+after the two general skills, and up to two more are named. So "fit the 1332
+keV peak in this HPGe spectrum" gets `data-fitting` and `gamma-spectroscopy`,
+the method and the field's use of it, not one in place of the other.
+`/skill:gamma-spectroscopy` loads one by hand, and a skill of your own in
+`agent/skills` can carry a `route.json` the same way.
+
+### The K-Dense skill library
+
+`bootstrap.sh` also fetches K-Dense scientific-agent-skills (v2.72.0), a
+community library of skills for scientific Python packages, databases and
+research methods, into `agent/skills/kdense`: 167 of its 177 skills.
+`config/skill-library.json` pins it by commit and by the archive's sha256, so
+every install gets the same text, checked before any of it is unpacked. The
+archive is a 245 MB download from GitHub, most of it pictures in the project's
+documentation; it is kept in the tool cache, and the skills unpacked from it
+are 24 MB. Only `skills/<name>/` is unpacked, as plain files - no links,
+nothing executable. No network, a refused download or a wrong checksum is a
+warning and the next run tries again, never a failed install;
+`--no-skill-library` leaves the library out, and takes it out.
+
+Ten are left out, because each exists to drive a service a session here does
+not use, or to change what this install fixes: `pi-agent` (reconfigures pi's
+providers and settings), `autoskill`, `hypogenic` and `open-notebook` (outside
+LLMs), `generate-image`, `infographics` and `scientific-schematics` (outside
+image models), `exa-search`, `parallel-web` and `research-lookup` (outside
+search services with their own keys). A library skill is also left out when a
+skill of yours in `agent/skills` has its name: pi keeps the first of two and
+warns at every start.
+
+The rest are 6-30 kB each and written for other agents, so they are hidden
+from pi's listing as the 56 are - their names and descriptions alone are
+67,000 characters - and never added in full. The router names up to three
+library skills that a request mentions by name (`astropy`, `scikit-learn`,
+`sympy`), with their paths, once a session, and says with them that where a
+library skill tells the model to install software, set an API key or call
+another AI service, this install's rules decide. Each of the 56 topic
+skills ends with the library skills that go with it. `/skill:astropy` loads one
+by hand; `agent/skills/kdense/INDEX.md` lists them. At startup they cost pi's
+scan of the folder, 43 ms measured on an M-series Mac, and no network.
 
 One rule looks at the machine as well as the request. A request for slides,
 notes or a paper rarely says "compile", so on a machine with no TeX

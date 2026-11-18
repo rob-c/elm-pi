@@ -1,0 +1,20 @@
+{
+  "patterns": [
+    "\\b(pbs ?pro(fessional)?|openpbs|pbsnodes|qmgr|tracejob|msub|showq|checkjob|ncpus|ppn|walltime)\\b",
+    "^(?=[\\s\\S]*\\b(qsub|qstat|qdel)\\b)(?=[\\s\\S]*(select=|nodes=|ppn=|-l walltime|#PBS))",
+    "^(?=[\\s\\S]*\\b(torque|moab|maui|PBS)\\b)(?=[\\s\\S]*\\b(jobs?|queues?|cluster|scripts?|qsub|qstat|nodes?|cores?|arrays?|scheduler)\\b)"
+  ],
+  "caseSensitive": [
+    "#PBS"
+  ],
+  "examples": [
+    "write a PBS script: 8 cores, 16 GB, 2 hours, as an array over the 200 inputs",
+    "this Torque script uses nodes=1:ppn=8 - rewrite it for the new PBS Pro cluster",
+    "the qsub job with select=1:ncpus=8 ran in my home directory instead of the project folder"
+  ],
+  "counterexamples": [
+    "the torque on the motor shaft is too high",
+    "select the nodes in the graph and count them",
+    "PBS documentary subtitles"
+  ]
+}

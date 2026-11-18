@@ -82,6 +82,15 @@ or a p-value below 0.05, is a fit to look into, not one to report.
   it reached its minimum (another minimiser, another start) before naming dead
   time or an offset - the 145.1 s above was explained that way, and was the fit.
 
+## A peak's height is not its yield
+
+Fit the number of events as a parameter, not the height: for a histogram with
+bins of width w, the model is N × w × `scipy.stats.norm.pdf(x, mu, sigma)` plus
+the background, and N comes out with its error. From a fitted height A instead,
+N = A σ √(2π) / w, with the A-σ covariance in its error. Two sessions gave the
+height, 239, as the events in a peak of about 1,500 (2026-11-17). Check any
+yield against the counts: it cannot exceed the events in the peak's own bins.
+
 ## Derived quantities
 
 Propagate with the full covariance, not just the diagonal: for g(p),

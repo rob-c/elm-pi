@@ -1,0 +1,16 @@
+{
+  "patterns": [
+    "\\b(uproot\\d?|awkward[- ]?arrays?|coffea|dask[-_]awkward|jagged arrays?|nanoevents|columnar (analysis|hep|processor)|scikit-hep|mplhep)\\b",
+    "\\bak\\.(combinations|cartesian|flatten|zip|num|firsts|argmax|argmin|argsort|mask|pad_none|fill_none|broadcast_arrays|unflatten)\\b"
+  ],
+  "examples": [
+    "read the Muon branches with uproot and build the dimuon mass with awkward arrays",
+    "my ak.combinations of jets gives the wrong number of pairs per event",
+    "port this event loop to a coffea processor and run it over the NanoAOD files"
+  ],
+  "counterexamples": [
+    "this API has an awkward way to pass arrays of options",
+    "convert the row loop to a columnar Parquet export",
+    "flatten the nested list of users before the join"
+  ]
+}

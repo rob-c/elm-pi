@@ -24,7 +24,7 @@ OPTIONS_FILE = os.path.join("agent", "install-options")
 # the two groups below are what makes `pi setup --no-python` and
 # `pi setup --python` take each other back.
 RECORDED = ("--no-shim", "--no-packages", "--no-auth-lock", "--no-tools", "--no-patch",
-            "--with-python", "--with-pypi-index", "--no-python")
+            "--with-python", "--with-pypi-index", "--no-python", "--no-skill-library")
 OPPOSITES = {
     "--no-python": ("--with-python", "--with-pypi-index"),
     "--with-python": ("--no-python",),
@@ -33,7 +33,7 @@ OPPOSITES = {
 DEFAULTS = {
     "shim": True, "packages": True, "interactive": True, "update": False,
     "auth_lock": True, "force": False, "with_tools": True, "patch": True,
-    "python": True, "pypi_index": False, "force_packages": False,
+    "python": True, "pypi_index": False, "force_packages": False, "skill_library": True,
 }
 # What each recorded flag sets. --with-all is recorded as the two parts it
 # stands for, so --no-pypi-index can take one back.
@@ -46,6 +46,7 @@ APPLY = {
     "--with-python": {"python": True},
     "--with-pypi-index": {"pypi_index": True, "python": True},
     "--no-python": {"python": False, "pypi_index": False},
+    "--no-skill-library": {"skill_library": False},
 }
 
 
@@ -96,6 +97,8 @@ def parse(argv, program="./bootstrap.sh"):
             options.dropped += OPPOSITES[argument]
         elif argument == "--no-pypi-index":
             options.dropped.append("--with-pypi-index")
+        elif argument == "--with-skill-library":
+            options.dropped.append("--no-skill-library")
         elif argument in RECORDED:
             _remember(options, argument)
         elif argument == "--non-interactive":

@@ -1,0 +1,21 @@
+{
+  "patterns": [
+    "\\b(nuclear shell model|shell[- ]model (calculations?|interactions?|hamiltonians?|dimensions?|spaces?|wave ?functions?)|(sd|pf|sdpf|fp|psd|f5pg9)[- ]shell|weisskopf (units?|estimates?)|reduced transition (probabilit(y|ies)|strengths?)|nilsson (model|orbitals?|diagrams?)|skyrme|gogny|hartree[- ]fock[- ]bogoliubov|nuclear (structure|deformation|density functionals?|energy density functionals?)|quadrupole deformation|rotational bands?|yrast|islands? of inversion|spectroscopic factors?|no[- ]core shell model|two[- ]body matrix elements|gamow[- ]teller (strengths?|quenching)|m-scheme)\\b",
+    "\\bB\\((E|M)[1-4]",
+    "^(?=[\\s\\S]*\\bmagic numbers?\\b)(?=[\\s\\S]*\\b(nucle(us|i|ar|ons?)|shell closures?|isotopes?|neutrons?|protons?)\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(KSHELL|NuShellX|BIGSTICK|ANTOINE|USD[AB]|KB3G?|GXPF1A?|JUN45|HFBTHO|HFODD|NCSM|IM-?SRG)\\b"
+  ],
+  "examples": [
+    "run a KSHELL calculation for 24Mg with USDB and compare the 2+ and 4+ energies with experiment",
+    "convert B(E2; 0+ -> 2+) = 0.0432 e2b2 to Weisskopf units and a quadrupole deformation",
+    "is the HFB ground state of 152Sm deformed with the SLy4 Skyrme functional",
+    "which magic numbers survive in neutron-rich nuclei"
+  ],
+  "counterexamples": [
+    "the shell model of the CLI should spawn a login shell",
+    "make the magic number a named constant",
+    "the model space on disk is nearly full"
+  ]
+}

@@ -1,0 +1,14 @@
+variation,sr_yield,cr_yield
+nominal,412.6,2954.1
+lumi_up,419.6,3004.3
+lumi_down,405.6,2903.9
+pileup_up,416.3,2995.5
+pileup_down,407.6,2909.8
+jes_up,438.6,3069.3
+jes_down,389.5,2847.8
+jer_smear,398.6,2918.7
+btag_up,425.4,2912.7
+btag_down,400.2,2995.5
+muon_up,418.0,2992.5
+muon_down,407.2,2915.7
+generator_alt,378.8,2779.8

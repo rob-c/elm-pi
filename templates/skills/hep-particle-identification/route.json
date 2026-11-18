@@ -1,0 +1,16 @@
+{
+  "patterns": [
+    "\\b(particle identification|particle[- ]id|PID (efficienc\\w+|likelihoods?|cuts?|calibration samples?)|dE/dx|time[- ]of[- ]flight (detector|system|wall|measurement|resolution|PID)s?|cherenkov|čerenkov|ring[- ]imaging|RICH (detector|rings?)s?|transition radiation|(pion|kaon|proton|electron|muon)[-/ ](kaon|pion|proton|hadron) separation|(kaon|pion|proton|muon|electron|lepton) (mis-?identification|mis-?id)( rates?| probabilit\\w+)?|K/(π|pi) separation)\\b",
+    "^(?=[\\s\\S]*\\btime[- ]of[- ]flight\\b)(?=[\\s\\S]*\\b(kaons?|pions?|protons?|momentum|GeV)\\b)"
+  ],
+  "examples": [
+    "use dE/dx and time of flight to separate kaons from pions below 2 GeV",
+    "measure the kaon misidentification rate from the D* calibration sample in bins of momentum",
+    "what is the Cherenkov threshold momentum for kaons in a radiator with n = 1.03"
+  ],
+  "counterexamples": [
+    "kill the process whose pid is in the pid file",
+    "tune the PID controller gains",
+    "identify the particle system emitter that leaks memory"
+  ]
+}

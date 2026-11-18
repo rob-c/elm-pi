@@ -1,0 +1,24 @@
+{
+  "patterns": [
+    "\\b(bateman( equations?| solution)?|(secular|transient) equilibrium|specific activit(y|ies)|radioactive (decay|daughters?|parents?|series|chains?|equilibrium)|radio(nuclide|isotope)s? (inventor(y|ies)|activit(y|ies)|generator)|radiocarbon|carbon[- ]14 dating|daughter (activity|ingrowth|nuclides?)|ingrowth|becquerels?|decay[- ]correct\\w*|radioactivedecay|saturation activity|cooling time)\\b",
+    "^(?=[\\s\\S]*\\bdecay (chains?|series)\\b)(?=[\\s\\S]*\\b(nuclides?|isotopes?|radioactiv\\w+|activit(y|ies)|half[- ]li(fe|ves)|uranium|thorium|radon|radium|actinides?|equilibrium|bateman)\\b)",
+    "\\b(generator column|end of (the )?irradiation|end of bombardment|decay data)\\b"
+  ],
+  "caseSensitive": [
+    "\\b([kMGT]?Bq|[mµμn]?Ci)\\b",
+    "^(?=[\\s\\S]*\\b[A-Z][a-z]?-\\d{1,3}m?\\b)(?=[\\s\\S]*\\b(activit(y|ies)|half[- ]li(fe|ves)|generator|daughters?|parents?|ingrowth)\\b)"
+  ],
+  "examples": [
+    "compute the activity of each member of the Th-232 decay chain after 10 years starting from pure thorium",
+    "when does the Mo-99/Tc-99m generator reach transient equilibrium and what is the daughter activity",
+    "what is the specific activity of Co-60 in Bq/g",
+    "solve the Bateman equations for this three-member chain without losing precision",
+    "notes.md has the irradiation log and the decay data for this week's Mo-99 batch. I need the Mo-99 activity at the end of irradiation and when the generator column was loaded, how long after loading the Tc-99m activity on the column peaks and what it is then, and how many Tc-99 ground-state atoms are on the column at that moment. Put them in result.json as a_mo99_eob_bq, a_mo99_load_bq, t_max_h, a_tc99m_max_bq and n_tc99_atoms."
+  ],
+  "counterexamples": [
+    "the learning-rate decay schedule chains two optimisers",
+    "retry with exponential decay and a chain of fallbacks",
+    "reconstruct the decay chain of the B meson candidate in the ntuple",
+    "fit this decay curve and give the half-life"
+  ]
+}

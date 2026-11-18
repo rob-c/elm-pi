@@ -1,0 +1,16 @@
+{
+  "patterns": [
+    "\\b(tag[- ]and[- ]probe|clopper[- ]pearson|tefficiency|turn[- ]on curves?|trigger turn[- ]on|trigger efficienc(y|ies)|(reconstruction|identification|isolation|tagging|b-tagging|tracking|lepton|muon|electron|photon) efficienc(y|ies)|efficiency (maps?|scale factors?)|data[/ -](to[- ])?(mc|simulation) scale factors?|scale factors? (for|from|in bins of) (the )?(data|simulation|muons?|electrons?|leptons?|b-tag\\w*|trigger|pt)|passing and failing probes)\\b"
+  ],
+  "examples": [
+    "measure the muon identification efficiency with tag-and-probe on Z events",
+    "fit the trigger turn-on curve and tell me where the plateau starts",
+    "100 of 100 probes pass - what is the efficiency and its Clopper-Pearson interval",
+    "derive data/MC scale factors in bins of pT and eta"
+  ],
+  "counterexamples": [
+    "set the display scale factor for retina screens",
+    "tag and release the build, then probe the health endpoint",
+    "measure the efficiency of the sort routine on large inputs"
+  ]
+}

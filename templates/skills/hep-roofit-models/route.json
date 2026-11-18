@@ -1,0 +1,19 @@
+{
+  "patterns": [
+    "\\b(roofit|roostats|rooworkspace|roorealvar|roodataset|roodatahist|roofitresult|roomcstudy|zfit|hepstats|s-?weights?|sweighted)\\b"
+  ],
+  "caseSensitive": [
+    "\\b(Roo[A-Z]\\w+|sPlot|covQual)\\b"
+  ],
+  "examples": [
+    "build a RooFit model with a Crystal Ball signal and an exponential background and fit the mass",
+    "compute sWeights for the signal with sPlot and plot the decay time",
+    "my RooFitResult has covQual 2 - can I trust the errors",
+    "set up the same extended fit in zfit"
+  ],
+  "counterexamples": [
+    "use gnuplot's splot for the surface",
+    "the roof item in the menu is misaligned",
+    "add weights to the graph edges and rerun the layout"
+  ]
+}

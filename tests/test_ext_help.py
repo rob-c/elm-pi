@@ -15,6 +15,8 @@ globalThis.__commands = [
   { name: "plot", description: "Plot data properly", source: "prompt" },
   { name: "skill:data-fitting", source: "skill" },
   { name: "skill:changing-code", source: "skill" },
+  { name: "skill:astropy", description: "astronomy", source: "skill", sourceInfo: { path: "/i/agent/skills/kdense/astropy/SKILL.md" } },
+  { name: "skill:sympy", description: "symbolic maths", source: "skill", sourceInfo: { path: "/i/agent/skills/kdense/sympy/SKILL.md" } },
 ];
 globalThis.__tools = [
   { name: "bash", description: "Execute a shell command" },
@@ -43,6 +45,17 @@ class HelpTests(unittest.TestCase):
         text = help_text(self)
         self.assertIn("data-fitting, changing-code", text)
         self.assertNotIn("skill:data-fitting", text)
+
+    def test_the_library_is_a_count_and_its_index_not_167_names(self):
+        text = help_text(self)
+        self.assertIn("  data-fitting, changing-code\n", text)
+        self.assertIn("  K-Dense library: 2 more, named when a request mentions one or loaded with /skill:<name> - "
+                      "/i/agent/skills/kdense/INDEX.md", text)
+        self.assertNotIn("astropy,", text)
+
+    def test_a_filter_finds_a_library_skill_by_name(self):
+        self.assertEqual("Skills (loaded automatically when a request needs them)\n  K-Dense library: astropy",
+                         help_text(self, "astro").strip())
 
     def test_the_tools_offered_are_the_ones_pi_reports(self):
         text = help_text(self)

@@ -13,6 +13,9 @@
  * Long by nature, so it is grouped and capped: commands with their one-line descriptions, the skill
  * commands as names only (they load themselves when a request needs them), the tool names on one line,
  * then where to read more. `/help <word>` filters on name and description.
+ *
+ * The K-Dense library (agent/skills/kdense, 167 skills since 2026-11-17) is a count and the path of
+ * its index, not 167 names: named, it was most of the screen. A filter still finds one by name.
  */
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -22,7 +25,11 @@ interface Command {
 	name: string;
 	description?: string;
 	source?: string;
+	/** For a skill: where its SKILL.md is, which is how the library's are told from the rest. */
+	sourceInfo?: { path?: string };
 }
+
+const inLibrary = (command: Command) => /[/\\]skills[/\\]kdense[/\\]/.test(command.sourceInfo?.path ?? "");
 
 /** How many lines a command list may take before the rest are counted instead of named. */
 const MAX_LINES = 24;
@@ -46,10 +53,17 @@ export function render(commands: Command[], tools: Command[], filter = ""): stri
 		if (typed.length > MAX_LINES) out.push(`  ... and ${typed.length - MAX_LINES} more`);
 	}
 
-	const skills = group("skill").map((c) => c.name.replace(/^skill:/, ""));
-	if (skills.length) {
+	const bare = (c: Command) => c.name.replace(/^skill:/, "");
+	const skills = group("skill").filter((c) => !inLibrary(c)).map(bare);
+	const library = group("skill").filter(inLibrary);
+	if (skills.length || library.length) {
 		out.push("", "Skills (loaded automatically when a request needs them)");
-		out.push(`  ${skills.join(", ")}`);
+		if (skills.length) out.push(`  ${skills.join(", ")}`);
+		if (library.length && needle !== "") out.push(`  K-Dense library: ${library.map(bare).join(", ")}`);
+		if (library.length && needle === "") {
+			const index = join(dirname(library[0].sourceInfo?.path ?? ""), "..", "INDEX.md");
+			out.push(`  K-Dense library: ${library.length} more, named when a request mentions one or loaded with /skill:<name> - ${index}`);
+		}
 	}
 
 	const known = named.filter((c) => c.source !== "extension" && c.source !== "prompt" && c.source !== "skill");

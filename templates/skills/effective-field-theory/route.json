@@ -1,0 +1,19 @@
+{
+  "patterns": [
+    "\\b(effective field theor(y|ies)|wilson coefficients?|warsaw basis|SILH basis|dimension[- ](5|6|8|five|six|eight) operators?|dim[- ]?[568] operators?|higher[- ]dimensional operators?|four[- ]fermion (operators?|interactions?)|operator basis|matching and running|integrat(e|ing|ed) out (the |a |an )?(heavy|massive|[WZ] bosons?|top quark|scalars?|fermions?|mediators?|higgs)|power counting|smeftsim|smeft@nlo|dsixtools|matchete|matchmakereft|smelli|fermi theory|weak effective theory|chiral perturbation theory|weinberg operator|anomalous (triple |quartic )?gauge couplings?)\\b"
+  ],
+  "caseSensitive": [
+    "\\b(SMEFT|HEFT|HQET|SCET|ChPT|NRQCD|WCxf)\\b",
+    "^(?=[\\s\\S]*\\bEFTs?\\b)(?=[\\s\\S]*\\b(operators?|coefficients?|matching|Lagrangian|Higgs|cutoff|validity|dimension)\\b)"
+  ],
+  "examples": [
+    "set limits on the dimension-6 operator coefficients in the Warsaw basis from this ttbar distribution",
+    "integrate out the heavy scalar at tree level and give the Wilson coefficients",
+    "run the SMEFT coefficients from 1 TeV down to the Z mass with wilson and export them as WCxf"
+  ],
+  "counterexamples": [
+    "the EFT payment batch failed to post; find the bad record",
+    "add an operator overload for the basis vector class",
+    "the heft of the bundle grew by 2 MB"
+  ]
+}

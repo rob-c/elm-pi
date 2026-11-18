@@ -1,0 +1,21 @@
+{
+  "patterns": [
+    "\\b(lie (algebras?|groups?)|irreducible representations?|irreps?|dynkin (labels?|index|indices|diagrams?)|quadratic casimirs?|casimir (operators?|invariants?|eigenvalues?)|young (tableaux?|diagrams?)|clebsch[- ]gordan|wigner[- ](3-?j|6-?j|9-?j|eckart)|(3-?j|6-?j|9-?j) symbols?|weight diagrams?|cartan (matrix|subalgebra|generators?)|anomaly (coefficients?|cancellation)|lieart|groupmath|susyno|representation theory|grand unif\\w*)\\b",
+    "\\b(SU|USp|Sp)\\(\\d+\\)",
+    "\\bSO\\((1[0-9]|[4-9])\\)",
+    "^(?=[\\s\\S]*\\b(representations?|multiplets?|octets?|decuplets?|triplets?|doublets?|singlets?|branching rules?|tensor products?|decompos\\w*)\\b)(?=[\\s\\S]*(\\bSO\\(\\d+\\)|\\b(gauge groups?|isospin|flavou?r symmetry|hypercharge|quarks?|gluons?|irreps?)\\b))"
+  ],
+  "caseSensitive": [
+    "\\bGUTs?\\b"
+  ],
+  "examples": [
+    "decompose the tensor product 8 x 8 of SU(3) into irreducible representations",
+    "what are the Dynkin index and quadratic Casimir of the 10 of SU(5)",
+    "compute the Clebsch-Gordan coefficients for coupling spin 1 and spin 1/2 with sympy"
+  ],
+  "counterexamples": [
+    "group the rows by customer and sum the totals",
+    "convert between colour representations: hex, RGB and HSL",
+    "what are the git branching rules for this repo"
+  ]
+}

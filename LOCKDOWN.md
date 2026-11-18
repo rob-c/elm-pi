@@ -5,8 +5,9 @@
 Staff are allocated **$500 at industry token rates**. Against a commercial coding
 agent that is a few weeks of real use, after which work stops until someone finds
 more budget. The university's own models on ELM - a 397B model among them, on
-its own GPUs - are free for staff and students to use, and they are what this
-install exists to use.
+its own GPUs - are free to use for anyone who has been allocated an ELM key:
+nothing is charged to a budget code or to a group. They are what this install
+exists to use.
 
 Leaving 1,357 commercial models one `/model` keypress away produces exactly two
 outcomes: accidental spend, and support questions this team cannot answer. So
@@ -363,7 +364,16 @@ Docker and Podman get the same treatment, because a container's network does
 not pass through the proxy (Docker's engine, and Podman on macOS, live in their
 own daemon or VM). The agent may pull images and run them, but every
 `run`/`create` must carry `--network=none`; the rest are denied with that
-reason. `push`, `login` and a remote engine (`-H`, `--context`,
+reason - with one exception, for containers that have to reach each other (a
+cluster's head node and its compute nodes): a network made with
+`network create --internal`, which joins its containers to each other and to
+nothing else. `command-guard.ts` asks the engine whether the network a run names
+is internal, since a name proves nothing; `network create` without `--internal`
+and `network connect` are denied; and a published port (`-p`) must be bound to
+`127.0.0.1`. (Measured 2026-11-17 on Docker Desktop: two containers on an
+internal network reached each other by name, neither reached the internet, and a
+port published from one did not reach the Mac - a service in such a cluster is
+reached with `docker exec`.) `push`, `login` and a remote engine (`-H`, `--context`,
 `podman --remote`/`--connection`, or `DOCKER_HOST`, `CONTAINER_HOST`,
 `DOCKER_CONTEXT` and `CONTAINER_CONNECTION` set in the command or in pi's own
 environment to anything but a local socket) are denied; `build` and `compose` ask,
@@ -372,7 +382,8 @@ the proxy's list for a Podman that pulls through it. A bind mount bypasses the
 agent's path protections, so the `containers` skill mounts only the project
 folder - a rule of practice, not one the gate can check. The rules match
 `--network=none` as text, so `command-guard.ts` also reads the run's own
-options: the last `--network`/`--net` before the image must be `none`, and one
+options: the last `--network`/`--net` before the image must be `none` or an
+internal network, and one
 in the command the container runs (`alpine sh -c 'echo --network=none'`) does
 not count. An option the guard does not know ends that reading early, which
 refuses the run rather than guessing.
@@ -433,7 +444,13 @@ whole machine, and a session needs it for its own work - a Jupyter kernel, a
 test against a server it started, `multiprocessing.Manager` - so on macOS
 another program listening on `127.0.0.1` (a database, a local SOCKS proxy) can
 be reached from a session. Nothing off the machine can, and no Unix socket
-outside those two folders: ssh-agent's and Docker's stay closed.
+outside those two folders, with one exception: ssh-agent's stays closed, and the
+container engine's own socket (Docker Desktop's, Colima's, Rancher Desktop's,
+OrbStack's, or where a local `DOCKER_HOST` points) is opened for connecting to,
+by itself and not its folder. Without it no `docker` command works in a session
+at all; with it, what a container may do is held by the rules above - which
+govern the agent's `bash` tool, not a program a session runs that talks to the
+engine directly.
 
 **A machine that cannot make the fence.** Ubuntu 23.10 and later keep user
 namespaces from unprivileged programs, and WSL 1 has none. There a session

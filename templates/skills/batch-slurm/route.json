@@ -1,0 +1,16 @@
+{
+  "patterns": [
+    "\\b(slurm|sbatch|srun|salloc|squeue|sacct|scancel|scontrol|sinfo|seff|sacctmgr)\\b",
+    "#SBATCH"
+  ],
+  "examples": [
+    "write an sbatch script for a 200-task array, 4 CPUs and 8 GB each, two hours, at most 20 at once",
+    "my Slurm job was killed after 2 hours - what does sacct say and what do I change",
+    "run the fit on the GPU partition with srun"
+  ],
+  "counterexamples": [
+    "the batch size is too large for the GPU",
+    "squash the commits and run the pipeline",
+    "queue the emails for sending"
+  ]
+}

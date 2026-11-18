@@ -11,6 +11,7 @@ the tool active nothing changes.
 """
 
 import json
+import time
 import re
 import shutil
 import subprocess
@@ -592,6 +593,80 @@ class OpenServerTests(unittest.TestCase):
         self.assertIn("kill <PID>", result["reason"])
 
 
+
+class HeldSubstitution(unittest.TestCase):
+    """A background job inside $(...) holds the substitution open: three treadmill sessions (2026-11-16 local-server.1
+    on main and local-server.2 through pi.bash, 2026-11-17 local-server.2) ran `PORT=$(python3 server.py &)` and sat
+    in that call until the driver's limit, 600 to 900 s each."""
+
+    CASES = {
+        # The three sessions' own commands.
+        "PORT=$(python3 server.py &)": True,
+        "PORT=$(python3 server.py 2>&1 &)\nsleep 1\necho $PORT": True,
+        # Other spellings of the same thing.
+        "pid=`python3 server.py &`": True,
+        "x=$(nohup ./serve.sh & echo started)": True,
+        "echo \"port: $(node server.js & sleep 1; cat port.txt)\"": True,
+        "out=$(cd site && python3 -m http.server --bind 127.0.0.1 8000 2>&1 &)": True,
+        "a=$(echo $(sleep 100 &))": True,
+        "x=$(tail -f app.log | grep ready &)": True,
+        # Its output goes elsewhere: nothing is held, and this is how a PID is captured.
+        "PID=$(python3 server.py > server.log 2>&1 & echo $!)": False,
+        "PID=$(python3 server.py &> server.log & echo $!)": False,
+        "PID=$(nohup python3 server.py >/dev/null 2>&1 & echo $!)": False,
+        "x=$(python3 server.py 1>>log & echo $!)": False,
+        "x=$(warn >&2 & echo ok)": False,
+        # Jobs the body waits for are meant to be captured.
+        "both=$(slow_a & slow_b & wait)": False,
+        # Not a background job at all.
+        "python3 server.py &\nSERVER_PID=$!\nsleep 1\necho $SERVER_PID": False,
+        "x=$(make build && make test)": False,
+        "x=$(grep -c 'a & b' notes.md)": False,
+        "x=$(echo \"R&D\" | wc -c)": False,
+        "x=$(cmd 2>&1)": False,
+        "x=$(cmd |& tee log)": False,
+        "n=$((a & b))": False,
+        "echo '$(python3 server.py &)'": False,
+        "x=$(curl -s 'http://127.0.0.1:8000/?a=1&b=2')": False,
+    }
+
+    def test_only_a_job_that_holds_the_substitution_is_refused(self):
+        binary = node()
+        if not binary:
+            self.skipTest("needs node")
+        guard = ROOT / "templates/extensions/command-guard.ts"
+        script = ("import { pathToFileURL } from 'node:url';"
+                  "const m = await import(pathToFileURL(process.argv[1]).href);"
+                  "const cases = JSON.parse(process.argv[2]);"
+                  "console.log(JSON.stringify({ out: cases.map((c) => m.heldSubstitution(c) ?? null), reason: m.HELD_SUBSTITUTION }));")
+        run = subprocess.run([binary, "--no-warnings", "--input-type=module", "-e", script, str(guard),
+                              json.dumps(list(self.CASES))], capture_output=True, text=True, timeout=60, cwd=ROOT)
+        if run.returncode != 0 and "ERR_UNKNOWN_FILE_EXTENSION" in run.stderr:
+            self.skipTest("this node cannot load TypeScript")
+        self.assertEqual(0, run.returncode, run.stderr[-2000:])
+        result = json.loads(run.stdout)
+        for (command, refused), denial in zip(self.CASES.items(), result["out"]):
+            with self.subTest(command=command):
+                self.assertEqual(refused, denial is not None, denial)
+        self.assertEqual("python3 server.py 2>&1 &", result["out"][1]["spelling"])
+        self.assertIn("would hang until the session is stopped", result["reason"])
+        self.assertIn("python3 server.py > server.log 2>&1 & echo $!", result["reason"])
+        self.assertIn("$(cmd > cmd.log 2>&1 & echo $!)", result["reason"])
+
+    def test_bash_agrees_which_of_them_hang(self):
+        """The rule is bash's, so ask bash: a refused spelling does not return while its job runs; an allowed one does."""
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("needs bash")
+        for command, hangs in (("x=$(sleep 3 &)", True), ("x=$(sleep 3 2>&1 &)", True),
+                               ("x=$(sleep 3 > /dev/null 2>&1 & echo $!)", False), ("x=$(sleep 3 >&2 & echo ok)", False)):
+            with self.subTest(command=command):
+                started = time.monotonic()
+                subprocess.run([bash, "-c", command], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=30)
+                self.assertEqual(hangs, time.monotonic() - started > 2.0)
+
+
 class ImageMentionTests(unittest.TestCase):
     """image-mentions.ts: the images a message names are attached to it, as a pasted one is."""
 
@@ -678,3 +753,229 @@ class ImageMentionTests(unittest.TestCase):
 
     def test_it_is_loaded(self):
         self.assertIn("image-mentions.ts", CONFIG["requiredExtensions"])
+
+
+class InternalNetworks(unittest.TestCase):
+    """Containers that must reach each other - a head node and a compute node - may, on a network with no route out.
+    The user's decision of 2026-11-17, when a two-container SLURM cluster was the task and every run but
+    `--network=none` was refused. The guard asks the engine whether the network named is internal; here the engine's
+    answer is given: `slurmnet` is, and nothing else."""
+
+    CASES = {
+        # allowed: no network, or the internal one
+        "docker run --rm --network=none alpine true": None,
+        "docker run -d --name slurm-head --hostname slurm-head --network slurmnet slurm:test": None,
+        "docker run -d --name c1 --network=slurmnet -v \"$PWD\":\"$PWD\" slurm:test slurmd -D": None,
+        "podman run -d --net slurmnet img": None,
+        "docker create --network slurmnet img": None,
+        "docker run -d --network slurmnet -p 127.0.0.1:8080:80 web": None,
+        "docker run -d --network slurmnet --publish=localhost:6817:6817 slurm:test": None,
+        # refused: a network with a route out, one that does not exist, none named at all
+        "docker run -d --name slurm-head slurm:test": "docker run",
+        "docker run -d --network bridge slurm:test": "docker run *--network bridge *|docker run",
+        "docker run -d --network mynet slurm:test": "docker run",
+        "docker run -d --network=slurmnet --network=other slurm:test": "docker run",      # the last one named is the one used
+        "docker run alpine sh -c 'echo --network slurmnet'": "docker run",               # after the image it is the command's word
+        "docker run -d --network 'slurmnet; rm -rf x' img": "docker run",
+        # refused: a port open to the network, whatever the container's own network
+        "docker run -d --network slurmnet -p 8080:80 web": "docker run",
+        "docker run -d --network slurmnet -p 0.0.0.0:8080:80 web": "docker run",
+        "docker run -d --network slurmnet -P web": "docker run",
+        "docker run -d --network=none -p8080:80 web": "docker run",
+        # an image from an unchecked publisher is not pulled by a run (suites1-ht ran htcondor/mini that way)
+        "docker run -d --network slurmnet htcondor/mini:latest": "docker run",
+        "docker run --rm --network=none giovtorres/slurm-docker-cluster:latest env": "docker run",
+        "docker run -d --network slurmnet me/built-here:1": None,                          # already on this machine
+        "docker run --rm --network=none ubuntu:22.04 true": None,
+        "docker run --rm --network=none docker.io/library/rockylinux:9 true": None,
+        "docker run --rm --network=none texlive/texlive:latest-medium latexmk -v": None,
+        "docker run --rm --network=none quay.io/rockylinux/rockylinux:9 true": None,
+        # networks made here are internal, and a running container is not moved onto another
+        "docker network create --internal slurmnet": None,
+        "docker network create slurmnet": "docker network create *",
+        "docker network create --driver bridge slurmnet": "docker network create *",
+        "podman network create --internal slurmnet": None,
+        "docker network connect bridge slurm-head": "docker network connect *",
+        "docker network ls": None,
+        "docker network inspect slurmnet": None,
+        "docker network rm slurmnet": None,
+        "docker exec slurm-head sinfo": None,
+    }
+
+    def test_only_a_network_with_no_route_out_and_only_loopback_ports(self):
+        binary = node()
+        if not binary:
+            self.skipTest("needs node")
+        guard = ROOT / "templates/extensions/command-guard.ts"
+        rules = (ROOT / "templates/extensions/pi-permission-system/config.json").read_text()
+        script = ("import { pathToFileURL } from 'node:url';"
+                  "const m = await import(pathToFileURL(process.argv[1]).href);"
+                  "m.setNetworkProbe((engine, name) => name === 'slurmnet');"
+                  "m.setImageProbe((engine, image) => image === 'me/built-here:1');"
+                  "const rules = m.bashRulesOf(process.argv[3]);"
+                  "console.log(JSON.stringify(JSON.parse(process.argv[2]).map((c) => m.deniedSpelling(c, rules) ?? null)));")
+        run = subprocess.run([binary, "--no-warnings", "--input-type=module", "-e", script, str(guard),
+                              json.dumps(list(self.CASES)), rules], capture_output=True, text=True, timeout=60, cwd=ROOT)
+        if run.returncode != 0 and "ERR_UNKNOWN_FILE_EXTENSION" in run.stderr:
+            self.skipTest("this node cannot load TypeScript")
+        self.assertEqual(0, run.returncode, run.stderr[-2000:])
+        for (command, want), denial in zip(self.CASES.items(), json.loads(run.stdout)):
+            with self.subTest(command=command):
+                if want is None:
+                    self.assertIsNone(denial)
+                else:
+                    self.assertIsNotNone(denial, "allowed")
+                    # Refused by the gate's own rule ("docker run *") or by the guard's reading ("docker run"): either way, refused.
+                    self.assertIn(denial["pattern"], [w for one in want.split("|") for w in (one, one + " *")])
+        said = {c: d for c, d in zip(self.CASES, json.loads(run.stdout)) if d}
+        self.assertIn("is not an internal one (or does not exist)", said["docker run -d --network mynet slurm:test"]["reason"])
+        self.assertIn("docker network create --internal NAME", said["docker run -d --name slurm-head slurm:test"]["reason"])
+        self.assertIn("-p 127.0.0.1:HOST:CONTAINER", said["docker run -d --network slurmnet -p 8080:80 web"]["reason"])
+        self.assertIn("must be internal", said["docker network create slurmnet"]["reason"])
+        self.assertIn("would pull it unasked", said["docker run -d --network slurmnet htcondor/mini:latest"]["reason"])
+        self.assertIn("docker pull htcondor/mini:latest", said["docker run -d --network slurmnet htcondor/mini:latest"]["reason"])
+
+    def test_the_engine_is_asked_and_a_name_proves_nothing(self):
+        """Without the test's stand-in the guard asks the real engine: a network that is not there is not internal."""
+        binary = node()
+        if not binary:
+            self.skipTest("needs node")
+        guard = ROOT / "templates/extensions/command-guard.ts"
+        rules = (ROOT / "templates/extensions/pi-permission-system/config.json").read_text()
+        script = ("import { pathToFileURL } from 'node:url';"
+                  "const m = await import(pathToFileURL(process.argv[1]).href);"
+                  "console.log(JSON.stringify(m.deniedSpelling('docker run -d --network internal-but-not-there-1117 img', m.bashRulesOf(process.argv[2])) ?? null));")
+        run = subprocess.run([binary, "--no-warnings", "--input-type=module", "-e", script, str(guard), rules],
+                             capture_output=True, text=True, timeout=60, cwd=ROOT)
+        if run.returncode != 0 and "ERR_UNKNOWN_FILE_EXTENSION" in run.stderr:
+            self.skipTest("this node cannot load TypeScript")
+        self.assertEqual(0, run.returncode, run.stderr[-2000:])
+        self.assertEqual("docker run", json.loads(run.stdout)["pattern"])
+
+
+class ComposeNetworks(unittest.TestCase):
+    """`compose up` is asked about by the gate, and an approval says nothing about the network: the project's default
+    one has a route out. The guard reads the engine's own resolved configuration and refuses a start unless every
+    network is internal (2026-11-17, with the internal-network rule)."""
+
+    OPEN = {"services": {"head": {"image": "s"}, "c1": {"image": "s"}}, "networks": {"default": {"name": "p_default"}}}
+    INTERNAL = {"services": {"head": {"image": "s", "networks": {"default": None}}, "c1": {"image": "s", "networks": {"default": None}}},
+                "networks": {"default": {"name": "p_default", "internal": True}}}
+    NAMED = {"services": {"head": {"image": "s", "networks": {"cluster": None}}}, "networks": {"cluster": {"internal": True}}}
+    MIXED = {"services": {"head": {"image": "s", "networks": {"cluster": None, "front": None}}}, "networks": {"cluster": {"internal": True}, "front": {}}}
+    HOST = {"services": {"head": {"image": "s", "network_mode": "host"}}, "networks": {}}
+    NONE = {"services": {"job": {"image": "s", "network_mode": "none"}}, "networks": {}}
+    PORT_OPEN = {"services": {"web": {"image": "s", "networks": {"default": None}, "ports": [{"target": 80, "published": "8080", "host_ip": "0.0.0.0"}]}},
+                 "networks": {"default": {"internal": True}}}
+    PORT_ANY = {"services": {"web": {"image": "s", "networks": {"default": None}, "ports": [{"target": 80, "published": "8080"}]}},
+                "networks": {"default": {"internal": True}}}
+    PORT_LOOP = {"services": {"web": {"image": "s", "networks": {"default": None}, "ports": [{"target": 80, "published": "8080", "host_ip": "127.0.0.1"}]}},
+                 "networks": {"default": {"internal": True}}}
+
+    def decide(self, cases):
+        binary = node()
+        if not binary:
+            self.skipTest("needs node")
+        guard = ROOT / "templates/extensions/command-guard.ts"
+        script = ("import { pathToFileURL } from 'node:url';"
+                  "const m = await import(pathToFileURL(process.argv[1]).href);"
+                  "const out = [];"
+                  "for (const [command, config] of JSON.parse(process.argv[2])) {"
+                  "  const seen = [];"
+                  "  m.setComposeProbe((engine, before, cwd) => { seen.push([engine, before, cwd]); return config === null ? undefined : JSON.stringify(config); });"
+                  "  out.push([m.composeDenial(command, '/proj') ?? null, seen]);"
+                  "}"
+                  "console.log(JSON.stringify(out));")
+        run = subprocess.run([binary, "--no-warnings", "--input-type=module", "-e", script, str(guard), json.dumps(cases)],
+                             capture_output=True, text=True, timeout=60, cwd=ROOT)
+        if run.returncode != 0 and "ERR_UNKNOWN_FILE_EXTENSION" in run.stderr:
+            self.skipTest("this node cannot load TypeScript")
+        self.assertEqual(0, run.returncode, run.stderr[-2000:])
+        return json.loads(run.stdout)
+
+    def test_a_project_starts_only_on_internal_networks(self):
+        cases = [("docker compose up -d", self.OPEN, "is on the network `default`, which is not internal"),
+                 ("docker compose up -d", self.INTERNAL, None),
+                 ("docker compose -f cluster.yml up -d --build", self.NAMED, None),
+                 ("docker compose up", self.MIXED, "is on the network `front`, which is not internal"),
+                 ("docker-compose up -d", self.OPEN, "which is not internal"),
+                 ("podman compose up -d", self.HOST, "sets network_mode: host"),
+                 ("docker compose run --rm job true", self.NONE, None),
+                 ("docker compose up -d", self.PORT_OPEN, "publishes a port on every network interface"),
+                 ("docker compose up -d", self.PORT_ANY, "publishes a port on every network interface"),
+                 ("docker compose up -d", self.PORT_LOOP, None),
+                 ("cd cluster && docker compose restart head", self.OPEN, "which is not internal"),
+                 ("docker compose up -d", None, "could not be read")]
+        for (command, _config, want), (denial, _seen) in zip(cases, self.decide([(c, cfg) for c, cfg, _ in cases])):
+            with self.subTest(command=command, want=want):
+                if want is None:
+                    self.assertIsNone(denial)
+                else:
+                    self.assertIn(want, denial["reason"])
+        refusal = self.decide([("docker compose up -d", self.OPEN)])[0][0]["reason"]
+        self.assertIn("networks:\n  default:\n    internal: true", refusal)             # what to write, not only what is wrong
+        self.assertIn("docker compose exec", refusal)
+
+    def test_what_starts_nothing_is_not_read_and_the_files_named_are_the_ones_read(self):
+        got = self.decide([("docker compose down -v", self.OPEN), ("docker compose ps", self.OPEN), ("docker compose logs head", self.OPEN),
+                           ("docker compose config", self.OPEN), ("docker compose exec head sinfo", self.OPEN), ("docker ps", self.OPEN),
+                           ("docker compose -f a.yml -p test --project-directory sub up -d", self.INTERNAL)])
+        for denial, seen in got[:6]:
+            self.assertIsNone(denial)
+            self.assertEqual([], seen)                                                       # the engine was not asked
+        self.assertEqual([["docker", ["-f", "a.yml", "-p", "test", "--project-directory", "sub"], "/proj"]], got[6][1])
+
+
+class ScriptsAreReadToo(unittest.TestCase):
+    """suites1-ht (2026-11-17): a session wrote run-condor-pool.sh holding `docker run -d --name ht-cm IMAGE` - no
+    network option - and ran `./run-condor-pool.sh`. The rules read the command, the command said nothing, and the
+    container came up on Docker's default network with a route out."""
+
+    POOL = "#!/bin/bash\nset -e\ndocker rm -f ht-cm 2>/dev/null || true\ndocker run -d --name ht-cm --hostname ht-cm \\\n  htcondor/mini:latest\ndocker exec ht-cm condor_status\n"
+    FINE = "#!/bin/bash\ndocker network create --internal ht-net\ndocker run -d --name ht-cm --network ht-net img\ndocker exec ht-cm condor_status\n"
+
+    def decide(self, files, commands):
+        binary = node()
+        if not binary:
+            self.skipTest("needs node")
+        guard = ROOT / "templates/extensions/command-guard.ts"
+        rules = (ROOT / "templates/extensions/pi-permission-system/config.json").read_text()
+        with tempfile.TemporaryDirectory() as tmp:
+            for rel, text in files.items():
+                path = Path(tmp) / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text)
+            script = ("import { pathToFileURL } from 'node:url';"
+                      "const m = await import(pathToFileURL(process.argv[1]).href);"
+                      "m.setNetworkProbe((engine, name) => name === 'ht-net');"
+                      "m.setImageProbe(() => true);"
+                      "const rules = m.bashRulesOf(process.argv[3]);"
+                      "console.log(JSON.stringify(JSON.parse(process.argv[2]).map((c) => m.scriptDenial(c, process.argv[4], rules) ?? null)));")
+            run = subprocess.run([binary, "--no-warnings", "--input-type=module", "-e", script, str(guard), json.dumps(commands), rules, tmp],
+                                 capture_output=True, text=True, timeout=60, cwd=ROOT)
+        if run.returncode != 0 and "ERR_UNKNOWN_FILE_EXTENSION" in run.stderr:
+            self.skipTest("this node cannot load TypeScript")
+        self.assertEqual(0, run.returncode, run.stderr[-2000:])
+        return json.loads(run.stdout)
+
+    def test_the_sessions_own_script_is_refused_however_it_is_run(self):
+        commands = ["./run-condor-pool.sh 2>&1", "bash run-condor-pool.sh", "sh ./run-condor-pool.sh", "source run-condor-pool.sh",
+                    "cd scripts && ./pool.sh", "chmod +x run-condor-pool.sh && ./run-condor-pool.sh", "bash -x run-condor-pool.sh"]
+        for command, denial in zip(commands, self.decide({"run-condor-pool.sh": self.POOL, "scripts/pool.sh": self.POOL}, commands)):
+            with self.subTest(command=command):
+                self.assertIsNotNone(denial, "ran unread")
+                self.assertTrue(denial["reason"].startswith("It is in the script "), denial["reason"])
+                self.assertIn("which this command runs.", denial["reason"])
+                self.assertIn("docker network create --internal NAME", denial["reason"])
+
+    def test_a_script_within_the_rules_runs_and_what_is_not_a_script_is_not_read(self):
+        files = {"start.sh": self.FINE, "notes.txt": self.POOL, "tool.py": "import subprocess\n", "data/run.sh": self.FINE}
+        got = self.decide(files, ["./start.sh", "bash start.sh", "cat notes.txt", "python3 tool.py", "./missing.sh", "cd data && ./run.sh", "ls"])
+        self.assertEqual([None] * 7, got)
+
+    def test_a_script_that_runs_a_script_is_followed(self):
+        files = {"up.sh": "#!/bin/bash\n./inner.sh\n", "inner.sh": self.POOL, "loop.sh": "#!/bin/bash\n./loop.sh\n"}
+        got = self.decide(files, ["./up.sh", "./loop.sh"])
+        self.assertIn("inner.sh", got[0]["reason"])
+        self.assertIsNone(got[1])                                                        # a script that runs itself ends
+

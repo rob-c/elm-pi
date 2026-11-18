@@ -10,7 +10,8 @@
 # Bootstrapping needs Node, pi and the extension packages, which come from
 # nodejs.org and the npm registry; an elm-pi session's egress proxy lets neither
 # through. So the clone is given the ones the install this shell runs under
-# already has (or --from INSTALL's): .node, node_modules, agent/npm and agent/bin,
+# already has (or --from INSTALL's): .node, node_modules, agent/npm, agent/bin and
+# the skill library when it has the pinned one,
 # copied as APFS clones or reflinks where the filesystem has them (instant, no
 # extra disk), else copied. bootstrap.sh then finds each tree at the version it
 # expects and only renders this clone's agent/ from its own templates - the
@@ -74,7 +75,7 @@ for part in .node node_modules agent/npm/node_modules agent/bin; do
 done
 
 # What a killed run left (its traps do not run under SIGKILL): bootstrap's scratch files and a copy cut off.
-rm -rf "$HERE"/.elm-pi-verify.* "$HERE"/.elm-pi-stage-* "$HERE"/*.dev-setup-partial "$HERE"/agent/*.dev-setup-partial
+rm -rf "$HERE"/.elm-pi-verify.* "$HERE"/.elm-pi-stage-* "$HERE"/*.dev-setup-partial "$HERE"/agent/*.dev-setup-partial "$HERE"/agent/skills/*.dev-setup-partial
 
 mkdir -p "$HERE/.pi/tmp"
 LOG="$HERE/.pi/tmp/dev-setup.log"
@@ -82,11 +83,24 @@ pass=()
 for name in ELM_API_KEY ELM_BASE_URL HTTPS_PROXY HTTP_PROXY NO_PROXY https_proxy http_proxy no_proxy; do
   if [ -n "${!name:-}" ]; then pass+=("$name=${!name}"); fi
 done
+# The skill library (agent/skills/kdense) is a 245 MB download from GitHub, and this runs without the
+# network: the clone gets the install's copy when that is the commit config/skill-library.json pins,
+# keeps its own when it already has that commit, and otherwise goes without.
+library=(--no-skill-library)
+pinned="$(sed -n 's/^ *"commit": "\([0-9a-f]\{40\}\)".*/\1/p' "$HERE/config/skill-library.json" 2>/dev/null | head -n 1)"
+has_library() { [ -n "$pinned" ] && grep -q "\"commit\": \"$pinned\"" "$1/agent/skills/kdense/.elm-pi-library" 2>/dev/null; }
+if has_library "$HERE" && [ "$FRESH" != "1" ]; then
+  library=(--with-skill-library)
+elif has_library "$FROM"; then
+  mkdir -p "$HERE/agent/skills"
+  clone_tree "$FROM/agent/skills/kdense" "$HERE/agent/skills/kdense"
+  library=(--with-skill-library)
+fi
 # --no-python: the agent's Python is built by default, and building it downloads CPython and PyPI
 # packages; a development clone needs neither, and this runs without the network.
 set +e
 ( cd "$HERE" && env -i HOME="$HOME" USER="${USER:-}" LOGNAME="${LOGNAME:-}" LANG="${LANG:-C.UTF-8}" TERM=dumb \
-    PATH="/usr/bin:/bin:/usr/sbin:/sbin" ${pass[@]+"${pass[@]}"} ./bootstrap.sh --no-python < /dev/null ) > "$LOG" 2>&1
+    PATH="/usr/bin:/bin:/usr/sbin:/sbin" ${pass[@]+"${pass[@]}"} ./bootstrap.sh --no-python "${library[@]}" < /dev/null ) > "$LOG" 2>&1
 status=$?
 set -e
 loaded="$(grep -o '[0-9]* extensions loaded, [0-9]* failed' "$LOG" | tail -n 1 || true)"

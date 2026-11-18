@@ -33,7 +33,9 @@ same normalisation, and state the luminosity and cross sections used.
   systematic error; a subtracted bin can be negative - do not clip it to zero
   before fitting.
 - Efficiency-corrected yield N/ε: propagate the efficiency's error; correlated
-  if ε comes from the same sample.
+  if ε comes from the same sample. One ε for all bins is common to them: sum
+  the bins first, then divide once, σ² = (σ_S/ε)² + (S σ_ε/ε²)². Adding the ε
+  term bin by bin in quadrature understates it.
 
 ## Tools
 

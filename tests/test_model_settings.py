@@ -167,8 +167,16 @@ class SamplingTests(unittest.TestCase):
                          {k: QWEN["samplingParams"][k] for k in ("temperature", "top_p", "top_k", "min_p")})
 
     def test_qwen_thinking_profile_with_thinking_on(self):
-        self.assertEqual({"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 0.0},
-                         QWEN["samplingParamsByThinkingLevel"]["high"])
+        self.assertEqual({"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 0.0,
+                          "repetition_penalty": 1.0}, QWEN["samplingParamsByThinkingLevel"]["high"])
+
+    def test_qwen_sends_both_penalties_in_both_modes_as_the_card_gives_them(self):
+        # The card (huggingface.co/Qwen/Qwen3.5-397B-A17B-FP8, read 2026-11-17): thinking mode presence_penalty 0.0,
+        # non-thinking 1.5, repetition_penalty 1.0 in both. Sent, not left to the server: its generation_config.json
+        # carries temperature, top_k and top_p only, so an omitted penalty is whatever vLLM defaults to.
+        self.assertEqual((1.5, 1.0), (QWEN["samplingParams"]["presence_penalty"], QWEN["samplingParams"]["repetition_penalty"]))
+        high = QWEN["samplingParamsByThinkingLevel"]["high"]
+        self.assertEqual((0.0, 1.0), (high["presence_penalty"], high["repetition_penalty"]))
 
     def test_mistral_is_cool_with_reasoning_off_and_0_7_with_it_on(self):
         # Mistral: 0.0-0.7 with reasoning off, 0.7 with it on; the gateway's default is 1.0

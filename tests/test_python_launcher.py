@@ -1100,6 +1100,11 @@ class TerminalBannerTests(unittest.TestCase):
         self.assertIn("Powered by ELM:", shown)
         self.assertIn("   o_.--'--._o     EEEEEEE  LLLLLLL  MM     MM", shown)
         self.assertIn("Thank you to the ELM team at EDINA.", shown)
+        # 2026-11-17, the user: the banner said "every model ... runs on ELM"; ELM also offers models it does not
+        # host, and elm-pi uses only the university-hosted ones, which are free at the point of use.
+        self.assertIn("elm-pi uses only the models the University of Edinburgh hosts on ELM,", shown)
+        self.assertIn("which are free at the point of use.", shown)
+        self.assertNotIn("Every model in this session runs on ELM", shown)
         self.assertTrue(any("\033[0;1;38;5;22;48;5;255m" in line for line in shown.splitlines()))
 
     def test_programs_children_and_the_switch_never_see_it(self):

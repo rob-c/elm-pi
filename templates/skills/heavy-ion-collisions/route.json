@@ -1,0 +1,18 @@
+{
+  "patterns": [
+    "\\b(heavy[- ]ion (collisions?|physics|data|runs?|events?)|quark[- ]gluon plasma|nuclear modification factors?|centrality (class(es)?|bins?|percentiles?|determination|dependence|selection)|glauber (model|monte carlo|calculations?|mc)|(participant|wounded) nucleons?|number of (binary|nucleon[- ]nucleon) collisions|(elliptic|triangular|anisotropic|directed) flow|flow harmonics?|event[- ]plane (resolution|method|angles?)|flow cumulants?|non-?flow|jet quenching|statistical hadroni[sz]ation|chemical freeze-?out|kinetic freeze-?out|femtoscop\\w+|HBT (radii|correlations?)|(Pb-?Pb|Au-?Au|Xe-?Xe|p-?Pb|d-?Au|Cu-?Cu) collisions?|(relativistic|viscous) hydro(dynamics?)?|strangeness enhancement|nucleon[- ]nucleon cent(er|re)[- ]of[- ]mass energy)\\b"
+  ],
+  "caseSensitive": [
+    "\\b(QGP|RHIC|TRENTo|UrQMD|SMASH|AMPT|JEWEL|JETSCAPE|HIJING|Thermal-FIST|THERMUS|TGlauberMC|PbPb|AuAu|R_?AA|R_?pA|Npart|Ncoll)\\b"
+  ],
+  "examples": [
+    "compute R_AA for charged hadrons in 0-10% Pb-Pb collisions from these spectra and the pp reference",
+    "run a Monte Carlo Glauber calculation for Au-Au at 200 GeV and give Npart and Ncoll per centrality class",
+    "extract elliptic flow v2 with the event-plane method and correct for the resolution"
+  ],
+  "counterexamples": [
+    "hash collisions in the binary search tree slow the lookup",
+    "the control flow is elliptic-curve key exchange followed by signing",
+    "compute betweenness centrality for the dependency graph"
+  ]
+}

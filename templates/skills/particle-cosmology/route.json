@@ -1,0 +1,19 @@
+{
+  "patterns": [
+    "\\b(relic (densit(y|ies)|abundances?)|freeze-?out|freeze-in|thermal relics?|dark matter (abundance|annihilation|production|candidates?|relic)|early universe|big[- ]bang nucleosynthesis|N_?eff|effective number of (neutrino|relativistic) (species|degrees of freedom)|relativistic degrees of freedom|baryogenesis|leptogenesis|sakharov conditions?|baryon asymmetry|electroweak phase transition|inflaton|slow[- ]roll (inflation|parameters?|approximation|conditions?)|cosmic inflation|friedmann equations?|hubble (rate|parameter|expansion)|radiation[- ]dominated|matter[- ]radiation equality|cosmic neutrino background|micromegas|maddm|darksusy|misalignment mechanism|thermal(ly)?[- ]averaged (annihilation )?cross[- ]sections?)\\b",
+    "^(?=[\\s\\S]*\\b(boltzmann equations?|freeze out|reheating|decoupl\\w*|annihilation cross[- ]sections?)\\b)(?=[\\s\\S]*\\b(dark matter|relics?|early universe|cosmolog\\w*|abundances?|neutrinos?|universe)\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(WIMPs?|BBN)\\b"
+  ],
+  "examples": [
+    "solve the Boltzmann equation for the freeze-out of a 100 GeV WIMP and give the relic density",
+    "how much does a light sterile neutrino that decouples at 1 GeV add to N_eff",
+    "what annihilation cross section gives the observed dark matter abundance for a thermal relic"
+  ],
+  "counterexamples": [
+    "the tests freeze in CI but pass locally",
+    "fit an inflation model to the consumer price index",
+    "solve the lattice Boltzmann equation for flow past a cylinder"
+  ]
+}

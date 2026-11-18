@@ -178,8 +178,11 @@ def models(root, model_ids=None):
     # entry on every run because configure.sh preserves them:
     #   samplingParams                 the Qwen3.5 card's Instruct (non-thinking)
     #                                  profile, presence_penalty 1.5 included,
-    #                                  against repetition loops
+    #                                  against repetition loops, and
+    #                                  repetition_penalty 1.0 said rather than
+    #                                  left to the server's default
     #   samplingParamsByThinkingLevel  the card's thinking-mode profile
+    #                                  (presence_penalty 0, repetition_penalty 1.0)
     #   compat                         how the gateway takes the thinking switch:
     #                                  pi 1.4.0 dropped the whole elm provider
     #                                  over a thinkingFormat it stopped accepting

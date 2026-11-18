@@ -1,0 +1,16 @@
+{
+  "patterns": [
+    "\\b(roounfold\\w*|tunfold\\w*|pyunfold|omnifold|response matri(x|ces)|migration matri(x|ces)|bin[- ]by[- ]bin (correction|unfolding)( factors?)?|d'?agostini|iterative bayesian unfolding|unfolded (spectr\\w*|distributions?|cross[- ]sections?|results?))\\b",
+    "^(?=[\\s\\S]*\\bunfold(ing|ed|s)?\\b)(?=[\\s\\S]*\\b(spectr\\w*|distributions?|detector|histograms?|cross[- ]sections?|truth|particle[- ]level|regulari[sz]\\w*|smearing|migrations?|measured)\\b)"
+  ],
+  "examples": [
+    "unfold the measured jet pT spectrum to particle level with iterative Bayesian unfolding",
+    "build the response matrix from the simulation and check purity and stability",
+    "use RooUnfold with the SVD method and tell me how to choose k"
+  ],
+  "counterexamples": [
+    "unfold all collapsed sections in the sidebar",
+    "the response time matrix of the load test is wrong",
+    "fold the long lines and unfold them again on save"
+  ]
+}

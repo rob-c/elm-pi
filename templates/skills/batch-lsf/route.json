@@ -1,0 +1,19 @@
+{
+  "patterns": [
+    "\\b(bsub|bjobs|bkill|bqueues|bhosts|bhist|bacct|bpeek|bmod|lshosts|jsrun|spectrum lsf|platform lsf)\\b",
+    "#BSUB"
+  ],
+  "caseSensitive": [
+    "\\bLSF\\b"
+  ],
+  "examples": [
+    "write an LSF job array for the 200 inputs, 8 cores on one host and 16 GB, two hours",
+    "bsub job.sh ran with the default queue and one core although the script asks for eight",
+    "which bjobs option tells me why the job is still pending"
+  ],
+  "counterexamples": [
+    "the lsf file extension is not recognised",
+    "kill the background jobs in the shell",
+    "submit the sub-form"
+  ]
+}

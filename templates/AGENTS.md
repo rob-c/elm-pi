@@ -137,13 +137,13 @@ another tool only in what comes back to the user, never into a file:
 ## Skills
 
 Load the matching skill before the work, not after; a "Skills for this request"
-section names the ones a request matches, with their paths. The physics skills:
+section names a request's, with paths. All 74 are in
+`@AGENT_DIR@/reference/skills.md`. The physics skills:
 `data-fitting`, `uncertainty-propagation`, `statistics-and-significance`,
 `histogram-analysis`, `derivation-checks`, `numerical-methods`,
 `physical-constants`, `scientific-python`, `scientific-cpp`,
-`physics-documents`. Each is a checked procedure; following it is how a result
-here gets to be trustworthy. Software the machine lacks: `installing-software`
-and `containers`. A bug or failing test: `changing-code`. A plugin for elm-pi:
+`physics-documents`. Each is a checked procedure: follow it. Missing software:
+`installing-software`, `containers`; a service to set up: `package-admin`. A bug or failing test: `changing-code`. A plugin for elm-pi:
 `developing-elm-pi`.
 
 ## A 403: this install, or the site?

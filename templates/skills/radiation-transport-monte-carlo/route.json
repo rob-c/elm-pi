@@ -1,0 +1,22 @@
+{
+  "patterns": [
+    "\\b(geant ?4|openmc|mcnp\\w*|fluka|monte[- ]carlo (radiation |particle |neutron |photon )?transport|(neutron|photon|particle|radiation|electron) transport (codes?|simulations?|calculations?)|physics lists?|production cuts?|range cuts?|weight windows?|F[4568] tall(y|ies)|tall(y|ies) (results?|normali[sz]ation|per source particle)|(energy deposition|dose|flux|fluence) (tall(y|ies)|scoring)|per source particle|criticality (calculations?|simulations?|eigenvalue)|k-?eff(ective)?)\\b",
+    "^(?=[\\s\\S]*\\bvariance reduction\\b)(?=[\\s\\S]*\\b(transport|tall(y|ies)|shield\\w*|neutrons?|photons?|weight windows?|importance splitting|deep penetration)\\b)",
+    "^(?=[\\s\\S]*\\bmonte[- ]carlo\\b)(?=[\\s\\S]*\\b(tall(y|ies)|histories|shield\\w*|slabs?|photons?|dose|flux(es)?|source particles?|attenuation)\\b)",
+    "^(?=[\\s\\S]*\\btall(y|ies)\\b)(?=[\\s\\S]*\\b(relative errors?|histories|flux(es)?|dose|monte[- ]carlo|per source particle)\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(Geant4|GEANT4|G4[A-Z]\\w+|FLUKA|PHITS|OpenMC|Serpent 2|TOPAS|EGSnrc|PENELOPE|KENO|FTFP_BERT\\w*|QGSP_\\w+)\\b"
+  ],
+  "examples": [
+    "set up a Geant4 simulation of a 10 cm lead shield around a Co-60 source and score the dose behind it",
+    "my MCNP F4 tally has a relative error of 0.3; how do I get it to converge",
+    "simulate neutron transport through 30 cm of polyethylene in OpenMC and report the transmitted spectrum",
+    "runs.csv lists the tallies from last night's Monte Carlo jobs for the Cs-137 lead-slab validation described in notes.md. Combine them into one tally with its relative error, turn that into the photon flux at the detector for our source with its uncertainty, and give the analytic narrow-beam flux to compare it with; also tell me which runs fail the reliability rule in the notes. Write result.json with combined_tally_per_cm2, combined_rel_err, flux_per_cm2_s, flux_unc_per_cm2_s, analytic_flux_per_cm2_s and unreliable_runs (a list of run numbers)."
+  ],
+  "counterexamples": [
+    "the transport layer drops packets when the source buffer is full",
+    "use variance reduction with control variates in the pricing Monte Carlo",
+    "tally the votes per source and print the totals"
+  ]
+}

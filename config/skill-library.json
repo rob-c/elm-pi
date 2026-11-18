@@ -1,0 +1,112 @@
+{
+  "_comment": "The community skill library the installer fetches into agent/skills/kdense (scripts/skill_library.py; INSTALL.md, 'The K-Dense skill library'). Pinned by commit and by the archive's sha256, so every install gets the same reviewed text. exclude: left out, with the reason. notRouted: installed, but an everyday word, so the router does not name it on that word alone. aliases: other words a request uses for it. skills: every skill at this commit - what a skill here may refer to, checked by tests/test_skill_library.py.",
+  "name": "kdense",
+  "title": "K-Dense scientific-agent-skills",
+  "repository": "https://github.com/K-Dense-AI/scientific-agent-skills",
+  "tag": "v2.72.0",
+  "commit": "526ebce143bc326f44471554e33d66a19c840360",
+  "sha256": "78ac9d3aca4ab5d6fda6bf9931115252a0d50f9c9c7dcf0a0e89f936a701f668",
+  "downloadMB": 245,
+  "exclude": {
+    "pi-agent": "tells the model how to reconfigure pi's providers, models and settings, which this install fixes",
+    "autoskill": "reads a Screenpipe screen history and sends summaries to a chosen LLM",
+    "exa-search": "a paid outside search service; sessions here search through pi-web-access and its policy",
+    "parallel-web": "a paid outside search and research service; sessions here search through pi-web-access and its policy",
+    "research-lookup": "gathers literature through the Parallel and Perplexity services, not through this install's web access",
+    "generate-image": "image generation by outside AI models through OpenRouter",
+    "infographics": "image generation by outside AI models through OpenRouter",
+    "scientific-schematics": "diagram generation and review by outside AI models through OpenRouter",
+    "hypogenic": "drives hypothesis generation by an outside LLM",
+    "open-notebook": "operates a notebook service wired to outside AI providers"
+  },
+  "notRouted": [
+    "aeon", "arbor", "bids", "database-lookup", "esm", "modal", "paperclip", "peer-review", "rowan",
+    "tamarind", "tellurium", "transformers"
+  ],
+  "aliases": {
+    "bulk-rnaseq": [
+      "bulk RNA-seq"
+    ],
+    "cellxgene-census": [
+      "cellxgene"
+    ],
+    "etetoolkit": [
+      "ete3",
+      "ETE toolkit"
+    ],
+    "neuropixels-analysis": [
+      "neuropixels"
+    ],
+    "nwb-conversion": [
+      "NWB file",
+      "neurodata without borders"
+    ],
+    "pytorch-lightning": [
+      "pytorch lightning",
+      "lightning module"
+    ],
+    "qiime2-amplicon": [
+      "qiime2",
+      "qiime 2"
+    ],
+    "scikit-bio": [
+      "skbio"
+    ],
+    "scikit-learn": [
+      "sklearn"
+    ],
+    "scikit-survival": [
+      "sksurv"
+    ],
+    "scvi-tools": [
+      "scvi"
+    ],
+    "stable-baselines3": [
+      "sb3"
+    ],
+    "timesfm-forecasting": [
+      "timesfm"
+    ],
+    "torch-geometric": [
+      "pytorch geometric"
+    ],
+    "umap-learn": [
+      "umap"
+    ],
+    "zarr-python": [
+      "zarr"
+    ]
+  },
+  "skills": [
+    "13c-metabolic-flux", "adaptyv", "aeon", "alphagenome", "analytical-method-validation", "anndata",
+    "arbor", "arboreto", "astropy", "autoskill", "benchling-integration", "bgpt-paper-search", "bids",
+    "biopython", "bioservices", "bulk-rnaseq", "cantera", "cellprofiler", "cellxgene-census", "cirq",
+    "citation-management", "clinical-decision-support", "clinical-reports", "cobrapy",
+    "consciousness-council", "dask", "database-lookup", "datalad", "datamol", "deepchem", "deepspot-m",
+    "deeptools", "depmap", "dhdna-profiler", "diffdock", "dnanexus-integration", "esm", "etetoolkit",
+    "exa-search", "experimental-design", "exploratory-data-analysis", "fictiv", "flowio", "flowkit",
+    "fluidsim", "folklore-variant-evidence", "generate-image", "geniml", "genomic-coordinates",
+    "genomic-intelligence", "geomaster", "geopandas", "get-available-resources", "gget", "ginkgo-cloud-lab",
+    "glycoengineering", "gtars", "histolab", "hugging-science", "hypogenic", "hypothesis-generation",
+    "imaging-data-commons", "infographics", "iso-standards-readiness", "lab-hardware-cad",
+    "labarchive-integration", "lamindb", "latchbio-integration", "latex-posters", "liteparse",
+    "literature-review", "mageck", "marine-carbonate-chemistry", "markdown-mermaid-writing",
+    "market-research-reports", "markitdown", "matchms", "matlab", "matplotlib", "medchem", "modal",
+    "molecular-dynamics", "molfeat", "ncats-arax", "networkx", "neurokit2", "neuropixels-analysis",
+    "nextflow", "nmrglue", "nwb-conversion", "omero-integration", "onekgpd", "ontology-term-resolution",
+    "open-notebook", "openpiv", "opentrons-integration", "optimize-for-gpu", "pacsomatic", "paper-lookup",
+    "paperclip", "paperzilla", "parallel-web", "pathml", "pathogen-variant-surveillance",
+    "pathway-enrichment", "peer-review", "pennylane", "phylogenetics", "pi-agent", "pkpd-modeling", "polars",
+    "polars-bio", "pptx-posters", "primekg", "primer-design", "protocolsio-integration", "pufferlib",
+    "pybamm", "pycalphad", "pydeseq2", "pydicom", "pyhealth", "pylabrobot", "pymatgen", "pymc", "pymoo",
+    "pyopenms", "pysam", "pytdc", "pytorch-lightning", "pyzotero", "qiime2-amplicon", "qiskit", "qutip",
+    "rdkit", "relion", "relsa-severity-assessment", "research-grants", "research-lookup", "rowan", "scanpy",
+    "scholar-evaluation", "scientific-brainstorming", "scientific-critical-thinking", "scientific-schematics",
+    "scientific-slides", "scientific-visualization", "scientific-writing", "scikit-bio", "scikit-learn",
+    "scikit-survival", "scvelo", "scvi-tools", "seaborn", "shap", "simpy", "stable-baselines3",
+    "statistical-analysis", "statistical-power", "statsmodels", "sympy", "tamarind", "tellurium", "tiledbvcf",
+    "timesfm-forecasting", "torch-geometric", "torchdrug", "transformers", "treatment-plans", "umap-learn",
+    "uncertainty-and-units", "usfiscaldata", "vaex", "venue-templates", "waypoint-bio", "what-if-oracle",
+    "zarr-python"
+  ]
+}

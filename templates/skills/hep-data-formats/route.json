@@ -1,0 +1,20 @@
+{
+  "patterns": [
+    "\\b(nanoaod|miniaod|physlite|hepmc[23]?|rntuple|xrootd|xrdcp|lhe files?|les houches event\\w*|cern open ?data|open ?data portal|good[- ]run lists?|golden json|lumi(nosity)? (mask|json)s?|sum of (the )?(generator |gen |event |mc )?weights|genEventSumw|cutbookkeepers?)\\b",
+    "root://"
+  ],
+  "caseSensitive": [
+    "\\b(NanoAOD|MiniAOD|PHYSLITE|DAOD|xAOD|HepMC[23]?|RNTuple|YODA|XRootD|LHE)\\b"
+  ],
+  "examples": [
+    "read this NanoAOD file and plot the dimuon mass",
+    "normalise the simulation: where is the sum of weights in this PHYSLITE sample",
+    "download the CMS 2016 dataset from the CERN Open Data portal and apply the good-run list",
+    "convert these LHE files to HepMC"
+  ],
+  "counterexamples": [
+    "convert the parquet file to csv",
+    "open the data portal's admin page and reset the password",
+    "parse the YAML config and list its keys"
+  ]
+}

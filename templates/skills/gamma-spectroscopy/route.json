@@ -1,0 +1,19 @@
+{
+  "patterns": [
+    "\\b(gamma[- ]?(ray )?spectr\\w*|germanium detectors?|photo-?peaks?|full[- ]energy[- ]peaks?|multichannel analy[sz]ers?|compton (edge|continuum)|(single|double) escape peaks?|(true[- ])?coincidence summing|minimum detectable activit(y|ies)|peak[- ]to[- ]compton)\\b",
+    "^(?=[\\s\\S]*\\b(efficiency calibration|energy calibration|dead time|peak areas?)\\b)(?=[\\s\\S]*\\b(gamma|detectors?|spectr\\w*|keV|MeV|nuclides?|isotopes?)\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(HPGe|NaI(\\(Tl\\))?|LaBr3?|CeBr3?|MCA|MDA)\\b"
+  ],
+  "examples": [
+    "this HPGe spectrum has a Co-60 source in it; get the activity",
+    "do the efficiency calibration of the detector from the Eu-152 source spectrum",
+    "what is the minimum detectable activity for Cs-137 in this background spectrum"
+  ],
+  "counterexamples": [
+    "calibrate the logging levels in the service",
+    "add a dead time of 5 seconds between retries",
+    "plot the power spectrum of the audio file"
+  ]
+}

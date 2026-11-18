@@ -1,0 +1,17 @@
+{
+  "patterns": [
+    "\\b(momentum resolution|(calorimeter|jet|electron|photon|detector) energy resolution|impact[- ]parameter resolution|vertex(ing)? resolution|sagitta|multiple (coulomb )?scattering|highland formula|radiation lengths?|moli[eè]re radius|(nuclear )?interaction lengths?|(tracker|tracking|detector|silicon) alignment|sampling calorimeters?|calorimeter (resolution|calibration|response)|track reconstruction|helix fits?)\\b",
+    "^(?=[\\s\\S]*\\b(stochastic|constant|noise) terms?\\b)(?=[\\s\\S]*\\b(calorimeters?|energy resolution|GeV|test[- ]beam)\\b)",
+    "^(?=[\\s\\S]*\\benergy resolution\\b)(?=[\\s\\S]*\\b(calorimeters?|beam energy|GeV|showers?|electrons?|hadrons?)\\b)"
+  ],
+  "examples": [
+    "what momentum resolution do we expect at 100 GeV for a 2 T field, 1 m lever arm and 12 layers of 20 micron points",
+    "fit the calorimeter energy resolution versus beam energy and extract the stochastic and constant terms",
+    "estimate the multiple scattering angle of a 1 GeV pion in 300 microns of silicon"
+  ],
+  "counterexamples": [
+    "track the alignment of the CSS grid columns",
+    "the constant term of the polynomial is wrong",
+    "improve the resolution of the exported PNG"
+  ]
+}

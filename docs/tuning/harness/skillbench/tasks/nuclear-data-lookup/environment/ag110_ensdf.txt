@@ -1,0 +1,46 @@
+110AG    ADOPTED LEVELS (excerpt)                       NDS 113, 1315 (2012)
+
+  E(level) keV    Jpi    T1/2           Decay modes
+  0.0             1+     24.56 S 11     %B-=99.70 6  %EC=0.30 6
+  1.112 16        2-     660 NS 40      %IT=100
+  117.59 5        6+     249.83 D 4     %B-=98.67 8  %IT=1.33 8
+
+110CD    110AG B- DECAY (24.56 S)                       NDS 113, 1315 (2012)
+
+  Parent: 110AG  E=0.0  Jpi=1+  T1/2=24.56 S 11  Q(g.s.)=2890.7 13
+  Normalisation: NR=0.0450 16  BR=0.9970 6
+
+  E(gamma) keV      RI           Mult
+  657.7600 11       100          E2
+  815.33 3          0.80 6
+  1125.70 4         0.59 5
+  1783.48 5         0.25 3       E2
+
+110CD    110AG B- DECAY (249.83 D)                      NDS 113, 1315 (2012)
+
+  Parent: 110AG  E=117.59 5  Jpi=6+  T1/2=249.83 D 4  Q(g.s.)=2890.7 13
+  Normalisation: NR=0.9565 9  BR=0.9867 8
+
+  E(gamma) keV      RI           Mult
+  446.812 3         3.87 3       E2
+  620.3553 17       2.88 3       E2
+  657.7600 11       100.0 3      E2
+  677.6217 12       11.19 4      E2
+  687.0091 18       6.83 3       M1+E2
+  706.6760 15       17.46 6      E2
+  744.2755 18       4.99 3       M1+E2
+  763.9424 17       23.64 8      E2
+  818.0244 18       7.77 3       M1+E2
+  884.6781 13       78.4 3       E2
+  937.485 3         36.56 12     E2
+  1384.2931 20      26.17 9      E2
+  1475.7792 23      4.27 2       E2
+  1505.0280 20      13.94 5      E2
+  1562.294 18       1.28 +5-3    E2
+
+Columns and records, as in the evaluation:
+  RI    relative photon intensity
+  NR    multiplier converting RI to photons per 100 decays through this decay branch
+  BR    multiplier converting intensity per 100 decays through this decay branch
+        to intensity per 100 decays of the parent
+  Uncertainties are in the ENSDF notation. Time units: NS, S, D.

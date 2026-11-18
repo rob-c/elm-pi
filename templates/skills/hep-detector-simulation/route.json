@@ -1,0 +1,21 @@
+{
+  "patterns": [
+    "\\b(geant4?|GDML|DD4hep|delphes|physics lists?|detector simulations?|sensitive detectors?|test[- ]beam (data|simulation|comparison)s?)\\b",
+    "^(?=[\\s\\S]*\\b(production cuts?|range cuts?|step limits?|digiti[sz]\\w*|fast simulation|full simulation)\\b)(?=[\\s\\S]*\\b(geant4?|delphes|detectors?|calorimeters?|trackers?|collider|secondar(y|ies)|scintillators?|hits)\\b)",
+    "^(?=[\\s\\S]*\\bsimulat\\w+)(?=[\\s\\S]*\\b(calorimeters?|sampling calorimeter|drift chambers?|silicon trackers?|scintillator (bars?|tiles?|strips?))\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(FTFP|QGSP|QBBC)\\w*",
+    "\\bG4[A-Z]\\w+"
+  ],
+  "examples": [
+    "set up a Geant4 simulation of a lead-scintillator sampling calorimeter and get the energy resolution",
+    "which physics list and production cuts should I use for 10 MeV neutrons in a plastic scintillator",
+    "run Delphes with the CMS card on these Pythia events and plot the jet pT"
+  ],
+  "counterexamples": [
+    "simulate a slow network in the integration tests",
+    "the production cut of the video is too long",
+    "digitisation of the library's card catalogue"
+  ]
+}

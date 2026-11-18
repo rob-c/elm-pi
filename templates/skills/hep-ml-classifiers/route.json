@@ -1,0 +1,16 @@
+{
+  "patterns": [
+    "\\b(BDTs?|boosted decision trees?|TMVA|mva (scores?|discriminants?|outputs?)|overtrain\\w*|mass sculpting|signal[- ](vs\\.?|versus|from|and|to)[- ]background (classif\\w+|discriminat\\w+|separation))\\b",
+    "^(?=[\\s\\S]*\\b(classif\\w+|neural net\\w*|DNN|machine learning|xgboost|lightgbm|train(s|ing|ed)?|discriminat\\w+)\\b)(?=[\\s\\S]*\\b(signal (and|vs\\.?|versus|from) (the )?[\\w+-]* ?background|signal regions?|background rejection|simulated events|monte[- ]carlo (events|samples?)|collider|higgs|ttbar|LHC|event weights|negative weights)\\b)"
+  ],
+  "examples": [
+    "train a BDT to separate ttH signal from the ttbar background and check for overtraining",
+    "the neural network sculpts the background mass distribution in the signal region - decorrelate it",
+    "use TMVA to rank the input variables"
+  ],
+  "counterexamples": [
+    "train the spam classifier on the new emails",
+    "fix the xgboost import error in CI",
+    "the background job's signal handler ignores SIGTERM"
+  ]
+}

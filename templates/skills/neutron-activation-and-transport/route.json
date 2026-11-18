@@ -1,0 +1,22 @@
+{
+  "patterns": [
+    "\\b(neutron (activation|flux(es)?|fluences?|captures?|moderat\\w+|spectr\\w+|detect(or|ion)s?|shield(ing)?|sources?|time[- ]of[- ]flight|cross[- ]sections?|transmission|beams?|irradiations?|dosimetry|energ(y|ies)|yields?|counters?|generators?|scattering lengths?)|(thermal|epithermal|fast|cold|slow) neutrons?|activation (analysis|foils?|equation)|resonance integrals?|cadmium (ratio|cut-?off|cover\\w*)|self[- ]shielding|macroscopic cross[- ]sections?|lethargy|westcott|1/v (absorbers?|law|cross[- ]sections?)|bonner spheres?|(he-?3|bf3|helium-3) (tubes?|counters?|detectors?)|k0[- ](method|NAA|standardi[sz]ation)|neutron moderators?|moderat(or|ion) (of|for) (the )?(fast )?neutrons|capture gammas?)\\b",
+    "\\b((foil|sample) irradiations?|irradiat\\w+ (foils?|samples?)|end of (the )?irradiation|neutron (peaks?|lines?|pulses?)|thermal (column|position|flux(es)?|fluences?))\\b",
+    "^(?=[\\s\\S]*\\btime[- ]of[- ]flight\\b)(?=[\\s\\S]*\\bneutrons?\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(NAA|INAA|PGNAA|AmBe|Cf-?252|IRDFF(-II)?)\\b"
+  ],
+  "examples": [
+    "what activity of Au-198 do I get irradiating a 10 mg gold foil in a thermal neutron flux of 1e12 for 2 hours",
+    "convert these neutron time-of-flight spectra to energy for a 20 m flight path",
+    "design shielding for an AmBe neutron source: how much polyethylene and boron",
+    "how many collisions does it take to thermalise fast neutrons in graphite",
+    "notes.md has the plan for tomorrow's manganese foil irradiation in the thermal position and the numbers from today's time-of-flight check on the fast line. What Mn-56 activity will the foil have at the end of the irradiation, how many counts should we expect in the 847 keV peak, and what is the energy of the neutron peak in the time-of-flight spectrum? Write result.json with activity_eoi_bq, expected_peak_counts and tof_energy_mev."
+  ],
+  "counterexamples": [
+    "the forum moderator activation email is not sent",
+    "measure the time of flight of the request through the proxy",
+    "product activation fails for thermal printers"
+  ]
+}

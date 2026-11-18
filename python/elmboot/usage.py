@@ -29,6 +29,9 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
                       (recorded as those two; nothing here opens the network -
                       that is `pi --remote`, per run); `pi setup --all`
   --no-pypi-index     take --with-pypi-index back, removing the index
+  --no-skill-library  no K-Dense scientific-agent-skills in agent/skills/kdense
+                      (a 245MB download once; the skills kept are 24MB);
+                      --with-skill-library takes it back
   --no-shim           skip the Llama tool-call shim
   --no-patch          leave pi as shipped: /share, /bug and its subcommands stay,
                       and the permission gate runs in auto mode only

@@ -1,0 +1,19 @@
+{
+  "patterns": [
+    "\\b(abcd method|abcd (background )?(estimat\\w*|regions?)|fake[- ]factors?|fake[- ]rates?|transfer factors?|data[- ]driven (background|estimat\\w*|method)s?|sideband (fit|subtraction|method|regions?)s?|(multijet|qcd|non-?prompt|fake[- ]lepton|misidentified[- ]lepton|w\\+jets|z\\+jets|ttbar) backgrounds?|spurious signal|tight[- ]to[- ]loose|loose[- ]not[- ]tight|signal contamination|template fit)\\b",
+    "^(?=[\\s\\S]*\\bmatrix method\\b)(?=[\\s\\S]*\\b(fakes?|leptons?|backgrounds?|tight|loose)\\b)",
+    "^(?=[\\s\\S]*\\bbackground (estimat\\w*|predictions?|modell?ing)\\b)(?=[\\s\\S]*\\b(signal regions?|control regions?|simulation|monte[- ]carlo|data-driven|jets?|leptons?|yields?|fakes?|collisions?|higgs|multijet|qcd)\\b)"
+  ],
+  "examples": [
+    "estimate the multijet background with the ABCD method and check closure in simulation",
+    "measure the fake factor in the dijet region and apply it to the loose-not-tight leptons",
+    "normalise the W+jets simulation in a control region and compute the transfer factor to the signal region",
+    "do the background estimation for the dilepton signal region"
+  ],
+  "counterexamples": [
+    "reverse the string ABCD in the test fixture",
+    "make sure the template fits the page width",
+    "use the matrix method of the Transform class",
+    "estimate the background colour of the image for the thumbnail"
+  ]
+}

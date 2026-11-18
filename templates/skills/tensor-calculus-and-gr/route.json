@@ -1,0 +1,20 @@
+{
+  "patterns": [
+    "\\b(general relativity|einstein(['’]s)? (field )?equations?|einstein tensor|riemann (tensor|curvature)|ricci (tensor|scalar|curvature)|christoffel( symbols?)?|schwarzschild|kerr (metric|black holes?|solution|spacetime)|reissner[- ]nordstr[oö]m|FLRW|friedmann[- ](lema[iî]tre[- ])?robertson[- ]walker|killing vectors?|spacetime metric|weyl tensor|bianchi identit(y|ies)|vierbeins?|spin connection|levi[- ]civita connection|gravitational waves?|post[- ]newtonian|cadabra2?|xtensor|xcoba|einsteinpy|sagemanifolds|grtensor|index gymnastics|raise and lower indices|penrose diagrams?|de sitter|kruskal[- ]szekeres)\\b",
+    "^(?=[\\s\\S]*\\b(geodesics?|metric|curvature|tensors?|indices|line element|covariant derivatives?|tensor (calculus|algebra))\\b)(?=[\\s\\S]*\\b(spacetimes?|relativity|relativistic|gravity|gravitation\\w*|cosmolog\\w*|einstein|riemann\\w*|ricci|black holes?)\\b)",
+    "\\b((schwarzschild|kerr|rotating|charged|evaporating|primordial|supermassive|stellar[- ]mass) black holes?|black holes? (horizons?|entropy|thermodynamics|evaporation|mergers?|spacetimes?|solutions?|metrics?))\\b"
+  ],
+  "caseSensitive": [
+    "\\bxAct\\b"
+  ],
+  "examples": [
+    "compute the Christoffel symbols and Ricci tensor for the Schwarzschild metric with sympy",
+    "write out the geodesic equations for a photon in a flat FLRW spacetime",
+    "check with xAct that this metric solves the vacuum Einstein equations"
+  ],
+  "counterexamples": [
+    "compute geodesic distances on the triangle mesh",
+    "the tensor shapes in the PyTorch model do not match",
+    "implement Kruskal's algorithm for the minimum spanning tree"
+  ]
+}

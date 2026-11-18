@@ -1,0 +1,19 @@
+{
+  "patterns": [
+    "\\b(madgraph\\w*|mg5(_amc)?|amc@nlo|mc@nlo|powheg(-box)?|pythia ?\\d?|herwig ?\\d?|parton showers?|hadroni[sz]ation|monte[- ]carlo (event )?generators?|lhe (files?|events?|weights?|headers?)|les houches events?|hepmc\\d?|pylhe|pyhepmc|rivet (analys[ie]s|routines?|plugins?)|yoda files?|(mlm|ckkw(-l)?|fxfx|meps@nlo) (matching|merging)|jet merging|merging scales?|k-factors?|filter efficienc(y|ies)|generator[- ]level (cuts?|filters?|events?|weights?)|sum of (the )?(generator|event|generated) weights|underlying event|(pythia|herwig|shower) tunes?|(run|param|proc)[_ ]cards?|madspin|evtgen)\\b",
+    "^(?=[\\s\\S]*\\bevent generators?\\b)(?=[\\s\\S]*\\b(collisions?|LHC|parton\\w*|hadron\\w*|cross[- ]sections?|physics|protons?|higgs|qcd|particles?|monte[- ]carlo)\\b)",
+    "^(?=[\\s\\S]*\\bnegative weights?\\b)(?=[\\s\\S]*\\b(NLO|generators?|simulated|simulation|monte[- ]carlo|cross[- ]sections?|samples?)\\b)(?=[\\s\\S]*\\b(events?|normali[sz]\\w*|LHE|histograms?)\\b)",
+    "^(?=[\\s\\S]*\\bsherpa\\b)(?=[\\s\\S]*\\b(events?|generat\\w*|shower|cross[- ]sections?|NLO|samples?)\\b)"
+  ],
+  "examples": [
+    "generate ttbar events at NLO with MadGraph5_aMC@NLO and shower them with Pythia 8",
+    "how do I normalise the sample: I have the cross-section, a filter efficiency and NLO events with negative weights",
+    "get the scale and PDF variations from the LHE weights and make the envelope",
+    "compare the Herwig and Pythia parton shower for the jet multiplicity with a Rivet analysis"
+  ],
+  "counterexamples": [
+    "write an event generator for the load test of the message queue",
+    "Dijkstra fails with negative weights on the edges",
+    "matching and merging duplicate customer records"
+  ]
+}

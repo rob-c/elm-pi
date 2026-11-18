@@ -1,0 +1,19 @@
+{
+  "patterns": [
+    "\\b(dosimetr\\w+|absorbed doses?|equivalent doses?|effective doses?|dose equivalents?|dose[- ]rates?|kerma|radiation (protection|shielding|safety|doses?|weighting factors?|exposure)|(lead|concrete|gamma|neutron|x-ray|beta|radiation|biological) shield(ing|s)?|half[- ]value (layers?|thickness(es)?)|tenth[- ]value (layers?|thickness(es)?)|build-?up factors?|mass (attenuation|energy[- ]absorption) coefficients?|sieverts?|millirem|gamma (dose[- ]rate )?constants?|fluence[- ]to[- ]dose|dose (conversion )?coefficients?)\\b",
+    "^(?=[\\s\\S]*\\b(doses?|shield(ing|ed)?)\\b)(?=[\\s\\S]*\\b(radiation|gamma|gammas|neutrons?|x-rays?|photons?|radioactive|irradiat\\w+|[kMG]?Bq|becquerels?)\\b)"
+  ],
+  "caseSensitive": [
+    "\\b([mµμun]?Sv|[mµμunk]?Gy|HVL|TVL|ALARA|XCOM|ICRP|mrem)\\b"
+  ],
+  "examples": [
+    "what is the dose rate at 1 m from a 370 MBq Cs-137 source, and how much lead brings it below 1 µSv/h",
+    "compute the half-value layer of concrete for 1.25 MeV photons including build-up",
+    "convert this neutron fluence spectrum to effective dose with ICRP coefficients"
+  ],
+  "counterexamples": [
+    "the loading shield should fade to gray after the animation",
+    "what dose of caffeine does the app recommend per day",
+    "shield the API from bursts with a rate limiter"
+  ]
+}

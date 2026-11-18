@@ -112,7 +112,8 @@
     "top_p": 0.8,
     "top_k": 20,
     "min_p": 0.0,
-    "presence_penalty": 1.5
+    "presence_penalty": 1.5,
+    "repetition_penalty": 1.0
    },
    "where": "templates/models.json",
    "date": "2026-11-12",
@@ -123,7 +124,7 @@
     "2026-11-12/sampling-batch1.json",
     "2026-11-12/sampling-batch2.json"
    ],
-   "why": "Qwen's instruct profile: 41/42, against 39 without the presence penalty and 40 with the thinking profile. Temperature swept: 72/75 at 0.2, 0.4 and 0.7, 69 at 1.0. Re-tested 2026-11-12 on 50 tasks, pair by pair against the shipped profile: top_p 0.95 -0.8 points, top_k 40 -0.7, min_p 0.05 +1.4, presence_penalty 0 +1.5 and 0.5 -0.7, its own repeat -0.8; none p below 0.5."
+   "why": "Qwen's instruct profile: 41/42, against 39 without the presence penalty and 40 with the thinking profile. Temperature swept: 72/75 at 0.2, 0.4 and 0.7, 69 at 1.0. Re-tested 2026-11-12 on 50 tasks, pair by pair against the shipped profile: top_p 0.95 -0.8 points, top_k 40 -0.7, min_p 0.05 +1.4, presence_penalty 0 +1.5 and 0.5 -0.7, its own repeat -0.8; none p below 0.5. repetition_penalty 1.0 added 2026-11-17: the card's value for both modes, sent rather than left to the server (the gateway validates and applies it; the model's generation_config.json carries no penalty), not yet measured against other values."
   },
   {
    "model": "qwen",
@@ -134,7 +135,8 @@
      "top_p": 0.95,
      "top_k": 20,
      "min_p": 0.0,
-     "presence_penalty": 0.0
+     "presence_penalty": 0.0,
+     "repetition_penalty": 1.0
     }
    },
    "where": "templates/models.json",
@@ -142,7 +144,7 @@
    "evidence": [
     "sources.md"
    ],
-   "why": "Qwen's thinking profile, from the model card; thinking stays off (measured ~400x slower), so not re-measured."
+   "why": "Qwen's thinking profile, from the model card; thinking stays off (measured ~400x slower), so not re-measured. repetition_penalty 1.0 added 2026-11-17, the card's value."
   },
   {
    "model": "all",

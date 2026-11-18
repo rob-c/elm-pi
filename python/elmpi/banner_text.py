@@ -21,8 +21,8 @@ Powered by ELM:
   '-- '.|.' --'    EE       LL       MM     MM
    o_.--'--._o     EEEEEEE  LLLLLLL  MM     MM
 
-Every model in this session runs on ELM, the University of Edinburgh's
-AI platform. Thank you to the ELM team at EDINA.
+elm-pi uses only the models the University of Edinburgh hosts on ELM,
+which are free at the point of use. Thank you to the ELM team at EDINA.
 https://elm.edina.ac.uk/elm
 
 """

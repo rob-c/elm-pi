@@ -1,0 +1,4 @@
+quantity,value,uncertainty
+observed,41,
+background,50.0,10.0
+signal_per_fb,35.0,3.5

@@ -1,0 +1,18 @@
+{
+  "patterns": [
+    "\\b(inspire[- ]?hep|inspirehep|arxiv|hepdata|pdglive|particle data group|texkeys?|cds\\.cern\\.ch|CERN document server|hep-(ph|ex|th|lat) (papers?|preprints?|listings?))\\b"
+  ],
+  "caseSensitive": [
+    "\\b(INSPIRE|PDG|HEPData|HFLAV)\\b"
+  ],
+  "examples": [
+    "get the BibTeX from INSPIRE for the ATLAS and CMS Higgs discovery papers",
+    "find the HEPData record for this measurement and download the cross-section table",
+    "search arXiv for recent hep-ph papers on axion-like particles and list them with their identifiers"
+  ],
+  "counterexamples": [
+    "write copy that will inspire new users to sign up",
+    "find the paper size setting in the print dialog",
+    "add a bibtex-style key generator to the notes app"
+  ]
+}

@@ -23,7 +23,7 @@ import signal
 import sys
 
 from elmboot import (agentconfig, agentpython, checks, console, installenv, nodejs,
-                     options as install_options, pirelease, settings, tools)
+                     options as install_options, pirelease, settings, skilllibrary, tools)
 from elmboot.run import Run, Stop, flush
 
 REQUIRED_TOOLS = ("curl", "tar")
@@ -248,6 +248,7 @@ def install(run):
     pirelease.install_pi(run)
     agentconfig.refresh(root, run.options, env)
     tools.install(run)
+    skilllibrary.install(run)
     agentpython.build(run)
     agentpython.pypi_index(run)
     installer_settings(run)

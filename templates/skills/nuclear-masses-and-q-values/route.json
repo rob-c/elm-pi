@@ -1,0 +1,18 @@
+{
+  "patterns": [
+    "\\b(mass excess(es)?|mass defects?|binding energ(y|ies) per nucleon|nuclear binding energ(y|ies)|(one-|two-|single-)?(neutron|proton|alpha) separation energ(y|ies)|semi[- ]?empirical mass formula|bethe[- ]weizs[aä]cker|liquid[- ]drop (model|formula)|atomic mass (evaluation|tables?)|reaction thresholds?|energetically (allowed|possible|forbidden)|(beta|alpha)[- ]decay (energy|endpoint)|drip ?lines?)\\b",
+    "^(?=[\\s\\S]*\\bq[- ]values?\\b)(?=[\\s\\S]*(\\b(MeV|keV|nucle(us|i|ar|ons?)|nuclides?|isotopes?|atomic mass(es)?|(alpha|beta|double[- ]beta)[- ]?(decay|minus|plus)|electron capture|fusion|fission|endothermic|exothermic|thresholds?)\\b|β|\\([a-zα0-9]{1,4},\\s?[a-z0-9αγ']{1,6}\\)))",
+    "^(?=[\\s\\S]*\\bbinding energ(y|ies)\\b)(?=[\\s\\S]*\\b(nucle(us|i|ons?)|nuclides?|isotopes?|deuteron|triton|alpha particle|MeV|atomic mass(es)?|mass excess(es)?)\\b)"
+  ],
+  "examples": [
+    "compute the Q-value of the 7Li(p,n)7Be reaction and its threshold",
+    "what is the binding energy per nucleon of Fe-56 from the AME2020 mass excess",
+    "is beta-plus decay of Na-22 energetically allowed? use atomic masses",
+    "two-neutron separation energies along the tin chain"
+  ],
+  "counterexamples": [
+    "report genes with a q-value below 0.05 after FDR correction",
+    "the binding energy of the ligand in the protein pocket",
+    "set a mass update threshold for the batch job"
+  ]
+}

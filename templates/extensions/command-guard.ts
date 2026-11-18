@@ -23,14 +23,17 @@
  * read here is refused. A name the shell computes (`$x host`) is not known
  * until it runs, so it is not caught here either.
  *
- * Containers get two checks the gate's text matching cannot make: a run or
+ * Containers get the checks the gate's text matching cannot make: a run or
  * create gets no network only when its own options say `--network none`
- * (matched as text, `docker run alpine echo --network=none` passes the rules),
+ * (matched as text, `docker run alpine echo --network=none` passes the rules);
+ * a network it names must be one the engine says is internal; a published
+ * port must be bound to loopback;
  * and an engine pointed at another machine (DOCKER_HOST and friends, set in
  * the command or in pi's environment) is refused, since every container then
  * runs off this machine.
  */
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -782,7 +785,62 @@ function decideSpelling(command: string, rules: [string, Rule][]): Denial | unde
 }
 
 const OFF_MACHINE = "A container engine pointed at another machine runs every container there, past the egress proxy. Not available here; see LOCKDOWN.md.";
-const NO_NETWORK = "Containers run here only with no network: give `--network=none` among the run's own options, before the image. See LOCKDOWN.md.";
+const NO_NETWORK =
+	"Containers run here with no network (`--network=none`) or, when they must reach each other, on an internal one: " +
+	"`docker network create --internal NAME`, then `--network NAME` among the run's own options, before the image. See the containers skill.";
+const NOT_INTERNAL = (name: string) =>
+	`The network \`${name}\` is not an internal one (or does not exist), so a container on it would have a route out past the egress proxy. ` +
+	"Make one with `docker network create --internal NAME` and run the container with `--network NAME`.";
+const OPEN_PORT =
+	"A published port is bound to this machine's loopback only: `-p 127.0.0.1:HOST:CONTAINER`. As written it would listen on every " +
+	"network interface. (On an internal network a published port does not reach the Mac at all: use `docker exec` to reach a service.)";
+
+/**
+ * Whether `name` is a network of `engine` with no route out: asked of the engine, since a name says nothing. A
+ * network that is missing, an engine that does not answer in five seconds, anything but a plain "true": no.
+ * The user's decision of 2026-11-17: containers that must talk to each other (a head node and a compute node)
+ * may, on a network made with `--internal`; measured that day on Docker Desktop 29.9 - two containers on one
+ * reached each other by name, and neither reached 1.1.1.1.
+ */
+export type NetworkProbe = (engine: string, name: string) => boolean;
+const askEngine: NetworkProbe = (engine, name) => {
+	if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name)) return false;
+	try {
+		return execFileSync(engine, ["network", "inspect", name, "--format", "{{.Internal}}"], { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] }).trim() === "true";
+	} catch {
+		return false;
+	}
+};
+let isInternal: NetworkProbe = askEngine;
+
+/**
+ * An image from a publisher nobody here has checked is pulled only with the user's say (the gate asks about
+ * `pull PUBLISHER/NAME`). `run` pulls what is missing without a word, so a run of such an image that is not on
+ * this machine yet is refused, with the pull to make first: suites1-ht (2026-11-17) ran `htcondor/mini:latest`
+ * that way. An image already here - pulled with approval, or built here under any name - runs.
+ */
+const VETTED_IMAGE = /^(?:docker\.io\/)?(?:library\/[^/]+|texlive\/texlive|pandoc\/[^/]+)(?::|@|$)|^registry\.access\.redhat\.com\/ubi|^quay\.io\/(?:rockylinux|almalinuxorg|centos)\//;
+export type ImageProbe = (engine: string, image: string) => boolean;
+const askImage: ImageProbe = (engine, image) => {
+	try {
+		execFileSync(engine, ["image", "inspect", image], { timeout: 5000, stdio: "ignore" });
+		return true;
+	} catch {
+		return false;
+	}
+};
+let imageIsHere: ImageProbe = askImage;
+/** For tests: whether the engine has the image. */
+export function setImageProbe(probe?: ImageProbe): void {
+	imageIsHere = probe ?? askImage;
+}
+const UNVETTED_IMAGE = (engine: string, image: string) =>
+	`The image \`${image}\` is from a publisher nobody here has checked and is not on this machine, so this run would pull it unasked. ` +
+	`Use an official image and build what you need on it, or pull it first - \`${engine} pull ${image}\`, which asks the user.`;
+/** For tests: what the engine would answer. */
+export function setNetworkProbe(probe?: NetworkProbe): void {
+	isInternal = probe ?? askEngine;
+}
 
 /**
  * pip's and uv's switches for installing into the system's Python, set as variables. The gate matches a
@@ -815,24 +873,36 @@ function containerDenial(command: string, runs: string[][]): Denial | undefined 
 		let k = 1;
 		if (words[k] === "container") k++;
 		if (words[k] !== "run" && words[k] !== "create") continue;
-		if (!runsWithoutNetwork(words.slice(k + 1))) {
-			return { pattern: `${basename(words[0])} ${words.slice(1, k + 1).join(" ")}`, reason: NO_NETWORK, spelling: words.join(" ") };
+		const { network, ports, all, image } = runOptions(words.slice(k + 1));
+		const pattern = `${basename(words[0])} ${words.slice(1, k + 1).join(" ")}`;
+		if (network === undefined) return { pattern, reason: NO_NETWORK, spelling: words.join(" ") };
+		if (network !== "none" && !isInternal(basename(words[0]), network)) return { pattern, reason: NOT_INTERNAL(network), spelling: words.join(" ") };
+		if (all || ports.some((port) => !/^(?:127\.0\.0\.1|localhost|\[::1\]):/.test(port))) return { pattern, reason: OPEN_PORT, spelling: words.join(" ") };
+		if (image && image.includes("/") && !VETTED_IMAGE.test(image) && /^[A-Za-z0-9][A-Za-z0-9_.:\/@-]*$/.test(image) && !imageIsHere(basename(words[0]), image)) {
+			return { pattern, reason: UNVETTED_IMAGE(basename(words[0]), image), spelling: words.join(" ") };
 		}
 	}
 	return undefined;
 }
 
-/** True when the last network option before the image is `none`. */
-function runsWithoutNetwork(args: string[]): boolean {
+/** The run's own options, up to the image: the last network named, every published port, and `-P`. */
+function runOptions(args: string[]): { network?: string; ports: string[]; all: boolean; image?: string } {
 	let network: string | undefined;
+	const ports: string[] = [];
+	let all = false;
+	let image: string | undefined;
 	for (let i = 0; i < args.length; i++) {
 		const word = args[i];
-		if (word === "--" || !word.startsWith("-")) break;
+		if (word === "--") { image = args[i + 1]; break; }
+		if (!word.startsWith("-")) { image = word; break; }
 		const [name, inline] = word.startsWith("--") && word.includes("=") ? [word.slice(0, word.indexOf("=")), word.slice(word.indexOf("=") + 1)] : [word, undefined];
 		if (NETWORK_OPTIONS.has(name)) network = inline ?? args[++i];
+		else if (name === "-p" || name === "--publish") ports.push(inline ?? args[++i] ?? "");
+		else if (name === "-P" || name === "--publish-all") all = true;
+		else if (/^-p./.test(word) && !word.startsWith("--")) ports.push(word.slice(2));
 		else if (inline === undefined && RUN_VALUED.has(name)) i++;
 	}
-	return network === "none";
+	return { network, ports, all, image };
 }
 
 function askReason(spelling: string): string {
@@ -889,6 +959,247 @@ export function remoteEngineInEnvironment(command: string, env: NodeJS.ProcessEn
 	for (const words of commandsOf(command)) collectRuns(words, runs, 0);
 	const engine = runs.find((words) => ENGINES.has(basename(words[0])));
 	return engine ? { pattern: target, reason: OFF_MACHINE, spelling: engine.join(" ") } : undefined;
+}
+
+/**
+ * `compose up` (and `run`, `create`, `start`, `restart`): the networks are in a file, not on the command line, and a
+ * compose project's default network has a route out. The gate asks about compose, and an approval there says nothing
+ * about the network - so the resolved configuration is read (`compose config --format json`, the engine's own
+ * reading of the file, with its includes and variables) and the start is refused unless every network is
+ * `internal: true`, no service sets a `network_mode` other than `none`, and every published port is bound to
+ * loopback. Added with the internal-network rule (2026-11-17), before a session was asked for a compose file.
+ */
+export type ComposeProbe = (engine: string, before: string[], cwd: string) => string | undefined;
+const askCompose: ComposeProbe = (engine, before, cwd) => {
+	try {
+		const argv = engine.endsWith("-compose") ? [...before, "config", "--format", "json"] : ["compose", ...before, "config", "--format", "json"];
+		return execFileSync(engine, argv, { cwd, encoding: "utf8", timeout: 15000, stdio: ["ignore", "pipe", "ignore"], maxBuffer: 8 * 1024 * 1024 });
+	} catch {
+		return undefined;
+	}
+};
+let composeConfig: ComposeProbe = askCompose;
+/** For tests: what `compose config` would print. */
+export function setComposeProbe(probe?: ComposeProbe): void {
+	composeConfig = probe ?? askCompose;
+}
+
+const COMPOSE_STARTS = new Set(["up", "run", "create", "start", "restart"]);
+const COMPOSE_VALUED = new Set(["-f", "--file", "-p", "--project-name", "--project-directory", "--env-file", "--profile", "--parallel", "--progress", "--ansi"]);
+const INTERNAL_HOW =
+	"In the compose file, make every network internal - for the one a project gets by default:\n" +
+	"networks:\n  default:\n    internal: true\n" +
+	"Containers then reach each other by service name and nothing else; reach a service inside with `docker compose exec`.";
+
+/** Why this compose project may not be started, or undefined. */
+export function composeProblem(json: string | undefined): string | undefined {
+	if (json === undefined) return "The compose file could not be read (`docker compose config` failed): fix it before starting anything.";
+	let config: any;
+	try {
+		config = JSON.parse(json);
+	} catch {
+		return "The compose file could not be read (`docker compose config` gave no JSON).";
+	}
+	const networks = config?.networks ?? {};
+	const services = config?.services ?? {};
+	for (const [name, service] of Object.entries<any>(services)) {
+		const mode = service?.network_mode;
+		if (mode !== undefined && mode !== "none") return `Service \`${name}\` sets network_mode: ${mode}, which has a route out past the egress proxy. ${INTERNAL_HOW}`;
+		for (const port of Array.isArray(service?.ports) ? service.ports : []) {
+			const host = typeof port === "object" && port !== null ? port.host_ip : undefined;
+			if (!["127.0.0.1", "::1", "localhost"].includes(host)) return `Service \`${name}\` publishes a port on every network interface: bind it to loopback (\`127.0.0.1:HOST:CONTAINER\`), or drop it and use \`docker compose exec\`.`;
+		}
+		const used = service?.networks === undefined || service?.networks === null ? ["default"] : Object.keys(service.networks);
+		for (const net of mode === "none" ? [] : used) {
+			if (networks[net]?.internal !== true) return `Service \`${name}\` is on the network \`${net}\`, which is not internal, so the container would have a route out past the egress proxy. ${INTERNAL_HOW}`;
+		}
+	}
+	return undefined;
+}
+
+export function composeDenial(command: string, cwd: string): Denial | undefined {
+	for (const words of commandsOf(command)) {
+		const first = basename(words[0] ?? "");
+		let i: number;
+		let engine: string;
+		if (first === "docker-compose" || first === "podman-compose") { engine = first; i = 1; }
+		else if (ENGINES.has(first) && words[1] === "compose") { engine = first; i = 2; }
+		else continue;
+		const before: string[] = [];
+		for (; i < words.length; i++) {
+			const word = words[i];
+			if (!word.startsWith("-")) break;
+			before.push(word);
+			if (COMPOSE_VALUED.has(word) && !word.includes("=") && i + 1 < words.length) before.push(words[++i]);
+		}
+		if (!COMPOSE_STARTS.has(words[i] ?? "")) continue;
+		const problem = composeProblem(composeConfig(engine, before, cwd));
+		if (problem) return { pattern: `${engine === first && i === 1 ? first : `${first} compose`} ${words[i]}`, reason: problem, spelling: words.join(" ") };
+	}
+	return undefined;
+}
+
+/**
+ * A shell script the command runs is read too. Every rule here reads the command given to `bash`, and
+ * `./start.sh` says nothing: suites1-ht (2026-11-17) wrote run-condor-pool.sh holding `docker run -d --name ht-cm
+ * IMAGE` - no network option, an image from a publisher nobody had approved - and ran it, and the container came
+ * up on Docker's default network with a route out. So the scripts a command runs (`./x.sh`, `bash x.sh`,
+ * `source x.sh`, after any `cd` in the same command) are read, to three scripts deep, and their text is held to
+ * the same rules. Only shell scripts: a Python program that starts a container is not seen here.
+ */
+const SCRIPT_RUNNERS = new Set(["bash", "sh", "zsh", "dash", "ksh", "source", "."]);
+const MAX_SCRIPT_BYTES = 200_000;
+const MAX_SCRIPT_DEPTH = 3;
+
+/** The shell scripts `command` runs, as [path, text], found from `cwd`. */
+export function scriptsRun(command: string, cwd: string): Array<[string, string]> {
+	const found: Array<[string, string]> = [];
+	let dir = cwd;
+	let commands: string[][];
+	try {
+		commands = commandsOf(command);
+	} catch {
+		return found;
+	}
+	for (const words of commands) {
+		const args = words.filter((word) => !ASSIGNMENT.test(word));
+		if (args.length === 0) continue;
+		if (args[0] === "cd" && args[1]) {
+			dir = isAbsolute(args[1]) ? args[1] : resolve(dir, args[1]);
+			continue;
+		}
+		let named: string | undefined;
+		if (SCRIPT_RUNNERS.has(basename(args[0]))) named = args.slice(1).find((word) => !word.startsWith("-"));
+		else if (args[0].includes("/") || /\.(?:sh|bash)$/.test(args[0])) named = args[0];
+		if (!named) continue;
+		const path = isAbsolute(named) ? named : resolve(dir, named);
+		try {
+			const text = readFileSync(path, "utf8");
+			if (text.length > MAX_SCRIPT_BYTES) continue;
+			if (!/\.(?:sh|bash)$/.test(path) && !/^#!.*\b(?:sh|bash|zsh|dash|ksh)\b/.test(text.split("\n", 1)[0]) && !SCRIPT_RUNNERS.has(basename(args[0]))) continue;
+			found.push([path, text]);
+		} catch {
+			// not a file that can be read: nothing of it runs as shell
+		}
+	}
+	return found;
+}
+
+export function scriptDenial(command: string, cwd: string, rules: [string, Rule][], depth = 0, seen = new Set<string>()): Denial | undefined {
+	if (depth >= MAX_SCRIPT_DEPTH) return undefined;
+	for (const [path, text] of scriptsRun(command, cwd)) {
+		if (seen.has(path)) continue;
+		seen.add(path);
+		let denial: Denial | undefined;
+		try {
+			denial = deniedSpelling(text, rules) ?? composeDenial(text, dirname(path)) ?? scriptDenial(text, dirname(path), rules, depth + 1, seen);
+		} catch {
+			denial = { pattern: "command-guard", reason: "The command guard could not read it. Write it more plainly.", spelling: basename(path) };
+		}
+		if (denial) return { ...denial, reason: `It is in the script ${basename(path)}, which this command runs. ${denial.reason ?? `The permission rule "${denial.pattern}" denies it.`}` };
+	}
+	return undefined;
+}
+
+/**
+ * A command put in the background inside `$(...)`. The substitution reads until every process holding its
+ * output has closed it, and the background one never does: `PORT=$(python3 server.py &)` waits for a server
+ * that is meant to keep running. Three treadmill sessions did exactly that (bash arm local-server.1 and
+ * pi.bash arm local-server.2 on 2026-11-16, local-server.2 on 2026-11-17) and each sat in that one call until
+ * the driver's limit, 600 to 900 s; a person would have had to press Esc. Refused before it runs, with the two
+ * spellings that work. Left alone: a background command whose output goes somewhere else (`> log`, `&>`,
+ * `>&2`), which holds nothing, and a body that ends its jobs with `wait`, which is asking for exactly this.
+ */
+export const HELD_SUBSTITUTION =
+	"`$(...)` does not return until every process holding its output has finished, and a command put in the " +
+	"background inside it keeps holding it: this call would hang until the session is stopped. Start the command " +
+	"outside the substitution with its output in a file - `python3 server.py > server.log 2>&1 & echo $!` - and " +
+	"read what you need (a port, a ready line) from that file; inside a substitution, give the background command " +
+	"its own output (`$(cmd > cmd.log 2>&1 & echo $!)`).";
+
+/** Whether this simple command's own output goes somewhere other than the pipe it was started on. */
+function stdoutElsewhere(command: string): boolean {
+	for (const m of command.matchAll(/(\d*)(&>>?|>>?)(\s*)(&?[^\s;|&<>()]*)/g)) {
+		const [, fd, op, , target] = m;
+		if (op.startsWith("&")) return true;
+		if ((fd || "1") !== "1") continue;
+		if (target === "&1" || target === "") continue;
+		return true;
+	}
+	return false;
+}
+
+/** The bodies of every `$(...)` and backquoted substitution in `source`, the nested ones too. */
+function substitutionBodies(source: string, out: string[] = [], depth = 0): string[] {
+	if (depth > MAX_DEPTH) return out;
+	let i = 0;
+	let double = false;
+	while (i < source.length) {
+		const c = source[i];
+		if (c === "\\") { i += 2; continue; }
+		if (!double && c === "'") { const end = source.indexOf("'", i + 1); i = end < 0 ? source.length : end + 1; continue; }
+		if (c === '"') { double = !double; i += 1; continue; }
+		if (c === "`") {
+			let j = i + 1;
+			while (j < source.length && source[j] !== "`") j += source[j] === "\\" ? 2 : 1;
+			const body = source.slice(i + 1, j);
+			out.push(body);
+			substitutionBodies(body, out, depth + 1);
+			i = j + 1;
+			continue;
+		}
+		if (c === "$" && source[i + 1] === "(" && source[i + 2] !== "(") {
+			let j = i + 2;
+			let open = 1;
+			let quote = "";
+			for (; j < source.length && open > 0; j++) {
+				const d = source[j];
+				if (d === "\\") { j += 1; continue; }
+				if (quote) { if (d === quote) quote = ""; continue; }
+				if (d === "'" || d === '"') quote = d;
+				else if (d === "(") open += 1;
+				else if (d === ")") open -= 1;
+			}
+			const body = source.slice(i + 2, open === 0 ? j - 1 : j);
+			out.push(body);
+			substitutionBodies(body, out, depth + 1);
+			i = j;
+			continue;
+		}
+		i += 1;
+	}
+	return out;
+}
+
+export function heldSubstitution(command: string): Denial | undefined {
+	for (const body of substitutionBodies(command)) {
+		if (/(?:^|[\s;&|({])wait(?:$|[\s;&|)}])/.test(body)) continue;
+		// Quoted text and nested substitutions are not this body's commands.
+		let plain = "";
+		for (let i = 0, quote = ""; i < body.length; i++) {
+			const c = body[i];
+			if (c === "\\") { plain += "  "; i += 1; continue; }
+			if (quote) { if (c === quote) quote = ""; plain += c === "\n" ? "\n" : "x"; continue; }
+			if (c === "'" || c === '"') { quote = c; plain += "x"; continue; }
+			if (c === "#" && (i === 0 || /\s/.test(body[i - 1]))) { while (i < body.length && body[i] !== "\n") i += 1; plain += "\n"; continue; }
+			plain += c;
+		}
+		plain = plain.replace(/\$\([^()]*\)|`[^`]*`/g, (text) => "x".repeat(text.length));
+		for (let i = 0; i < plain.length; i++) {
+			if (plain[i] !== "&") continue;
+			const before = plain[i - 1] ?? "";
+			const after = plain[i + 1] ?? "";
+			if (before === "&" || before === ">" || before === "<" || before === "|" || after === "&" || after === ">") continue;
+			let start = i - 1;
+			while (start >= 0 && !";\n({".includes(plain[start]) && !(plain[start] === "&" && plain[start - 1] !== ">") &&
+				!(plain[start] === "|" && plain[start - 1] === "|")) start -= 1;
+			const job = plain.slice(start + 1, i);
+			const last = job.slice(job.lastIndexOf("|") + 1);
+			if (!last.trim() || stdoutElsewhere(last)) continue;
+			return { pattern: "background job in $(...)", reason: HELD_SUBSTITUTION, spelling: body.slice(start + 1, i + 1).trim() };
+		}
+	}
+	return undefined;
 }
 
 /**
@@ -1232,6 +1543,9 @@ export default function (pi: ExtensionAPI) {
 				deniedSpelling(input.command, bashRules()) ??
 				remoteEngineInEnvironment(input.command) ??
 				openServer(input.command) ??
+				heldSubstitution(input.command) ??
+				composeDenial(input.command, ctx.cwd) ??
+				scriptDenial(input.command, ctx.cwd, bashRules()) ??
 				sharedScratchVenv(input.command, ctx.cwd) ??
 				installWrite(input.command, ctx.cwd, install);
 		} catch {

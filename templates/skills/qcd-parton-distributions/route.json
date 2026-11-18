@@ -1,0 +1,20 @@
+{
+  "patterns": [
+    "\\b(parton (distributions?|densit(y|ies)|luminosit(y|ies))|lhapdf|nnpdf\\w*|cteq\\w*|pdf4lhc\\w*|msht\\d\\w*|mmht\\d\\w*|herapdf\\w*|dglap|bjorken[- ]x|momentum fractions?|factori[sz]ation scale|collinear factori[sz]ation|(4|5|four|five)[- ]flavou?r scheme|apfel|hoppet|pineappl|applgrid|fastnlo)\\b",
+    "^(?=[\\s\\S]*\\bPDFs?\\b)(?=[\\s\\S]*\\b(parton\\w*|gluons?|quarks?|hessian|replicas?|alpha_?s|eigenvectors?|factori[sz]ation|error sets?)\\b)"
+  ],
+  "caseSensitive": [
+    "\\bCT1[048]\\w*",
+    "\\bPDF (uncertaint(y|ies)|eigenvectors?|replicas?|reweighting|variations?|error sets?)\\b"
+  ],
+  "examples": [
+    "compute the PDF uncertainty on the gg -> H cross section with the NNPDF replicas",
+    "plot the gluon parton distribution at Q = 100 GeV from LHAPDF with its error band",
+    "what is the gluon-gluon parton luminosity at 13 TeV for a 1 TeV resonance"
+  ],
+  "counterexamples": [
+    "the pdf errors out when I open it in the viewer",
+    "merge the two PDF files and compress the result",
+    "plot the probability density function of the residuals"
+  ]
+}

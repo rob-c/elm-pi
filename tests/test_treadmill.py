@@ -55,6 +55,31 @@ class DriverTests(unittest.TestCase):
                 self.assertEqual("launcher exited before completion", next(r["finish"] for r in rows if "finish" in r))
                 self.assertTrue(any("startup refused" in r.get("stderr", "") for r in rows))
 
+    def test_a_wait_between_retries_is_not_the_end_of_the_session(self):
+        # SLURM variation v5, 2026-11-17: six 429s, then a 32 s backoff - and the driver, seeing no agent run and 30 s of
+        # quiet, wrote "done" over a session that had built nothing. Here the wait is longer than the settle time.
+        script = """
+const send = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+process.stdin.on("data", (chunk) => {
+  if (!String(chunk).includes('"prompt"')) return;
+  send({ type: "agent_start" }); send({ type: "agent_end" });
+  send({ type: "auto_retry_start", attempt: 1, errorMessage: "429: rate_limit_exceeded" });
+  setTimeout(() => { send({ type: "auto_retry_end" }); send({ type: "agent_start" });
+                     send({ type: "tool_execution_start", toolName: "bash", args: {} }); send({ type: "agent_end" }); }, 2500);
+});
+setInterval(() => {}, 1000);
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            launcher = executable(project / "pi", "#!" + NODE + "\n" + script)
+            log = project / "rpc.jsonl"
+            run = subprocess.run([NODE, str(HARNESS / "drive.mjs"), str(launcher), tmp, str(log), "[]", '["Say OK"]', "30"],
+                                 capture_output=True, text=True, timeout=40, env={**os.environ, "TREADMILL_SETTLE_SECONDS": "1"})
+            rows = [json.loads(line) for line in log.read_text().splitlines()]
+        finish = next(i for i, r in enumerate(rows) if "finish" in r)
+        self.assertEqual("done", rows[finish]["finish"])
+        self.assertTrue(any(r.get("tool") == "bash" for r in rows[:finish]), "called done before the retry was made")
+
     def test_timeout_is_a_failure(self):
         run, rows = self.run_driver("setInterval(() => {}, 1000);", max_seconds=0.01)
         self.assertNotEqual(0, run.returncode)

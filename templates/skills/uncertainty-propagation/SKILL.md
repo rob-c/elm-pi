@@ -53,4 +53,6 @@ Take the three highest-order digits of the uncertainty:
 Then quote the value to the same decimal place as the uncertainty:
 1.2345 ± 0.0123 → 1.234 ± 0.012; 1.2345 ± 0.0456 → 1.23 ± 0.05. Never quote
 more digits than the uncertainty supports, and keep full precision in
-intermediate steps.
+intermediate steps. Rounding is for the sentence or table that quotes a
+result: a file a program will read (JSON, CSV) keeps at least four
+significant digits of both value and uncertainty.

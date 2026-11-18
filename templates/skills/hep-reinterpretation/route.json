@@ -1,0 +1,22 @@
+{
+  "patterns": [
+    "\\b(contur|rivet (analys[ie]s|routines?|plugins?)|hepdata (records?|likelihoods?|workspaces?)|pyhf (patchsets?|patch|workspaces?)|public likelihoods?|simplified likelihoods?|upper[- ]limit maps?|signal contamination|public analysis database)\\b",
+    "^(?=[\\s\\S]*\\b(reinterpret(ation|ations|ing|ed)?|recast(ing|ed|s)?|simplified[- ]models?|efficiency maps?)\\b)(?=[\\s\\S]*\\b(ATLAS|CMS|LHC|LHCb|collider|SUSY|BSM|HEPData|exclusion (limit|contour)s?|published (search|limit|analys[ie]s|result)\\w*|signal regions?|gluinos?|squarks?|dark[- ]matter)\\b)",
+    "\\b(r[- ]values?|efficiency maps?|published [\\w +-]{0,40}search(es)?|upper limit on (the )?(number of )?signal events)\\b",
+    "^(?=[\\s\\S]*\\bexcluded\\b)(?=[\\s\\S]*\\b(model|points?|gluinos?|squarks?|signal regions?|mass(es)?)\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(SModelS|CheckMATE|MadAnalysis ?5?|Contur|ColliderBit)\\b"
+  ],
+  "examples": [
+    "recast the ATLAS multijet plus missing energy search for my gluino model and get the exclusion",
+    "use SModelS to check this SLHA spectrum against LHC simplified-model limits",
+    "patch my signal yields into the pyhf workspace published on HEPData and compute CLs",
+    "I want to check three points of our gluino model against the published jets + missing-momentum search: its signal-region results, the efficiency map and our cross sections are in the CSV files here, and notes.md describes the search, the model and the points. For each point give the signal yield expected in each signal region, the r-value (signal over the 95% CL upper limit on signal events) and whether the point is excluded. Write result.json with p1_n_sr2j, p1_n_sr4j, p1_r and p1_excluded (true or false), and the same four for p2 and p3."
+  ],
+  "counterexamples": [
+    "reinterpret_cast the buffer to a uint8_t pointer",
+    "recast the column to an integer type",
+    "build a simplified model of the cache for the unit tests"
+  ]
+}

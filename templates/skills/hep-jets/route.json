@@ -1,0 +1,16 @@
+{
+  "patterns": [
+    "\\b(anti[- ]?k[tT]|fastjet|fjcontrib|jet (clustering|algorithms?|energy (scale|resolution)|substructure|calibrations?|radius|reconstruction|tagging|multiplicit(y|ies)|veto|pT|mass|definitions?|areas?)|b[- ]?tagg?(ing|ed|ger)?|b-jets?|soft[- ]?drop|n-?subjettiness|large-R jets?|(pile-?up|PUPPI|CHS) (subtraction|mitigation|jets?)|particle[- ]flow jets?|jet[- ]lepton overlap|truth[- ]jets?|dijets?|JES|JER|cambridge[/-]aachen|infrared (and collinear )?saf\\w*|IRC[- ]saf\\w*|(leading|subleading) jets?)\\b"
+  ],
+  "examples": [
+    "cluster the particles with anti-kT R=0.4 using fastjet and plot the leading jet pT",
+    "apply the b-tagging scale factors for the 77% working point",
+    "propagate the jet energy scale uncertainty to the dijet mass",
+    "compute the soft-drop mass and tau21 for the large-R jets"
+  ],
+  "counterexamples": [
+    "add a tagging system for blog posts",
+    "the inkjet printer driver crashes on duplex pages",
+    "the JetBrains plugin needs its font size recalibrated"
+  ]
+}

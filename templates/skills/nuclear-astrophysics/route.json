@@ -1,0 +1,24 @@
+{
+  "patterns": [
+    "\\b(astrophysical s[- ]factors?|s[- ]factors?|gamow (peak|window|energy|factor)|sommerfeld parameter|thermonuclear (reaction )?rates?|stellar (reaction )?rates?|(nuclear )?reaction rate librar(y|ies)|nuclear reaction networks?|nuclear (astrophysics|statistical equilibrium)|nucleosynthesis|resonance strengths?|maxwellian[- ]averaged cross[- ]sections?|reaclib|starlib|pynucastro|pp[- ]chains?|cno cycle|triple[- ]alpha|electron screening|waiting[- ]point nucle(us|i)|x-ray bursts?|(hydrogen|helium|carbon|oxygen|silicon) burning|(r|s|p|rp|i)-process(es)?)\\b",
+    "^(?=[\\s\\S]*\\breaction (rates?|networks?)\\b)(?=[\\s\\S]*\\b(stellar|stars?|T9|GK|nucle(us|i|ar)|isotopes?|capture|supernova\\w*|neutron stars?|nova\\w*|burning)\\b)",
+    "\\b((non[- ]?resonant|resonant) (rates?|contributions?|capture)|capture cross[- ]sections?|rate from the \\w+ ?(keV|MeV) resonance)\\b",
+    "N_A\\s*(<|⟨)\\s*σ\\s*v\\s*(>|⟩)"
+  ],
+  "caseSensitive": [
+    "\\b(REACLIB|STARLIB|NACRE( II)?|SkyNet|WinNet|MACS)\\b",
+    "\\bT9\\b"
+  ],
+  "examples": [
+    "compute the Gamow peak and the reaction rate for 12C(p,gamma)13N at T9 = 0.03 from the S-factor",
+    "build a CNO cycle network with pynucastro from REACLIB rates and integrate it",
+    "what is the narrow-resonance contribution to the rate given the resonance strengths in this table",
+    "which waiting points set the r-process abundance peaks",
+    "cross_sections.csv has our 14N(p,γ)15O capture cross sections against proton beam energy, and notes.md the resonance parameters, masses and constants. For T9 = 0.12 I need the Gamow peak energy and its 1/e width, the non-resonant rate from our data, and the rate from the 278 keV resonance, both rates as N_A<σv> in cm^3 mol^-1 s^-1. Write result.json with gamow_peak_kev, gamow_width_kev, rate_nonresonant_cm3_mol_s and rate_resonance_cm3_mol_s."
+  ],
+  "counterexamples": [
+    "the server's process pool is exhausted",
+    "post-process the s3 logs and plot the request rate",
+    "build a reaction network for the combustion chemistry mechanism"
+  ]
+}

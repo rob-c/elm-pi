@@ -120,6 +120,9 @@ Passed through to bootstrap.sh:
   --with-all          every optional part: the Python and the index (nothing
                       that opens the network - that is `pi --remote`, per run)
   --no-pypi-index     take the index back
+  --no-skill-library  leave out the K-Dense skill library (agent/skills/kdense,
+                      a 245MB download once)
+  --with-skill-library  take --no-skill-library back
   --force             re-download the tools and reinstall the npm packages
   --force-packages    reinstall the extension packages at the tested versions,
                       and pi too if it is not at its tested version
@@ -156,6 +159,7 @@ for arg in "$@"; do
     # Forwarded verbatim. A flag missing from this list used to be dropped in
     # silence, so `install.sh --no-tools` installed the tools anyway.
     --no-packages|--no-shim|--no-auth-lock|--no-tools|--no-patch|--force|--force-packages|--reset-options|\
+    --no-skill-library|--with-skill-library|\
     --with-python|--with-pypi-index|--with-all|--no-python|--no-pypi-index)
       PASS_ARGS+=("$arg") ;;
     *) echo "unknown option: $arg" >&2; echo "try: --help" >&2; exit 2 ;;

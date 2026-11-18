@@ -1,0 +1,22 @@
+{
+  "patterns": [
+    "\\b(renormali[sz]ation[- ]group|anomalous dimensions?|asymptotic freedom|landau poles?|(MS-?bar|pole) mass(es)?|running (couplings?|mass(es)?|of (alpha_?s|αs|the (strong )?coupling))|rundec|crundec|pyr@te|threshold matching)\\b",
+    "^(?=[\\s\\S]*\\bbeta[- ]functions?\\b)(?=[\\s\\S]*\\b(QCD|QED|gauge|couplings?|loop|alpha_?s|renormali[sz]\\w*|yukawa|quartic)\\b)",
+    "^(?=[\\s\\S]*\\b(scale (variations?|uncertaint\\w*)|renormali[sz]ation scale)\\b)(?=[\\s\\S]*\\b(QCD|NLO|NNLO|cross[- ]sections?|factori[sz]ation|alpha_?s|couplings?)\\b)",
+    "\\b(run|runs|running|evolv\\w*)\\b[^.\\n]{0,60}\\b(alpha_?s|αs|strong coupling|(top|bottom|charm|b-quark|quark) mass(es)?)\\b"
+  ],
+  "caseSensitive": [
+    "\\b(RGEs?|REvolver)\\b",
+    "\\bRG (equations?|running|evolution|flow)\\b"
+  ],
+  "examples": [
+    "run alpha_s from the Z mass down to the b-quark mass with three-loop running and threshold matching",
+    "work out the one-loop beta function of the gauge coupling in this model",
+    "convert the top pole mass to the MS-bar mass"
+  ],
+  "counterexamples": [
+    "the beta function in scipy.special gives nan for large arguments",
+    "the running process count keeps growing",
+    "the scale variation in the autoscaler is too aggressive"
+  ]
+}

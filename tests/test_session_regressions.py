@@ -905,7 +905,7 @@ class Auto22(unittest.TestCase):
         bootstrap = (ROOT / "bootstrap.bash").read_text()
         self.assertIn("WITH_PYTHON=1;", bootstrap)
         self.assertIn("--no-python) WITH_PYTHON=0; WITH_PYPI_INDEX=0 ;;", bootstrap)
-        self.assertIn("./bootstrap.sh --no-python < /dev/null", (ROOT / "scripts/dev-setup.sh").read_text())
+        self.assertIn('./bootstrap.sh --no-python "${library[@]}" < /dev/null', (ROOT / "scripts/dev-setup.sh").read_text())
         packages = json.loads((ROOT / "config/elm-pi.json").read_text())["python"]["packages"]
         for needed in ("numpy", "scipy", "matplotlib", "nbconvert", "ipykernel", "pytest"):   # pytest: auto23
             self.assertIn(needed, packages)
@@ -923,6 +923,31 @@ class Auto24(unittest.TestCase):
         self.assertIn("m = Minuit(cash, N0=n[0]", skill)
         self.assertIn("assert m.valid, m.fmin", skill)
         self.assertIn("iminuit", json.loads((ROOT / "config/elm-pi.json").read_text())["python"]["packages"])
+
+
+class Peak1117(unittest.TestCase):
+    """peak.1 and peak.2 (treadmill, 2026-11-17): position and width right, and the fitted height, 239, given as the
+    number of events in a peak of about 1,500. The fitting skill had not been routed: the request never says "fit"."""
+
+    def test_the_fitting_skill_says_a_height_is_not_a_yield(self):
+        skill = " ".join((ROOT / "templates/skills/data-fitting/SKILL.md").read_text().split())
+        self.assertIn("## A peak's height is not its yield", skill)
+        self.assertIn("N = A σ √(2π) / w", skill)
+        self.assertIn("it cannot exceed the events in the peak's own bins", skill)
+        # The numbers the note quotes are the ones measured: 239 x 2.55 x sqrt(2 pi) / 1 GeV is about 1,500.
+        self.assertAlmostEqual(1525, 238.949 * 2.5465 * (2 * 3.141592653589793) ** 0.5, delta=3)
+
+
+class Conventions1117(unittest.TestCase):
+    """conventions.1-3, thinking off and high (long-session scenarios, 2026-11-17): one report gave a batch's spread
+    as 4.13, another as 17.1 - its standard deviation and its variance - and all six sessions called the second wrong."""
+
+    def test_the_statistics_skill_says_to_check_they_are_one_quantity(self):
+        skill = " ".join((ROOT / "templates/skills/statistics-and-significance/SKILL.md").read_text().split())
+        self.assertIn("**Before calling two numbers contradictory, check they are the same quantity.**", skill)
+        self.assertIn("standard deviation and variance (σ, σ²)", skill)
+        self.assertIn("If one does, neither is wrong: say which convention each uses.", skill)
+        self.assertAlmostEqual(17.1, 4.13 ** 2, delta=0.05)          # the numbers the note quotes
 
 
 class Batch1(unittest.TestCase):

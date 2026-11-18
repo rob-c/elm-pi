@@ -1,0 +1,22 @@
+{
+  "patterns": [
+    "\\b(dead[- ]time (correction|model|loss(es)?)s?|(non-?)?paraly[sz]able|pulse pile-?up|pile-?up rejection|pulse[- ]shape discrimination|constant[- ]fraction discriminat\\w+|(accidental|random|chance) coincidences?|coincidence (window|resolving time|timing|rate)s?|list[- ]mode (data|files?|events?)|fano factor|scintillat(or|ion) (detectors?|light|crystals?|pulses?|counters?)|scintillators?|photomultiplier( tube)?s?|silicon photomultipliers?|(silicon|germanium|semiconductor|gas(eous)?|proportional|geiger(-m[uü]ller)?) (detectors?|counters?)|digiti[sz]er (waveforms?|traces?|sampling|boards?|data)|shaping (time|amplifier)s?|time[- ]of[- ]flight (detectors?|resolution)|neutron[- /]gamma discrimination|n/gamma discrimination)\\b",
+    "^(?=[\\s\\S]*\\b(energy|time|timing) resolution\\b)(?=[\\s\\S]*\\b(detectors?|scintillat\\w+|keV|MeV|FWHM|photoelectrons?)\\b)",
+    "^(?=[\\s\\S]*\\b(count(ing)? rates?|counts per second)\\b)(?=[\\s\\S]*\\bdead[- ]time\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(SiPMs?|PMTs?|DAQ|TDC|QDC)\\b"
+  ],
+  "examples": [
+    "correct the measured count rates for dead time assuming a non-paralysable detector with 2 microseconds",
+    "compute the pulse-shape discrimination figure of merit for neutrons and gammas from these digitiser waveforms",
+    "how many accidental coincidences do I expect with singles rates of 5 kHz and 20 kHz and a 50 ns window",
+    "build events from this list-mode data and plot the time-difference spectrum"
+  ],
+  "counterexamples": [
+    "the CFD solver diverges after the mesh refinement",
+    "add a dead time of 5 seconds between retries",
+    "compute the PSD of the vibration signal with Welch's method",
+    "improve the time resolution of the profiler output"
+  ]
+}

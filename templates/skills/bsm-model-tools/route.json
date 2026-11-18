@@ -1,0 +1,23 @@
+{
+  "patterns": [
+    "\\b(feynrules|spheno|softsusy|flexiblesusy|micromegas|higgsbounds|higgssignals|higgstools|smodels|vevacious|calchep|spectrum generators?|two[- ]higgs[- ]doublet|supersymmetr\\w*|susy (models?|spectr(um|a)|particles?|scans?|breaking)|leptoquarks?|dark photons?|z[- ]?prime|vector[- ]like (quarks?|leptons?|fermions?)|(BSM|beyond[- ]the[- ]standard[- ]model|new[- ]physics) models?|anomaly cancellation|vacuum stability|perturbative unitarity)\\b",
+    "^(?=[\\s\\S]*\\b(parameter (scans?|space)|benchmark points?|simplified models?|new (particles?|scalars?|fermions?|gauge bosons?)|mass spectrum|mixing matri(x|ces)|relic density)\\b)(?=[\\s\\S]*\\b(BSM|beyond the standard model|susy|higgs|dark matter|lagrangian|madgraph|LHC|collider)\\b)",
+    "\\b(anomaly[- ]free|anomaly (coefficients?|conditions?)|gauge anomal(y|ies)|charge assignments?)\\b",
+    "\\bU\\(1\\)[_'′]?\\w{0,5} (models?|extensions?|charges?|symmetr(y|ies)|gauge)\\b"
+  ],
+  "caseSensitive": [
+    "\\b(SARAH|CheckMATE|SLHA\\d?|MSSM|NMSSM|2HDM)\\b",
+    "\\bUFO (models?|files?|output|format)\\b"
+  ],
+  "examples": [
+    "implement this scalar singlet model in FeynRules and export a UFO model for MadGraph",
+    "compute the relic density of the dark matter candidate with micrOMEGAs from the SLHA file",
+    "scan the 2HDM parameter space and keep the points HiggsBounds allows",
+    "model.md has the fermion content of our U(1)_X model with two candidate charge assignments. For assignment A, work out the six anomaly coefficients defined there and say whether it is anomaly-free; for assignment B, find the value of the open charge z that cancels all six, and the U(1)_X charge the Higgs doublet then needs for the Yukawa terms in the note. Put it all in result.json: a_ccx, a_wwx, a_yyx, a_yxx, a_xxx, a_ggx (numbers, assignment A), anomaly_free_a (true or false), z_b and x_higgs_b."
+  ],
+  "counterexamples": [
+    "ask Sarah to review the pull request",
+    "run a parameter scan over the learning rate and batch size",
+    "the chess engine misses checkmate in two"
+  ]
+}

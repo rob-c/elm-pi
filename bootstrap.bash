@@ -26,6 +26,7 @@ CONFIG_TOOL="$HERE/scripts/elm_config.py"
 
 WITH_SHIM=1; WITH_PACKAGES=1; INTERACTIVE=1; UPDATE=0; AUTH_LOCK=1; FORCE=0
 WITH_TOOLS=1; WITH_PATCH=1; WITH_PYTHON=1; WITH_PYPI_INDEX=0; FORCE_PACKAGES=0; RESET_OPTIONS=0
+WITH_SKILL_LIBRARY=1
 # The --no-* and --with-* flags this run was given, for agent/install-options
 # (see below), and the --with-* ones it takes back.
 GIVEN_FLAGS=""; DROPPED_FLAGS=""
@@ -79,6 +80,9 @@ elm-pi installer. Installs into this directory; nothing goes system-wide.
                       (recorded as those two; nothing here opens the network -
                       that is `pi --remote`, per run); `pi setup --all`
   --no-pypi-index     take --with-pypi-index back, removing the index
+  --no-skill-library  no K-Dense scientific-agent-skills in agent/skills/kdense
+                      (a 245MB download once; the skills kept are 24MB);
+                      --with-skill-library takes it back
   --no-shim           skip the Llama tool-call shim
   --no-patch          leave pi as shipped: /share, /bug and its subcommands stay,
                       and the permission gate runs in auto mode only
@@ -109,7 +113,7 @@ for arg in "$@"; do
 done
 for arg in "$@"; do
   case "$arg" in
-    --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--with-python|--with-pypi-index|--no-python)
+    --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--no-skill-library|--with-python|--with-pypi-index|--no-python)
       case " $GIVEN_FLAGS " in *" $arg "*) ;; *) GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$arg" ;; esac
       # Each one replaces its opposite in the record. The agent's Python is built by
       # default since 2026-11-14, so --no-python is recorded like the other --no-*
@@ -125,6 +129,7 @@ for arg in "$@"; do
       done
       DROPPED_FLAGS="$DROPPED_FLAGS --no-python" ;;
     --no-pypi-index) DROPPED_FLAGS="$DROPPED_FLAGS --with-pypi-index" ;;
+    --with-skill-library) DROPPED_FLAGS="$DROPPED_FLAGS --no-skill-library" ;;
     --non-interactive) INTERACTIVE=0 ;;
     --update) UPDATE=1 ;;
     --force) FORCE=1 ;;
@@ -143,6 +148,7 @@ apply_flag() {
     --with-python) WITH_PYTHON=1 ;;
     --with-pypi-index) WITH_PYPI_INDEX=1; WITH_PYTHON=1 ;;
     --no-python) WITH_PYTHON=0; WITH_PYPI_INDEX=0 ;;
+    --no-skill-library) WITH_SKILL_LIBRARY=0 ;;
   esac
 }
 
@@ -225,7 +231,7 @@ if [ "$RESET_OPTIONS" = "1" ]; then
 fi
 REPEATED=""
 for flag in $SAVED_FLAGS; do
-  case "$flag" in --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--with-python|--with-pypi-index|--no-python) ;; *) continue ;; esac
+  case "$flag" in --no-shim|--no-packages|--no-auth-lock|--no-tools|--no-patch|--no-skill-library|--with-python|--with-pypi-index|--no-python) ;; *) continue ;; esac
   case " $GIVEN_FLAGS " in *" $flag "*) continue ;; esac
   case " ${DROPPED_FLAGS:-} " in *" $flag "*) continue ;; esac
   GIVEN_FLAGS="${GIVEN_FLAGS:+$GIVEN_FLAGS }$flag"; REPEATED="$REPEATED $flag"
@@ -927,6 +933,25 @@ else
   echo "    skipped (--no-tools): the system's own fd/rg/jq/... are used instead"
 fi
 
+# --- 3b1. the community skill library ------------------------------------------
+# K-Dense's scientific-agent-skills, into agent/skills/kdense: 167 skills for
+# scientific libraries, databases and research methods, which the fifty physics
+# skills in templates/skills refer to (user request, 2026-11-17). All of it is
+# scripts/skill_library.py - the pinned commit and checksum, what is unpacked,
+# which skills are left out, hiding them from the system prompt - so that this
+# and python/elmboot/skilllibrary.py print one text. It never fails the run: a
+# download that does not arrive is a warning, and the next run tries again.
+say "skill library"
+if [ "$WITH_SKILL_LIBRARY" = "1" ]; then
+  SKILL_SYNC=(sync --cache "${ELM_PI_TOOL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/elm-pi/tools}")
+  [ "$FORCE" != "1" ] || SKILL_SYNC+=(--force)
+  elm_py "$HERE/scripts/skill_library.py" --root "$HERE" "${SKILL_SYNC[@]}" -- curl -q -fsSL "${ELM_CURL_RETRY[@]}" \
+    || warn "the skill library step failed - agent/skills/kdense is as it was"
+else
+  elm_py "$HERE/scripts/skill_library.py" --root "$HERE" remove || true
+  echo "    skipped (--no-skill-library): agent/skills/kdense is not installed"
+fi
+
 # --- 3c. the agent's Python ---------------------------------------------------
 # A researcher's machine may have no Python with numpy in it, or one that
 # belongs to a conda env the agent should not install into - and nothing could
@@ -1205,7 +1230,9 @@ if os.path.exists(models_path):
     #                                  off - presence_penalty=1.5 included, against
     #                                  repetition loops. Verified accepted by the gateway.
     #   samplingParamsByThinkingLevel  the card's thinking-mode profile (0.6/0.95,
-    #                                  presence_penalty 0) for when /thinking turns it on
+    #                                  presence_penalty 0) for when /thinking turns it on.
+    #                                  repetition_penalty 1.0 is sent in both, as the
+    #                                  card gives it, not left to the server's default
     #   compat                         how the gateway takes the thinking switch. pi
     #                                  1.4.0 stopped accepting "reasoning_effort" as a
     #                                  thinkingFormat and dropped the whole elm

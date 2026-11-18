@@ -1,0 +1,21 @@
+{
+  "patterns": [
+    "\\b(CP asymmetr\\w+|CKM|unitarity triangle|flavou?r tagging|mistag\\w*|tagging power|neutral[- ]meson mixing|(B|D|K|kaon|charm|beauty)[- ]?(meson )?(mixing|oscillations?)|time[- ]dependent (CP|asymmetr\\w+)|dalitz|amplitude analys[ie]s|isobar model|K-matrix|angular analys[ie]s|helicity angles?|penguin (decays?|diagrams?|pollution)|sin ?2 ?(β|beta)|decay[- ]time (resolution|acceptance)|normali[sz]ation channels?)\\b",
+    "^(?=[\\s\\S]*\\bCP[- ]violat\\w+)(?=[\\s\\S]*\\b(measur\\w+|asymmetr\\w+|extract\\w*|time[- ]dependent|tagg(ed|ing)|B0|Bs|D0)\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(HFLAV|CKMfitter|UTfit)\\b"
+  ],
+  "examples": [
+    "fit the time-dependent CP asymmetry in B0 to J/psi K0S and extract sin 2beta including the mistag dilution",
+    "do a Dalitz plot analysis of D+ to K- pi+ pi+ with an isobar model",
+    "what is the effective tagging power with 35% efficiency and 30% mistag",
+    "measure CP violation in the Bs to J/psi phi sample"
+  ],
+  "counterexamples": [
+    "cp the build artefacts to the release folder",
+    "tag the release with the flavour of the build",
+    "mix the two audio channels and normalise the result",
+    "build a beamer presentation on kaon decay and where CP violation fits in with this"
+  ]
+}

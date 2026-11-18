@@ -1,0 +1,19 @@
+{
+  "patterns": [
+    "\\b(nuisance parameters?|systematic variations?|(up|down)[- /](and[- ])?(up|down) (variations?|templates?)|barlow[- ]beeston|two[- ]point systematics?|jet energy (scale|resolution) uncertaint\\w*|(JES|JER) (uncertaint\\w*|variations?|systematics?)|(7|seven)[- ]point (scale )?(variations?|envelope)|(renormali[sz]ation|factori[sz]ation) scale (variations?|uncertaint\\w*)|pile-?up reweighting|(theory|modell?ing|detector|experimental|luminosity|shape|normali[sz]ation) systematics?|systematics? (table|breakdown|budget)|uncertainty breakdown|prun(e|ing) (the )?systematics?|smooth(ing)? (the )?systematic\\w*|symmetri[sz]\\w* (the )?(systematic\\w*|variations?))\\b",
+    "^(?=[\\s\\S]*\\bsystematic\\w*)(?=[\\s\\S]*\\b(yields?|signal regions?|control regions?|transfer factors?|variations?|templates?|W\\+jets|ttbar)\\b)",
+    "\\b(total|relative|combined) (relative )?systematic (uncertaint\\w+|errors?)\\b"
+  ],
+  "examples": [
+    "build the up and down templates for the jet energy scale uncertainty and add them to the fit",
+    "make the systematics breakdown table for the cross-section measurement",
+    "should the two-point systematic on the parton shower be symmetrised",
+    "the JER variation is one-sided, how do I treat it",
+    "yields.csv has the simulated W+jets yields in our signal and control regions, nominal and for each of the systematic variations; notes.md says how the variations were made and what our conventions are. I need the transfer factor SR/CR with its total relative systematic uncertainty, and the total relative systematic uncertainty of the SR yield on its own. Write result.json with transfer_factor, tf_syst_percent and sr_syst_percent, the last two in per cent."
+  ],
+  "counterexamples": [
+    "be systematic about renaming the variables in the module",
+    "prune the unused parameters from the config file",
+    "handle scale variations in the image thumbnails"
+  ]
+}

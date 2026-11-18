@@ -35,6 +35,9 @@ const send = (o) => { if (!finished) child.stdin.write(JSON.stringify(o) + "\n")
 const started = performance.now();
 let buf = "";
 let running = false;
+// Between a failed request and pi's next attempt at it there is no agent run and no event: the wait is pi's backoff.
+// SLURM variation v5 (2026-11-17) was called done 30 s into a 32 s wait after its sixth 429, with nothing built.
+let retrying = false;
 let lastActivity = performance.now();
 let next = 0;
 let dialogs = 0;
@@ -148,7 +151,7 @@ child.stdout.on("data", (d) => {
 			} else if (ev.method === "notify") log({ notify: String(ev.message ?? "").slice(0, 300) });
 			continue;
 		}
-		if (ev.type === "agent_start") { running = true; log({ agent_start: true }); }
+		if (ev.type === "agent_start") { running = true; retrying = false; log({ agent_start: true }); }
 		else if (ev.type === "agent_end") { running = false; log({ agent_end: true }); }
 		else if (ev.type === "tool_execution_start") log({ tool: ev.toolName, args: JSON.stringify(ev.args ?? {}).slice(0, 240) });
 		else if (ev.type === "tool_execution_end") log({ toolEnd: ev.toolName, isError: ev.isError, result: JSON.stringify(ev.result?.content ?? ev.result ?? {}).slice(0, 300) });
@@ -162,7 +165,10 @@ child.stdout.on("data", (d) => {
 				running = true;
 			}
 		}
-		else if (ev.type === "auto_retry_start" || ev.type === "auto_retry_end") log({ retry: ev.type, attempt: ev.attempt, error: String(ev.errorMessage ?? "").slice(0, 200) });
+		else if (ev.type === "auto_retry_start" || ev.type === "auto_retry_end") {
+			retrying = ev.type === "auto_retry_start";
+			log({ retry: ev.type, attempt: ev.attempt, error: String(ev.errorMessage ?? "").slice(0, 200) });
+		}
 	}
 });
 
@@ -180,7 +186,7 @@ setTimeout(() => sendNext(), tickMs);
 setInterval(() => {
 	const now = performance.now();
 	if (now - started > maxMs) return finish("time limit");
-	if (running) return;
+	if (running || retrying) return;
 	const quiet = now - lastActivity;
 	const waiting = pending();
 	// A slash command answers without an agent turn: move on once it has gone quiet.

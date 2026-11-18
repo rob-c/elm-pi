@@ -68,7 +68,7 @@ class ProjectConsistencyTests(unittest.TestCase):
         models = json.loads((ROOT / "templates/models.json").read_text())
         qwen = models["providers"]["elm"]["models"][0]["samplingParams"]
         self.assertEqual({"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0,
-                          "presence_penalty": 1.5}, qwen)
+                          "presence_penalty": 1.5, "repetition_penalty": 1.0}, qwen)
 
     def test_protected_paths_guards_every_writing_tool(self):
         source = (ROOT / "templates/extensions/protected-paths.ts").read_text()
@@ -220,7 +220,10 @@ class ProjectConsistencyTests(unittest.TestCase):
         routed = set(re.findall(r'\["([a-z-]+)", /', source))
         routed |= set(re.findall(r'return "(elm-[a-z-]+)"', source))
         skills = {p.parent.name for p in (ROOT / "templates/skills").glob("*/SKILL.md")}
-        self.assertEqual(17, len(skills))   # developing-elm-pi since 2026-11-13, changing-code since 2026-11-14
+        # The fifty particle and nuclear physics skills (2026-11-17) are routed by the route.json beside each,
+        # not by the table: tests/test_domain_skills.py. The table's are the rest.
+        skills -= {p.parent.name for p in (ROOT / "templates/skills").glob("*/route.json")}
+        self.assertEqual(18, len(skills))   # developing-elm-pi since 2026-11-13, changing-code since 2026-11-14, package-admin since 2026-11-17
         self.assertEqual(set(), routed - skills)          # never routes to a missing skill
         self.assertEqual(skills, routed)                  # and every skill is reachable
 
@@ -235,7 +238,8 @@ class PiReleaseTests(unittest.TestCase):
     def test_qwen_thinking_sampling_is_the_cards_thinking_profile(self):
         qwen = json.loads((ROOT / "templates/models.json").read_text())["providers"]["elm"]["models"][0]
         self.assertEqual({"high": {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0,
-                                   "presence_penalty": 0.0}}, qwen["samplingParamsByThinkingLevel"])
+                                   "presence_penalty": 0.0, "repetition_penalty": 1.0}},
+                         qwen["samplingParamsByThinkingLevel"])
         # high is the only level the Qwen thinkingLevelMap turns on
         self.assertEqual(["high"], [k for k, v in qwen["thinkingLevelMap"].items() if v not in (None, "none")])
 

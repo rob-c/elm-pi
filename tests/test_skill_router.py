@@ -79,11 +79,26 @@ class RoutingTableTests(unittest.TestCase):
         "add a slide-in animation to the panel",
         "explain where the plugin fits in with the module system",
         "the cache fits into memory",
+        "the sidebar width jumps at peak load",
+        "set the retry count up to five in the scheduler class",
+        "bring the README up to date with the new server flags",
+        "the two test files disagree about the return type, which one is wrong",
+        "main and the release branch give different values for the version string",
+        "cut the peak memory use of the background worker",
     ]
 
     PHYSICS = {
         "fit this decay curve and give the half-life": "data-fitting",
         "fit a gaussian to the peak": "data-fitting",
+        # peak.1, peak.2 (2026-11-17): no "fit" in the request, and the fitting skill was not routed.
+        ("masses.csv has one reconstructed mass per event, in GeV, between 60 and 120: a peak on a smoothly falling "
+         "background. Measure the peak's position and width (the Gaussian sigma) with uncertainties, and how many "
+         "events are in the peak."): "data-fitting",
+        "what is the FWHM of the peak in this spectrum": "data-fitting",
+        # conventions.1-3 (2026-11-17): nothing was routed, and the variance was called wrong beside the standard deviation.
+        ("report_a.md and report_b.md both describe that batch but give different numbers for its spread. Which report "
+         "is wrong?"): "statistics-and-significance",
+        "these two measurements of the decay rate disagree - which is right": "statistics-and-significance",
         "propagate the uncertainties": "uncertainty-propagation",
         "what's the 5 sigma p-value": "statistics-and-significance",
         "what is the trigger efficiency": "statistics-and-significance",

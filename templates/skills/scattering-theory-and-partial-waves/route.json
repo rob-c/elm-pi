@@ -1,0 +1,17 @@
+{
+  "patterns": [
+    "\\b(partial[- ]waves?( expansions?| analys[ie]s| amplitudes?| sum)?|scattering (lengths?|amplitudes?|phases?|matrix|theory|states?|cross[- ]sections?|wave ?functions?|potentials?)|effective[- ]range (expansion|parameters?|theory)|optical theorem|breit[- ]wigner|born approximation|lippmann[- ]schwinger|r-matrix|k-matrix|s-matrix|t-matrix|numerov|levinson'?s? theorem|argand (diagrams?|plots?)|coulomb (wave ?functions?|phases?|phase shifts?)|low[- ]energy scattering|(potential|nucleon[- ]nucleon|neutron[- ]proton|proton[- ]proton|resonant|s-wave|p-wave) scattering|(square[- ]well|hard[- ]sphere|woods[- ]saxon) (scattering|potential)|unitarity (bound|limit)|radial schr[oö]dinger equation)\\b",
+    "^(?=[\\s\\S]*\\bphase[- ]shifts?\\b)(?=[\\s\\S]*\\b(scatter\\w*|partial[- ]waves?|potentials?|nucleons?|resonan\\w+|[spd]-wave|MeV|cross[- ]sections?|phase[- ]shift analys[ie]s)\\b)",
+    "^(?=[\\s\\S]*\\b(elastic|inelastic) scattering\\b)(?=[\\s\\S]*\\b(phase|partial|amplitudes?|angular distributions?|optical|potentials?|resonan\\w+)\\b)"
+  ],
+  "examples": [
+    "solve the radial Schrodinger equation for a Woods-Saxon potential and extract the s-wave phase shift at 5 MeV",
+    "fit the neutron-proton scattering length and effective range from these low-energy cross sections",
+    "do a partial-wave analysis of the elastic scattering data and check the optical theorem"
+  ],
+  "counterexamples": [
+    "the filter introduces a phase shift of 90 degrees at the cutoff",
+    "scatter the points with matplotlib and add a partial legend",
+    "the rotation matrix R is not unitary within tolerance"
+  ]
+}

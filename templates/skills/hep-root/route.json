@@ -1,0 +1,21 @@
+{
+  "patterns": [
+    "\\b(pyroot|rdataframe|root-config|rootls|hadd|SetBranchAddress|Sumw2|SetDirectory)\\b",
+    "^(?=[\\s\\S]*\\w\\.root\\b)(?=[\\s\\S]*\\b(ntuples?|branch(es)?|histograms?|events|entries|macros?)\\b)"
+  ],
+  "caseSensitive": [
+    "\\b(ROOT (macros?|files?|trees?|histograms?|ntuples?|version|6|prompt|session|script)|TTree|TChain|TFile|TH[123][DFI]?|TGraph\\w*|TCanvas|TBranch|TBrowser|ACLiC|CINT|RVec|gROOT|gDirectory)\\b",
+    "\\b(in|with|using|from) ROOT\\b"
+  ],
+  "examples": [
+    "write a ROOT macro that loops over the TTree and fills a histogram of the dimuon mass",
+    "my histogram is empty after I close the TFile in PyROOT",
+    "convert this event loop to RDataFrame and turn on implicit multithreading",
+    "this CINT macro from 2009 no longer runs, port it"
+  ],
+  "counterexamples": [
+    "find the root cause of the crash in the tree walker",
+    "tree.root is null after the rebalance",
+    "run the macro that formats the spreadsheet as root"
+  ]
+}

@@ -26,6 +26,7 @@ The modules, in the order a run reaches them:
 * pirelease   - pi and the extension packages: staged, patched, swapped in
 * agentconfig - agent/ rendered from templates/: code refreshed, config kept
 * tools       - the command-line tools in agent/bin
+* skilllibrary - the community skill library in agent/skills/kdense
 * agentpython - the agent's own Python, and the offline PyPI index
 * settings    - the keys this repo decides, reapplied over yours
 * checks      - the warm-up, what must be present, and the lockdown

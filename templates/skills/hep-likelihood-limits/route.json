@@ -1,0 +1,20 @@
+{
+  "patterns": [
+    "\\b(pyhf|histfactory|cabinetry|higgs ?combine|combine datacards?|datacards?|nuisance parameters?|profile[- ]likelihood( ratio)?|asimov (data(set)?|significance)|brazil(ian)? (band|plot)s?|(expected|observed) (and (expected|observed) )?(upper )?limits?|pulls and impacts|impact plots?|signal[- ]plus[- ]background fit)\\b",
+    "^(?=[\\s\\S]*\\bsignal strengths?\\b)(?=[\\s\\S]*\\b(fit|limits?|higgs|likelihood|nuisance|cross[- ]sections?|workspace)\\b)"
+  ],
+  "caseSensitive": [
+    "\\bCLs(\\+b)?\\b"
+  ],
+  "examples": [
+    "set a 95% CLs upper limit on the signal strength with pyhf from these histograms",
+    "make the pulls and impacts plot for the nuisance parameters",
+    "compute the expected limit with the Asimov dataset and the one and two sigma bands",
+    "write the Combine datacard for the three signal regions"
+  ],
+  "counterexamples": [
+    "show the wifi signal strength in the status bar",
+    "read Asimov's three laws from the text file and count the words",
+    "raise the rate limits observed by the API gateway"
+  ]
+}

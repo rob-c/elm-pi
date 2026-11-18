@@ -1,0 +1,20 @@
+{
+  "patterns": [
+    "\\b(grid engine|son of grid engine|open grid scheduler|univa|qconf|qacct|qhost|qlogin|qrsh|qalter|parallel environments?|h_vmem|h_rt|m_mem_free|Eqw)\\b",
+    "^(?=[\\s\\S]*\\b(qsub|qstat|qdel)\\b)(?=[\\s\\S]*(-pe\\b|-cwd\\b|-l h_|-tc\\b|#\\$))"
+  ],
+  "caseSensitive": [
+    "\\b(SGE|UGE|AGE|SoGE)\\b",
+    "#\\$ -"
+  ],
+  "examples": [
+    "write an SGE array job for the 200 inputs: 4 slots and 8 GB in total per task, two hours, 20 at a time",
+    "my job is stuck in Eqw on the Grid Engine cluster",
+    "convert this sbatch script to our Univa Grid Engine queue"
+  ],
+  "counterexamples": [
+    "the search engine grid layout is broken",
+    "age the cache entries after an hour",
+    "parallelise the environment setup in CI"
+  ]
+}

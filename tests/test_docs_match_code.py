@@ -468,9 +468,16 @@ DOC_ENV = sorted({n for text in [*DOCS.values(), *PROMPTS.values()] for n in ENV
 # What a documented name is, when it is not a knob this install reads.
 NOT_ENV = {"KEY_ISSUED", "TOOL_CALLS", "MODEL_SPAWN_REJECTED", "APPEND_SYSTEM", "AGENT_DIR", "INSTALL_DIR", "QWEN_MODEL", "LLAMA_MODEL", "MISTRAL_MODEL",
            "N_A", "ID_LIKE",
+           "DEBIAN_FRONTEND",   # apt's own variable, in the package-admin skill: an install that asks a question hangs a build
            "EAI_AGAIN",   # an error code (a DNS lookup that failed for now), named in INSTALL.md's retry list
            "VERIFICATION_REPORT",   # VERIFICATION_REPORT.md, the report file test11's workflow wrote unasked
-           "TCP_USER_TIMEOUT", "TCP_RXT_CONNDROPTIME"}   # socket options the egress proxy sets
+           "TCP_USER_TIMEOUT", "TCP_RXT_CONNDROPTIME",   # socket options the egress proxy sets
+           # Geant4 physics lists, named by the detector-simulation and radiation-transport skills
+           "FTFP_BERT", "QGSP_BERT_HP", "QGSP_BIC_HP",
+           # Variables a batch scheduler sets inside a job, and two of its settings, named by the batch-* skills
+           "SLURM_ARRAY_TASK_ID", "SLURM_CPUS_PER_TASK", "OMP_NUM_THREADS", "JOB_ID", "SGE_TASK_ID", "PE_HOSTFILE",
+           "PBS_JOBID", "PBS_ARRAY_INDEX", "PBS_ARRAYID", "PBS_O_WORKDIR", "PBS_NODEFILE", "LSB_JOBID", "LSB_JOBINDEX",
+           "LSB_DJOB_NUMPROC", "LSB_HOSTS", "LSF_UNIT_FOR_LIMITS", "ON_EXIT"}
 # The launcher sets these for pi, its packages or the agent; the docs say so.
 EXPORTED = {"PI_OFFLINE", "PI_SUBAGENT_PI_BINARY", "PI_ELM_CHILD", "PI_RADIUS_GATEWAY", "ELM_PI_AGENT_PYTHON",
             "PIXI_HOME", "PI_CODING_AGENT_DIR", "HTTPS_PROXY"}
@@ -1205,9 +1212,16 @@ class SkillDocTests(unittest.TestCase):
     pass
 
 
+# The fifty domain skills (a route.json beside the SKILL.md, 2026-11-17) are not named in AGENTS.md, which has
+# no room for fifty names: it names the index, and the index names them (tests/test_domain_skills.py).
+DOMAIN_SKILLS = sorted(p.parent.name for p in TEMPLATES.glob("skills/*/route.json"))
 generate(SkillDocTests,
-         [(f"skill_{slug(s)}_is_named_in_agents_md", s) for s in SKILLS],
+         [(f"skill_{slug(s)}_is_named_in_agents_md", s) for s in SKILLS if s not in DOMAIN_SKILLS],
          lambda self, s: self.assertIn(f"`{s}`", AGENTS_MD, f"nothing in AGENTS.md points the model at {s}"))
+generate(SkillDocTests,
+         [(f"domain_skill_{slug(s)}_is_named_in_the_index", s) for s in DOMAIN_SKILLS],
+         lambda self, s: (self.assertIn(f"`{s}`", PROMPTS["reference/skills.md"], f"reference/skills.md does not list {s}"),
+                          self.assertIn("`@AGENT_DIR@/reference/skills.md`", AGENTS_MD)))
 generate(SkillDocTests,
          [(f"agents_md_physics_skill_{slug(s)}_exists", s) for s in AGENTS_PHYSICS],
          lambda self, s: self.assertIn(s, SKILLS))
@@ -1221,7 +1235,8 @@ DOC_PACKAGE_NAMES = sorted({m for text in [*DOCS.values(), *PROMPTS.values()]
 REMOVED_PACKAGES = {"pi-hermes-memory", "pi-zentui", "pi-powerline-footer"}
 # Named as the source of a fact, and never installed: EDINA's ELM provider package,
 # whose model limits INSTALL.md compares this install's with.
-CITED_PACKAGES = {"pi-elm-models"}
+# And `pi-agent`: a K-Dense skill, named in INSTALL.md's list of the ten the library config leaves out.
+CITED_PACKAGES = {"pi-elm-models", "pi-agent"}
 
 
 def short(name):
@@ -1285,7 +1300,11 @@ TOOL_HOME = {
 NOTEBOOK = "@xl0/pi-lovely-notebook"
 # Backticked a_b tokens that are not tools.
 NOT_TOOLS = {"node_modules", "tool_calls", "max_tokens", "max_completion_tokens", "ignore_eos", "reasoning_effort", "add_executable", "cmake_minimum_required", "target_compile_options",
-             "target_link_libraries"}
+             "target_link_libraries",
+             # batch schedulers' commands, resources and accounting fields (the batch-* skills)
+             "condor_history", "condor_q", "condor_submit", "exit_status", "h_rt", "h_vmem", "m_mem_free",
+             "max_materialize", "max_retries", "max_run_subjobs", "request_memory", "ru_wallclock", "s_rt",
+             "transfer_output_files"}
 REMOVED_TOOLS = {"memory_add", "memory_replace", "memory_remove", "memory_search"}
 UNDERSCORE_TOKENS = sorted({t for text in [*DOCS.values(), *PROMPTS.values()]
                             for t in re.findall(r"`([a-z]+(?:_[a-z]+)+)`", text)} - NOT_TOOLS)
@@ -1960,7 +1979,7 @@ generate(GeneratedFileTests, [(f"generated_{slug(r)}_has_its_template", r, s) fo
 REFERENCE_TOPICS = {"finished-work.md": "finished work", "git-and-dot-pi.md": "`.pi` and git",
                     "project-memory.md": "project memory", "editing.md": "anchor editing", "egress.md": "the egress proxy",
                     "reporting.md": "reporting", "asking.md": "asking", "fits-and-figures.md": "fits and figures",
-                    "elm.md": "the ELM service"}
+                    "elm.md": "the ELM service", "skills.md": "the skill index"}
 REFERENCE_LISTS = {
     "generated_table": between(FLAT["INSTALL.md"], "| `agent/reference/` |", "| `agent/extensions/elm-only.ts`"),
     "what_every_request_carries": between(FLAT["INSTALL.md"], "point to `agent/reference/`", "for the rest"),

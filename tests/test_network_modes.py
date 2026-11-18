@@ -111,6 +111,38 @@ class ProfileTests(unittest.TestCase):
         self.assertIn('(subpath "/Users/me/a \\"b\\"")', text)   # a quote cannot end the string
         self.assertEqual(4, text.count("unix-socket"))
 
+    def test_the_container_engines_socket_is_opened_alone_and_only_for_connecting(self):
+        # 2026-11-17: under the fence every docker command ended "permission denied while trying to connect to the
+        # docker API". The user's decision: sessions reach the engine wherever there is one; its socket, nothing beside it.
+        text = jail.profile(["/private/tmp/x"], ["/Users/me/.docker/run/docker.sock", '/odd "path"/docker.sock'])
+        self.assertIn('(allow network-outbound (remote unix-socket (path-literal "/Users/me/.docker/run/docker.sock")))', text)
+        self.assertIn('(path-literal "/odd \\"path\\"/docker.sock")', text)
+        self.assertNotIn('(subpath "/Users/me/.docker', text)          # not the folder: its other sockets stay closed
+        self.assertNotIn("network-bind (local unix-socket (path-literal", text)
+
+    def test_engine_sockets_are_only_sockets_that_exist(self):
+        import socket, tempfile
+        with tempfile.TemporaryDirectory(dir="/tmp") as home:
+            run = os.path.join(home, ".docker", "run"); os.makedirs(run)
+            self.assertEqual([], [p for p in jail.engine_sockets({"HOME": home}) if p.startswith(os.path.realpath(home)) or p.startswith(home)])
+            with open(os.path.join(home, ".rd-not-a-socket"), "w"):
+                pass
+            server = socket.socket(socket.AF_UNIX); server.bind(os.path.join(run, "docker.sock"))
+            try:
+                found = jail.engine_sockets({"HOME": home, "DOCKER_HOST": "tcp://10.0.0.5:2375"})
+                mine = [p for p in found if "docker/run" in p and (p.startswith(home) or p.startswith(os.path.realpath(home)))]
+                self.assertIn(os.path.join(home, ".docker", "run", "docker.sock"), mine)
+                self.assertTrue(all(os.path.isabs(p) for p in found))
+                other = os.path.join(home, "elsewhere.sock"); second = socket.socket(socket.AF_UNIX); second.bind(other)
+                try:
+                    self.assertIn(other, jail.engine_sockets({"HOME": home, "DOCKER_HOST": "unix://" + other}))
+                    self.assertNotIn(os.path.join(home, "missing.sock"), jail.engine_sockets({"HOME": home, "DOCKER_HOST": "unix://" + home + "/missing.sock"}))
+                    self.assertNotIn(os.path.join(home, ".rd-not-a-socket"), jail.engine_sockets({"HOME": home, "DOCKER_HOST": "unix://" + home + "/.rd-not-a-socket"}))
+                finally:
+                    second.close()
+            finally:
+                server.close()
+
     def test_the_macos_profile_reaches_a_shim_on_any_loopback_port(self):
         with mock.patch.object(jail.os, "access", return_value=True):
             plan = jail._macos(network.resolve("", {}), {"ELM_SHIM_PORT": "54321"}, 43210)

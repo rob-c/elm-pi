@@ -41,7 +41,8 @@ the reason.
 
 - **Every `run` or `create` has `--network=none`.** A container's network does
   not go through this install's egress proxy, so a container may not have one.
-  The software is in the image; the job does not need the internet.
+  The software is in the image; the job does not need the internet. The one
+  exception is containers that must reach each other: an internal network (below).
 - **Pulling is fine.** Images come from Docker Hub, GHCR or Quay. A first pull
   can be gigabytes: say how large before you start it.
 - **Mount the project folder only, at its own path:** `-v "$PWD":"$PWD" -w
@@ -58,6 +59,35 @@ the reason.
   `podman --remote`): refused, because each sends data off this machine.
 - **`build` asks the user first**: a Dockerfile's `RUN` steps have an open
   network. Prefer a published image that already has the software.
+
+## Several containers that talk to each other
+
+A cluster, a service and its database, a head node and its workers:
+
+```bash
+docker network create --internal labnet          # reaches nothing but its own containers
+docker run -d --name head   --hostname head   --network labnet IMAGE ...
+docker run -d --name node1  --hostname node1  --network labnet IMAGE ...
+docker exec head some-command                     # how you, and the user, reach a service inside
+```
+
+- A network of its own: `docker network ls` first, then a new one for this
+  job. Do not join a network that is already there - someone else's
+  containers are on it, with host names that may be yours too.
+- The network must be made with `--internal`: any other is refused, and so is
+  `network connect`. Containers on it find each other by `--name`; give each
+  the same `--hostname`, since most cluster software checks its own.
+- Nothing inside can install packages (no internet): everything the containers
+  need is in the image. If no published image has it, a `build` is the way,
+  and it asks the user first.
+- A port published with `-p` must be `127.0.0.1:HOST:CONTAINER`, and on an
+  internal network it does not reach this machine anyway: use `docker exec`.
+- Wait for a service to be up before using it - poll its own status command in
+  a loop with a limit, do not `sleep` and hope - and read `docker logs NAME`
+  when it is not.
+- These run with `-d`, not `--rm`: say what you started, and stop and remove
+  it (`docker rm -f head node1; docker network rm labnet`) when the user is
+  done or asks - never leave a cluster running unmentioned.
 
 ## Images
 

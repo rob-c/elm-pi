@@ -1,0 +1,18 @@
+{
+  "patterns": [
+    "\\b(neutrino oscillations?|neutrino mixing|oscillation (probabilit\\w+|parameters|analys[ie]s|maxim(um|a)|lengths?)|(survival|appearance|disappearance) probabilit\\w+|mass (ordering|hierarchy)|theta ?(12|13|23)|θ(12|13|23)|delta[- ]?CP|δ ?CP|matter effects?|(muon|electron|tau)[- ](anti)?neutrino (appearance|disappearance)|long[- ]baseline (neutrino|experiment|oscillation|accelerator)\\w*|near[- ](and[- ])?far (detectors?|ratios?)|sterile neutrinos?|nusquids)\\b"
+  ],
+  "caseSensitive": [
+    "\\b(PMNS|MSW|GLoBES|NuFIT|NuFit|Prob3|DUNE|T2K|NOvA|JUNO|KamLAND)\\b"
+  ],
+  "examples": [
+    "plot the muon-neutrino survival probability at 295 km as a function of energy for normal and inverted mass ordering",
+    "compute the nu_e appearance probability with matter effects for the DUNE baseline",
+    "what is the oscillation maximum for delta m squared of 2.5e-3 eV2 at 810 km"
+  ],
+  "counterexamples": [
+    "damp the oscillation in the control loop's step response",
+    "render the globes in three.js with matter.js physics effects",
+    "very long baseline interferometry image of the quasar"
+  ]
+}

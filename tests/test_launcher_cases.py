@@ -1264,6 +1264,11 @@ class BannerTests(unittest.TestCase):
         self.assertIn("Powered by ELM:", plain)
         self.assertIn("   o_.--'--._o     EEEEEEE  LLLLLLL  MM     MM", plain)
         self.assertIn("Thank you to the ELM team at EDINA.", plain)
+        # 2026-11-17, the user: the banner said "every model ... runs on ELM"; ELM also offers models it does not
+        # host, and elm-pi uses only the university-hosted ones, which are free at the point of use.
+        self.assertIn("elm-pi uses only the models the University of Edinburgh hosts on ELM,", plain)
+        self.assertIn("which are free at the point of use.", plain)
+        self.assertNotIn("Every model in this session runs on ELM", plain)
         self.assertIn("https://elm.edina.ac.uk/elm", plain)
         self.assertIn("Powered by ELM:", self.run_block(["--remote", "--auto"], {"COLUMNS": "120"}))
 

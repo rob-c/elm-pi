@@ -1,0 +1,17 @@
+{
+  "patterns": [
+    "\\b(cut[- ]?flows?|event selections?|signal regions?|control regions?|validation regions?|overlap removal|n-1 plots?|n minus (one|1) plots?|blind(ed)? analysis|blind(ed|ing)? (the )?signal region|unblind(ing|ed)?|trigger (plateau|matching)|good[- ]run lists?|luminosity masks?|(lepton|muon|electron|photon|b-jet|tau) (selection|veto|isolation)|punzi)\\b",
+    "^(?=[\\s\\S]*\\bblind(ed|ing)?\\b)(?=[\\s\\S]*\\b(signal|simulation|data|analysis|search)\\b)(?=[\\s\\S]*\\b(region|events?|n-1|mass window|sidebands?)\\b)"
+  ],
+  "examples": [
+    "define the signal region and two control regions for the ttbar background and check they are orthogonal",
+    "print the cut flow for data and each simulated sample after the muon selection",
+    "which trigger plateau should the offline lepton pT cut sit on",
+    "we are still blinded - make the N-1 plots from simulation only"
+  ],
+  "counterexamples": [
+    "add trigger paths to the workflow so docs changes skip CI",
+    "handle the text selection event in the editor",
+    "split the control plane into regions for failover"
+  ]
+}

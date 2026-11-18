@@ -1,0 +1,21 @@
+{
+  "patterns": [
+    "\\b(lattice (QCD|gauge theor(y|ies)|field theor(y|ies))|gauge configurations?|correlator fits?|effective[- ]mass (plots?|plateaus?|fits?)|chiral extrapolations?|wilson (loops?|fermions?|action|flow)|staggered (fermions?|quarks?)|domain[- ]wall fermions?|hybrid monte[- ]carlo|gvar|lsqfit|corrfitter|pyerrors|svd ?cuts?)\\b",
+    "^(?=[\\s\\S]*\\blattice\\b)(?=[\\s\\S]*\\b(QCD|quarks?|gluons?|pions?|hadrons?|correlators?|gauge|continuum limit|fermions?)\\b)",
+    "^(?=[\\s\\S]*\\b(jackknife|bootstrap|autocorrelation( times?)?|binning|thermali[sz]ation|plateaus?|effective mass(es)?|correlated fits?|two[- ]point (functions?|correlators?)|continuum (limit|extrapolation)|finite[- ]volume (effects?|corrections?)|scale setting)\\b)(?=[\\s\\S]*\\b(lattice|QCD|correlators?|gauge|pions?|nucleons?|hadron\\w*|meson\\w*|baryon\\w*)\\b)"
+  ],
+  "caseSensitive": [
+    "\\bGEVP\\b",
+    "\\bFLAG (averages?|review|report)\\b"
+  ],
+  "examples": [
+    "fit the pion two-point correlator from these lattice QCD configurations and give the mass with jackknife errors",
+    "do a correlated fit to the effective mass plateau with lsqfit and an svd cut",
+    "extrapolate the lattice results to the continuum limit and the physical pion mass"
+  ],
+  "counterexamples": [
+    "bootstrap the configuration files for the new cluster",
+    "get the crystal lattice spacing from the XRD peaks",
+    "estimate the autocorrelation time of the emcee chain"
+  ]
+}

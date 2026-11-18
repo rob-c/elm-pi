@@ -1,0 +1,20 @@
+{
+  "patterns": [
+    "\\b(four[- ]?vectors?|4-vectors?|four[- ]moment(um|a)|4-moment(um|a)|invariant mass(es)?|transverse mass|pseudo-?rapidit(y|ies)|rapidit(y|ies)|missing transverse (energy|momentum)|lorentz (boosts?|transformations?|vectors?|factors?)|mandelstam|cent(er|re)[- ]of[- ]mass energ(y|ies)|delta[- ]?R|ΔR|transverse moment(um|a)|pdg ?(id|code|number)s?|two[- ]body decays?|proper decay (time|length)|(rest|cent(er|re)[- ]of[- ]mass) frame|threshold (beam )?energy|fixed[- ]target (energy|kinematics|collisions?))\\b",
+    "√s\\b"
+  ],
+  "caseSensitive": [
+    "\\b(TLorentzVector|PtEtaPhi[ME]Vector|PxPyPzEVector|missing ET|ETmiss)\\b"
+  ],
+  "examples": [
+    "compute the invariant mass of the two muons from pt, eta and phi",
+    "what beam energy is needed to reach the antiproton production threshold energy on a fixed target",
+    "boost the decay products into the rest frame of the B meson and plot the helicity angle",
+    "what is the PDG ID of the K-short"
+  ],
+  "counterexamples": [
+    "boost the contrast of the image and rescale it",
+    "the vector of four strings is sorted wrong",
+    "compute the centre of mass of the polygon for the layout"
+  ]
+}

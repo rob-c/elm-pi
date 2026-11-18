@@ -502,7 +502,7 @@ console.log(JSON.stringify(out));
 # The table's order, which is the order routesFor returns skills in.
 SKILL_ORDER = ["data-fitting", "statistics-and-significance", "uncertainty-propagation", "histogram-analysis",
                "derivation-checks", "numerical-methods", "physical-constants", "physics-documents",
-               "scientific-cpp", "scientific-python", "installing-software", "containers"]
+               "scientific-cpp", "scientific-python", "installing-software", "containers", "package-admin"]
 
 # skill -> (a request that routes to it alone, the same request in the plural).
 REQUESTS = {
@@ -518,6 +518,7 @@ REQUESTS = {
     "scientific-python": ("make a plot of the residues", "make plots of the residues"),
     "installing-software": ("the module is not installed", "the modules are not installed"),
     "containers": ("run the build in a podman container", "run the builds in podman containers"),
+    "package-admin": ("stand up a redis server for the tests", "stand up redis servers for the tests"),
 }
 
 # The same request reworded around its keywords; none of these may change the route.

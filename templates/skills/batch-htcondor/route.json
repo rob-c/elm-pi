@@ -1,0 +1,17 @@
+{
+  "patterns": [
+    "\\b(htcondor|dagman|condor_\\w+|job ?flavou?r|schedd|startd|classads?)\\b",
+    "\\b(request_(cpus|memory|disk|gpus)|should_transfer_files|transfer_(input|output)_files)\\b",
+    "^(?=[\\s\\S]*\\b(condor|submit (description )?files?)\\b)(?=[\\s\\S]*\\b(jobs?|pool|held|hold|cluster|queue|dag|cores?|memory|run\\.sh)\\b)"
+  ],
+  "examples": [
+    "write an HTCondor submit file to run run.sh once per line of inputs.txt with 4 cores and 8 GB",
+    "half of my condor jobs are held - find out why and release them",
+    "turn these three steps into a DAGMan workflow"
+  ],
+  "counterexamples": [
+    "the condor is an endangered bird",
+    "submit the files in the form",
+    "transfer the files to the server with rsync"
+  ]
+}

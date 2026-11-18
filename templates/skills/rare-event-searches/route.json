@@ -1,0 +1,16 @@
+{
+  "patterns": [
+    "\\b(feldman[- ]cousins|rare[- ](event|decay)s? search\\w*|low[- ]background (experiment|counting|search|detector)s?|background[- ]free|zero[- ]background|(dark[- ]matter|WIMP|axion) (search\\w*|direct detection|detectors?|limits?|exclusion\\w*|recoils?|experiments?)|nuclear recoils?|WIMP[- ]nucleon|neutrinoless|0νββ|double[- ]beta|li[- ](and[- ])?ma (significance|formula)|on[-/ ]off (measurement|counting|problem|observation)s?|unblind\\w*|background index|half[- ]life (limit|sensitivit\\w+)|proton[- ]decay search\\w*)\\b",
+    "\\bexposure of \\d[\\d.]* ?(kg|t|tonnes?|kt)\\b"
+  ],
+  "examples": [
+    "we observed 2 events with an expected background of 0.8 - set a 90% CL Feldman-Cousins upper limit on the signal",
+    "compute the WIMP-nucleon cross-section limit for a 1 tonne-year xenon exposure with zero background",
+    "what half-life sensitivity does 200 kg of enriched germanium reach in 5 years of neutrinoless double-beta running"
+  ],
+  "counterexamples": [
+    "search the server logs for rare events",
+    "the background job is free of memory leaks",
+    "set the exposure of the camera to 2 seconds"
+  ]
+}

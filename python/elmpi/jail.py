@@ -114,7 +114,7 @@ def fenced(env):
 
 # --- macOS -------------------------------------------------------------------
 
-def profile(socket_folders=()):
+def profile(socket_folders=(), sockets=()):
     """The Seatbelt profile, as measured to work for pi (and to close DNS).
 
     Denying by default is deliberate: with `(allow default)` and a network deny,
@@ -135,8 +135,18 @@ def profile(socket_folders=()):
     never had that limit, since a namespace has a loopback of its own. The
     cost, on macOS only: another program listening on this machine's loopback
     (a database, a local SOCKS proxy) is reachable from the session. Nothing
-    off the machine is, and no socket outside those folders - ssh-agent's and
-    Docker's stay closed.
+    off the machine is, and no socket outside those folders - ssh-agent's stays
+    closed.
+
+    `sockets` are single sockets the session may connect to and nothing more:
+    the container engine's (engine_sockets). Closed with everything else at
+    first, which left a session unable to run any `docker` command at all
+    ("permission denied while trying to connect to the docker API", measured
+    2026-11-17) though the install's own containers skill tells it to. Opened
+    by the user's decision that day, for every session on a machine that has
+    an engine: what a container may then do is the permission gate's and
+    command-guard's to hold (no network but an internal one, the project
+    folder only), as it was before there was a fence.
     """
     lines = [
         "(version 1)",
@@ -169,6 +179,9 @@ def profile(socket_folders=()):
         quoted = folder.replace("\\", "\\\\").replace("\"", "\\\"")
         lines.append("(allow network-bind (local unix-socket (subpath \"%s\")))" % quoted)
         lines.append("(allow network-outbound (remote unix-socket (subpath \"%s\")))" % quoted)
+    for path in sockets:
+        quoted = path.replace("\\", "\\\\").replace("\"", "\\\"")
+        lines.append("(allow network-outbound (remote unix-socket (path-literal \"%s\")))" % quoted)
     return "\n".join(lines + [""])
 
 
@@ -193,6 +206,33 @@ def socket_folders(env):
         if folder and folder != "/" and folder not in folders:
             folders.append(folder)
     return folders
+
+
+def engine_sockets(env):
+    """The container engine's socket on this machine, each way it is spelled:
+    where DOCKER_HOST points when that is a local socket, and where Docker
+    Desktop, Colima, Rancher Desktop and OrbStack put theirs. Only what is
+    there, and is a socket: a path that is not one opens nothing.
+    """
+    import stat
+    home = env.get("HOME") or os.path.expanduser("~")
+    candidates = []
+    host = env.get("DOCKER_HOST") or ""
+    if host.startswith("unix://"):
+        candidates.append(host[len("unix://"):])
+    candidates += ["/var/run/docker.sock"] + [os.path.join(home, rel) for rel in (
+        ".docker/run/docker.sock", ".colima/default/docker.sock", ".rd/docker.sock",
+        ".orbstack/run/docker.sock")]
+    found = []
+    for path in candidates:
+        for spelling in (path, os.path.realpath(path)):
+            try:
+                is_socket = stat.S_ISSOCK(os.stat(spelling).st_mode)
+            except OSError:
+                is_socket = False
+            if is_socket and os.path.isabs(spelling) and spelling not in found:
+                found.append(spelling)
+    return found
 
 
 def _macos(mode, env, proxy_port):
@@ -223,7 +263,7 @@ def _macos(mode, env, proxy_port):
                         "(outbound only to this machine's loopback)")
     # `-p` takes the profile inline: no file to leak, nothing to clean up, and
     # the profile is parsed by sandbox-exec before it execs pi.
-    return Plan([SANDBOX_EXEC, "-p", profile(socket_folders(env))],
+    return Plan([SANDBOX_EXEC, "-p", profile(socket_folders(env), engine_sockets(env))],
                 "jail: sandbox-exec, outbound only to this machine's loopback, where the "
                 "proxy is (127.0.0.1:%d)" % proxy_port)
 

@@ -76,7 +76,7 @@ every step: **[INSTALL.md](INSTALL.md)**. Web version of this page:
 | **Memory** | Per-project `AGENTS.md`. No memory tool: `pi-hermes-memory` is not installed |
 | **Software** | Fetched when a task needs it, the isolated way and without asking: PyPI packages into the agent's or the project's environment, conda-forge packages with pixi (`agent/pixi`), large toolchains in a `--network=none` container. Homebrew asks every time; apt/dnf are refused and the agent gives you the command. Each install is reported (what, where, how to remove) and logged in `agent/installs.log` |
 | **Web** | `pi-web-access` (DuckDuckGo, then Exa). **Off by default**; `pi --remote` turns it on for a run. Without it, only ELM, PyPI, conda-forge and the container registries are reachable |
-| **Skills** | 17 — physics methods, scientific code, changing code, installing software, containers, sub-agent orchestration, developing elm-pi itself. A router adds the ones a request needs, shown as a dim `skills:` line |
+| **Skills** | 74 — eighteen general (physics methods, scientific code, changing code, installing software, containers, setting up services, sub-agent orchestration, developing elm-pi itself) fifty for experimental and theoretical particle physics and nuclear physics, and six for batch systems (Slurm, Grid Engine, PBS, LSF, HTCondor), all 56 kept out of the prompt until a request needs one; beside them the K-Dense library, 167 skills for scientific packages and databases, fetched by the installer. A router adds the ones a request needs, shown as a dim `skills:` line |
 | **Prompt suggestions** | `pi-next-prompt`: the likely next prompt in grey after each reply; Tab takes it |
 | **Sessions** | `.pi/sessions/` inside each project, not one central 1.9 GB pile |
 | **Models offered** | ELM only. 43 non-ELM provider catalogues stripped |
@@ -321,7 +321,8 @@ dependency-update and generated-configuration workflow.
 
 The models this install uses are the University's own, hosted on its hardware
 (ELM flags them "Climate Sensitive" and "University Hosted"), and they are free
-to use for staff and students: nothing is charged to you or to your department.
+to use for anyone who has been allocated an ELM key: nothing is charged to you,
+to a budget code or to a group.
 The ELM key is university-issued, and the service is shared by everyone who uses
 it.
 
